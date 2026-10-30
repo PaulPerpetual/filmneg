@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>filmneg</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <select id="file" title="Scans in this folder"></select>
+  <div class="group">
+    <button id="btn-auto" title="Detect crop and set per-channel black/white points from the histogram">Auto</button>
+    <button id="btn-solve" title="Fit per-channel slope and offset to your samples (fixes casts that change with brightness)">Solve samples</button>
+    <button id="btn-straighten" title="Bend the warmth/tint curves so near-neutral areas stay neutral at every brightness">Straighten casts</button>
+    <button id="btn-variants" title="Ring-around: pick the best of 9 variants, repeat (V)">Variants</button>
+  </div>
+  <div class="group">
+    <button id="btn-undo" title="Undo (⌘Z)">↶</button>
+    <button id="btn-redo" title="Redo (⇧⌘Z)">↷</button>
+    <button id="btn-compare" title="Hold to see the scan as it came from the scanner (\)">Before</button>
+    <button id="btn-reset" title="Back to the automatic starting point">Reset</button>
+  </div>
+  <button id="btn-export" class="primary" title="Write a 16-bit TIFF next to the scan">Export TIFF</button>
+  <span id="status"></span>
+</header>
+
+<main>
+  <section id="viewer-wrap">
+    <div id="tools">
+      <button data-tool="probe" title="Probe: inspect an area (P)">Probe</button>
+      <button data-tool="push" title="Colour push: click, then drag towards a colour on the wheel. Bends warmth/tint gently at that brightness (C)">Push</button>
+      <span class="sep"></span>
+      <button data-tool="neutral" class="k-neutral" title="Add a neutral grey area (N)">Grey</button>
+      <button data-tool="white" class="k-white" title="Add a white area (W)">White</button>
+      <button data-tool="black" class="k-black" title="Add a black area (K)">Black</button>
+      <button data-tool="skin" class="k-skin" title="Add a skin area (S)">Skin</button>
+      <label title="Sample area size">size <input id="radius" type="range" min="0.004" max="0.06" step="0.002" value="0.015"></label>
+      <span class="sep"></span>
+      <button data-tool="crop" title="Drag a new crop (R)">Crop</button>
+      <span class="sep"></span>
+      <span class="surround" title="Surround colour for judging">
+        <button data-surround="#ffffff" title="White surround"></button>
+        <button data-surround="#808080" title="Mid grey surround"></button>
+        <button data-surround="#1a1a1a" title="Dark surround"></button>
+      </span>
+    </div>
+    <div id="viewer">
+      <canvas id="image"></canvas>
+      <canvas id="overlay"></canvas>
+      <div id="hint"></div>
+    </div>
+    <div id="variants" hidden>
+      <div class="vbar">
+        <span id="vinfo"></span>
+        <span class="grow"></span>
+        <button id="v-keep" title="Keep the centre and close (Esc)">Done</button>
+      </div>
+      <div id="vgrid"></div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel">
+      <h3>Base</h3>
+      <div class="slider"><label>Exposure</label><input id="exposure" type="range" min="-2" max="2" step="0.01"><output></output></div>
+      <div class="slider"><label>Contrast</label><input id="contrast" type="range" min="0.6" max="1.6" step="0.01"><output></output></div>
+      <div class="slider"><label>Saturation</label><input id="saturation" type="range" min="0" max="1.8" step="0.01"><output></output></div>
+      <div class="slider"><label>Colour noise</label><input id="nr" type="range" min="0" max="1" step="0.05"><output></output></div>
+      <div class="slider"><label>Light</label><select id="lighting"></select></div>
+    </div>
+
+    <div class="panel">
+      <h3>Curves <span class="muted" id="curve-help"></span></h3>
+      <div class="tabs" id="curve-tabs">
+        <button data-curve="colour" title="Warmth (yellow/blue) and tint (magenta/green) by brightness. Drag up/down for warmth, left/right for tint.">Colour</button>
+        <button data-curve="lightness">Light</button>
+        <button data-curve="r">R</button>
+        <button data-curve="g">G</button>
+        <button data-curve="b">B</button>
+        <select id="zoom" title="Vertical zoom: the curve shows the change, magnified">
+          <option value="0.02">±5</option>
+          <option value="0.04" selected>±10</option>
+          <option value="0.08">±20</option>
+          <option value="0.16">±40</option>
+        </select>
+      </div>
+      <canvas id="curve" width="560" height="300"></canvas>
+      <div class="muted small">Drag anywhere: the change falls off smoothly. Scroll: falloff width. ⌥ finer, ⇧ coarser. Double-click: reset this curve.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Samples</h3>
+      <ul id="samples"></ul>
+      <div class="muted small" id="samples-empty">Pick Grey, White, Black or Skin and click areas in the image. Several greys at different brightness let “Solve samples” fix casts that shift between shadows and highlights. ⇧-click a sample to remove it.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Probe</h3>
+      <div id="probe" class="muted small">Probe tool: click the image.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Scopes</h3>
+      <div class="scope-row">
+        <figure><canvas id="parade" width="300" height="140"></canvas><figcaption>RGB parade</figcaption></figure>
+      </div>
+      <div class="scope-row">
+        <figure><canvas id="casttone" width="190" height="140"></canvas><figcaption>Cast vs. tone (greys)</figcaption></figure>
+        <figure><canvas id="vector" width="140" height="140"></canvas><figcaption>Vectorscope</figcaption></figure>
+      </div>
+    </div>
+  </aside>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
