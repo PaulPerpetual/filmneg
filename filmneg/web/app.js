@@ -11,12 +11,13 @@ const S = {
   samples: [],        // {kind, x, y, r} in fractions of the full scan
   report: [],
   tool: "probe",
-  curve: "colour",
+  curve: "lightness", // the Curves panel's channel
   zoom: 0.04,         // magnified curve view shows ±zoom (encoded units)
-  curveView: "classic", // "classic" (diagonal, Light and R/G/B) or "zoom" (the change, magnified)
+  curveView: "classic", // "classic" (diagonal) or "zoom" (the change, magnified)
+  colourZoom: 0.04,   // the Colour by tone panel always shows the change, ±colourZoom
   width: 0.12,        // soft-edit width on the tone axis (push tools and curves)
   probes: [],         // pinned probes: {at, res}
-  colourCurve: "warmth", // which colour curve the Colour tab edits
+  colourCurve: "warmth", // which curve the Colour by tone panel edits
   probeSel: null,     // which probe the detail table shows
   showSamples: true,  // eye toggles in the Samples and Measure panels
   showProbes: true,
@@ -968,23 +969,28 @@ async function refreshReport() {
   }, 300);
 }
 
-// ---------------------------------------------------------------- curves panel
-const curveCanvas = $("#curve");
+// ---------------------------------------------------------------- curve panels
+// Two panels share this code: Curves (Light, R, G, B; output over input with the
+// diagonal, or the change magnified) and Colour by tone (warmth and tint as a
+// function of brightness, always the change alone, magnified).
+const TONE = { canvas: $("#curve"), kind: "tone", hover: null };
+const COLOUR = { canvas: $("#colour-by-tone"), kind: "colour", hover: null };
+const CURVE_PANELS = [TONE, COLOUR];
 const CURVE_COLORS = { lightness: "#ddd", r: "#f66", g: "#6d6", b: "#69f", warmth: "#e8c040", tint: "#d070d0" };
 
-function curveGeom() {
-  const W = curveCanvas.width, H = curveCanvas.height, pad = 14;
-  const classic = isClassic(), z = classic ? 0.04 : S.zoom;
-  return { W, H, pad, classic, x: (t) => pad + t * (W - 2 * pad), t: (px) => (px - pad) / (W - 2 * pad),
+const isClassic = (P) => P === TONE && S.curveView === "classic";
+const panelZoom = (P) => (P === TONE ? S.zoom : S.colourZoom);
+const curveNames = (P) => (P === COLOUR ? ["warmth", "tint"] : [S.curve]);  // drawn
+const editNames = (P) => (P === COLOUR ? [S.colourCurve] : [S.curve]);       // editable
+
+function curveGeom(P) {
+  const W = P.canvas.width, H = P.canvas.height, pad = 14;
+  const classic = isClassic(P), z = panelZoom(P);
+  return { W, H, pad, classic, z, x: (t) => pad + t * (W - 2 * pad), t: (px) => (px - pad) / (W - 2 * pad),
            // classic: output over input with the diagonal; otherwise the change alone, magnified
            y: classic ? (o) => H - pad - o * (H - 2 * pad) : (v) => H / 2 - (v / z) * (H / 2 - pad),
            base: classic ? (t) => t : () => 0 };
 }
-
-// The classic view (output over input, with the diagonal) for Light and R/G/B.
-const isClassic = () => S.curveView === "classic" && S.curve !== "colour";
-const curveNames = () => (S.curve === "colour" ? ["warmth", "tint"] : [S.curve]);  // drawn
-const editNames = () => (S.curve === "colour" ? [S.colourCurve] : [S.curve]);       // editable
 
 // What colour the image moves towards when each curve goes up (first) or down.
 const CURVE_DIRECTIONS = {
@@ -992,21 +998,22 @@ const CURVE_DIRECTIONS = {
   r: ["#ff4040", "#30e0e0"], g: ["#40e040", "#e040e0"], b: ["#4070ff", "#ffe040"],
 };
 
-function drawCurve() {
+function drawCurve() { CURVE_PANELS.forEach(drawCurvePanel); }
+
+function drawCurvePanel(P) {
   if (!S.params) return;
-  const ctx = curveCanvas.getContext("2d"), g = curveGeom();
-  ctx.clearRect(0, 0, curveCanvas.width, curveCanvas.height);
+  const ctx = P.canvas.getContext("2d"), g = curveGeom(P);
+  ctx.clearRect(0, 0, g.W, g.H);
 
   // background: the colour the image moves towards above and below the line
-  const dirName = editNames()[0];
-  const [up, down] = CURVE_DIRECTIONS[dirName];
+  const [up, down] = CURVE_DIRECTIONS[editNames(P)[0]];
   const bg = ctx.createLinearGradient(0, 0, 0, g.H);
   bg.addColorStop(0, up); bg.addColorStop(0.5, "rgba(0,0,0,0)"); bg.addColorStop(1, down);
   ctx.globalAlpha = 0.06; ctx.fillStyle = bg; ctx.fillRect(0, 0, g.W, g.H); ctx.globalAlpha = 1;
 
   // histogram of the current preview behind everything
   if (S.hist) {
-    const h = S.hist[S.curve === "colour" ? "lightness" : S.curve], B = h.length;
+    const h = S.hist[P === COLOUR ? "lightness" : S.curve], B = h.length;
     let max = 0; for (let i = 2; i < B - 2; i++) max = Math.max(max, h[i]);
     ctx.fillStyle = "rgba(255,255,255,.09)";
     ctx.beginPath(); ctx.moveTo(g.x(0), g.H);
@@ -1025,33 +1032,36 @@ function drawCurve() {
     for (const v of [0.25, 0.5, 0.75]) { ctx.strokeStyle = "#2f2f2f"; ctx.beginPath(); ctx.moveTo(0, g.y(v)); ctx.lineTo(g.W, g.y(v)); ctx.stroke(); }
     ctx.strokeStyle = "#555"; ctx.beginPath(); ctx.moveTo(g.x(0), g.y(0)); ctx.lineTo(g.x(1), g.y(1)); ctx.stroke();
   } else {
-    const z = S.zoom;
     for (const v of [-0.75, -0.5, -0.25, 0.25, 0.5, 0.75]) {
-      ctx.strokeStyle = "#2f2f2f"; ctx.beginPath(); ctx.moveTo(0, g.y(v * z)); ctx.lineTo(g.W, g.y(v * z)); ctx.stroke();
+      ctx.strokeStyle = "#2f2f2f"; ctx.beginPath(); ctx.moveTo(0, g.y(v * g.z)); ctx.lineTo(g.W, g.y(v * g.z)); ctx.stroke();
     }
     ctx.strokeStyle = "#666"; ctx.beginPath(); ctx.moveTo(0, g.y(0)); ctx.lineTo(g.W, g.y(0)); ctx.stroke();
     ctx.fillStyle = "#666"; ctx.textAlign = "left";
-    ctx.fillText(`+${Math.round(z * 255)}`, 2, 12); ctx.fillText(`−${Math.round(z * 255)}`, 2, g.H - 16);
+    ctx.fillText(`+${Math.round(g.z * 255)}`, 2, 12); ctx.fillText(`−${Math.round(g.z * 255)}`, 2, g.H - 16);
   }
 
-  // falloff preview: where a drag from here would act, and how wide
-  const shown = S.curveDrag || S.hoverEdit;
+  // falloff preview: where a drag from here would act and how wide, as a bell
+  // that follows the curve itself
+  const shown = (S.curveDrag && S.curveDrag.panel === P) ? S.curveDrag : P.hover;
   if (shown) {
-    ctx.fillStyle = "rgba(255,255,255,.07)";
+    const ctrl = S.params.curves[shown.name], amp = (g.H / 2 - g.pad) * 0.45;
+    ctx.fillStyle = "rgba(255,255,255,.08)";
     for (let px = 0; px < g.W; px += 2) {
-      const w = Math.exp(-0.5 * ((g.t(px) - shown.t) / shown.width) ** 2);
-      ctx.fillRect(px, g.H / 2 - w * (g.H / 2 - g.pad), 2, 2 * w * (g.H / 2 - g.pad));
+      const t = g.t(px), w = Math.exp(-0.5 * ((t - shown.t) / shown.width) ** 2);
+      if (w < 0.01 || t < 0 || t > 1) continue;
+      const cy = g.y(g.base(t) + splineAt(ctrl, t));
+      ctx.fillRect(px, cy - w * amp, 2, 2 * w * amp);
     }
   }
 
-  if (S.curve === "colour") {
+  if (P === COLOUR) {
     ctx.textAlign = "right";
-    ctx.fillStyle = CURVE_COLORS.warmth; ctx.fillText("warmth: yellow ↑ blue ↓", g.W - 6, 16);
-    ctx.fillStyle = CURVE_COLORS.tint; ctx.fillText("tint: magenta ↑ green ↓", g.W - 6, 32);
+    ctx.fillStyle = CURVE_COLORS.warmth; ctx.fillText("yellow ↑ blue ↓", g.W - 6, 16);
+    ctx.fillStyle = CURVE_COLORS.tint; ctx.fillText("magenta ↑ green ↓", g.W - 6, 32);
   }
-  for (const name of curveNames()) {
+  for (const name of curveNames(P)) {
     const ctrl = S.params.curves[name];
-    const active = editNames().includes(name);
+    const active = editNames(P).includes(name);
     const pts = [];
     for (let i = 0; i <= 200; i++) pts.push([i / 200, splineAt(ctrl, i / 200)]);
     // curvature comb: second difference drawn as hairlines from the curve
@@ -1059,7 +1069,7 @@ function drawCurve() {
     for (let i = 1; i < pts.length - 1 && !g.classic; i += 2) {
       const k = (pts[i - 1][1] - 2 * pts[i][1] + pts[i + 1][1]) * 200 * 200;
       const x = g.x(pts[i][0]), y = g.y(pts[i][1]);
-      ctx.moveTo(x, y); ctx.lineTo(x, y + k * 0.01 / S.zoom * 4);
+      ctx.moveTo(x, y); ctx.lineTo(x, y + k * 0.01 / g.z * 4);
     }
     ctx.stroke();
     ctx.strokeStyle = CURVE_COLORS[name]; ctx.lineWidth = active ? 2.5 : 1.2; ctx.globalAlpha = active ? 1 : 0.55;
@@ -1073,7 +1083,7 @@ function drawCurve() {
   // where each probe sits on the curve(s): its tone, or its channel value in R/G/B
   ctx.font = "12px sans-serif"; ctx.textAlign = "center";
   S.probes.forEach((q, i) => {
-    const t = ["r", "g", "b"].includes(S.curve) ? q.res.output["rgb".indexOf(S.curve)] : q.res.tone;
+    const t = P === TONE && ["r", "g", "b"].includes(S.curve) ? q.res.output["rgb".indexOf(S.curve)] : q.res.tone;
     const col = PROBE_COLORS[i % PROBE_COLORS.length];
     ctx.strokeStyle = col; ctx.setLineDash([4, 3]); ctx.lineWidth = i === S.probeSel ? 1.6 : 1;
     const ly = 12 + (i % 3) * 13;  // stagger labels so neighbours stay readable
@@ -1086,64 +1096,36 @@ function drawCurve() {
   }
 
   // while dragging: a swatch of the colour you're pushing towards
-  if (S.curveDrag && S.curveDrag.amount) {
+  if (S.curveDrag && S.curveDrag.panel === P && S.curveDrag.amount) {
     const D = S.curveDrag, [u, d] = CURVE_DIRECTIONS[D.name];
     ctx.fillStyle = D.amount > 0 ? u : d; ctx.strokeStyle = "#888"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(g.x(D.t), g.pad + 12, 9, 0, 7); ctx.fill(); ctx.stroke();
   }
-
 }
 
 // How wide an edit starting at canvas point (px, py) would be: narrow when you
 // grab right on the curve, broader the further away from it you press.
-function editAt(px, py) {
-  const g = curveGeom(), t = clamp(g.t(px), 0, 1);
+function editAt(P, px, py) {
+  const g = curveGeom(P), t = clamp(g.t(px), 0, 1);
   let best = null;
-  for (const name of editNames()) {
+  for (const name of editNames(P)) {
     const d = Math.abs(py - g.y(g.base(t) + splineAt(S.params.curves[name], t)));
     if (!best || d < best.d) best = { name, d };
   }
-  const near = 12 * curveCanvas.width / curveCanvas.clientWidth;
+  const near = 12 * P.canvas.width / P.canvas.clientWidth;
   const far = Math.max(0, best.d - near) / (g.H / 2 - g.pad);
   return { name: best.name, t, width: 0.04 + 0.9 * Math.min(far, 1.3) ** 1.5 };
 }
 
-const canvasPoint = (ev) => {
-  const b = curveCanvas.getBoundingClientRect(), sc = curveCanvas.width / b.width;
+const canvasPoint = (P, ev) => {
+  const b = P.canvas.getBoundingClientRect(), sc = P.canvas.width / b.width;
   return { x: (ev.clientX - b.left) * sc, y: (ev.clientY - b.top) * sc, sc };
 };
 
-curveCanvas.addEventListener("mousedown", (ev) => {
-  if (ev.button !== 0) return;
-  const p = canvasPoint(ev);
-  const e = editAt(p.x, p.y);
-  S.curveDrag = { ...e, y0: p.y, amount: 0, base: clone(S.params.curves) };
-  startDrag(); drawCurve();
-});
-
-window.addEventListener("mousemove", (ev) => {
-  const p = canvasPoint(ev), g = curveGeom();
-  if (!S.curveDrag) {
-    if (ev.target === curveCanvas) {
-      S.hoverEdit = editAt(p.x, p.y); drawCurve();
-    }
-    return;
-  }
-  const D = S.curveDrag;
-  const gain = ev.altKey ? 0.2 : ev.shiftKey ? 3 : 1;
-  D.amount = -(p.y - D.y0) * (g.classic ? 1 : S.zoom) / (g.H - 2 * g.pad) * gain;
-  S.params.curves[D.name] = addTo(D.base[D.name], bump(D.t, D.amount, D.width));
-  drawCurve(); render();
-});
-
-window.addEventListener("mouseup", () => {
-  if (S.curveDrag) { S.curveDrag = null; commit(); endDrag(); drawCurve(); }
-});
-curveCanvas.addEventListener("mouseleave", () => { S.hoverEdit = null; drawCurve(); });
 // Smooth the shown curve(s), like Rhino's Smooth: each control value moves part of
 // the way towards the average of its neighbours. Repeat for more.
-function smoothCurves() {
-  for (const n of editNames()) {
+function smoothCurves(P) {
+  for (const n of editNames(P)) {
     const c = S.params.curves[n];
     S.params.curves[n] = c.map((v, i) => {
       const l = c[Math.max(0, i - 1)], r = c[Math.min(c.length - 1, i + 1)];
@@ -1152,14 +1134,44 @@ function smoothCurves() {
   }
   drawCurve(); render(); commit();
 }
-$("#btn-smooth").onclick = smoothCurves;
 
-function resetCurves() {
-  for (const n of editNames()) S.params.curves[n] = Array(N_CTRL).fill(0);
+function resetCurves(P) {
+  for (const n of editNames(P)) S.params.curves[n] = Array(N_CTRL).fill(0);
   drawCurve(); render(); commit();
 }
-curveCanvas.addEventListener("dblclick", resetCurves);
-$("#btn-curve-reset").onclick = resetCurves;
+
+for (const P of CURVE_PANELS) {
+  P.canvas.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;
+    const p = canvasPoint(P, ev);
+    S.curveDrag = { ...editAt(P, p.x, p.y), panel: P, y0: p.y, amount: 0, base: clone(S.params.curves) };
+    startDrag(); drawCurvePanel(P);
+  });
+  P.canvas.addEventListener("mousemove", (ev) => {
+    if (S.curveDrag) return;
+    const p = canvasPoint(P, ev);
+    P.hover = editAt(P, p.x, p.y); drawCurvePanel(P);
+  });
+  P.canvas.addEventListener("mouseleave", () => { P.hover = null; drawCurvePanel(P); });
+  P.canvas.addEventListener("dblclick", () => resetCurves(P));
+  const panel = P.canvas.closest(".panel");
+  panel.querySelector("[data-act=smooth]").onclick = () => smoothCurves(P);
+  panel.querySelector("[data-act=reset]").onclick = () => resetCurves(P);
+}
+
+window.addEventListener("mousemove", (ev) => {
+  const D = S.curveDrag;
+  if (!D) return;
+  const p = canvasPoint(D.panel, ev), g = curveGeom(D.panel);
+  const gain = ev.altKey ? 0.2 : ev.shiftKey ? 3 : 1;
+  D.amount = -(p.y - D.y0) * (g.classic ? 1 : g.z) / (g.H - 2 * g.pad) * gain;
+  S.params.curves[D.name] = addTo(D.base[D.name], bump(D.t, D.amount, D.width));
+  drawCurvePanel(D.panel); render();
+});
+
+window.addEventListener("mouseup", () => {
+  if (S.curveDrag) { const P = S.curveDrag.panel; S.curveDrag = null; commit(); endDrag(); drawCurvePanel(P); }
+});
 
 // ---------------------------------------------------------------- levels panel (classic, like Pixelmator Pro)
 // Histogram of the image before levels, black/grey/white input handles under it,
@@ -1776,17 +1788,29 @@ try { setSurround(localStorage.getItem("filmneg.surround") || "#808080"); } catc
 function setCurve(c) {
   S.curve = c;
   $$("#curve-tabs [data-curve]").forEach((b) => b.classList.toggle("active", b.dataset.curve === c));
-  $("#colour-curve").hidden = c !== "colour";
   drawCurve();
 }
-$("#colour-curve").onchange = (e) => { S.colourCurve = e.target.value; drawCurve(); };
+function setColourCurve(c) {
+  S.colourCurve = c;
+  $$("#colour-tabs [data-curve]").forEach((b) => b.classList.toggle("active", b.dataset.curve === c));
+  drawCurve();
+}
 $$("#curve-tabs [data-curve]").forEach((b) => (b.onclick = () => setCurve(b.dataset.curve)));
+$$("#colour-tabs [data-curve]").forEach((b) => (b.onclick = () => setColourCurve(b.dataset.curve)));
 $("#zoom").onchange = (e) => {
   if (e.target.value === "classic") S.curveView = "classic"; else { S.curveView = "zoom"; S.zoom = +e.target.value; }
   try { localStorage.setItem("filmneg.curveView", e.target.value); } catch (err) { /* ignore */ }
   drawCurve();
 };
-try { const v = localStorage.getItem("filmneg.curveView"); if (v) { $("#zoom").value = v; $("#zoom").onchange({ target: $("#zoom") }); } } catch (err) { /* ignore */ }
+$("#colour-zoom").onchange = (e) => {
+  S.colourZoom = +e.target.value;
+  try { localStorage.setItem("filmneg.colourZoom", e.target.value); } catch (err) { /* ignore */ }
+  drawCurve();
+};
+try {
+  const v = localStorage.getItem("filmneg.curveView"); if (v) { $("#zoom").value = v; $("#zoom").onchange({ target: $("#zoom") }); }
+  const z = localStorage.getItem("filmneg.colourZoom"); if (z) { $("#colour-zoom").value = z; S.colourZoom = +z; }
+} catch (err) { /* ignore */ }
 
 $("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api("levels", { params: S.params })).params; syncControls(); render(); commit(); });
 $("#btn-solve").onclick = () => guard("Solve", async () => {
@@ -1852,7 +1876,7 @@ async function load(name) {
   location.hash = encodeURIComponent(d.name);
   document.title = d.name + " · filmneg";
   S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; S.levelHist = null; S.levelHistKey = null;
-  syncControls(); setCurve(S.curve); setLevelCh(S.levelCh); renderVersions(); setTool("probe"); renderSamples(); refreshReport();
+  syncControls(); setCurve(S.curve); setColourCurve(S.colourCurve); setLevelCh(S.levelCh); renderVersions(); setTool("probe"); renderSamples(); refreshReport();
   status(`${d.name} · ${d.width}×${d.height} · ${d.profile || "no profile, assuming sRGB"}`, 6000);
   render();
 }

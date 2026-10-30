@@ -58,7 +58,7 @@ aside { width: 400px; overflow-y: auto; border-left: 1px solid var(--line); }
 .panel h3 { cursor: pointer; user-select: none; }
 .panel.collapsed > :not(h3) { display: none; }
 .panel.collapsed h3 { margin: 0; }
-#curve { width: 100%; height: auto; background: #262626; border-radius: 4px; cursor: ns-resize; display: block; }
+canvas.curve { width: 100%; height: auto; background: #262626; border-radius: 4px; cursor: ns-resize; display: block; }
 .muted { color: var(--muted); }
 .small { font-size: 11.5px; margin-top: 5px; }
 #samples { list-style: none; padding: 0; margin: 0; }
@@ -93,9 +93,7 @@ button.icon { display: inline-flex; align-items: center; gap: 5px; }
   background: rgba(20,20,20,.82); color: #eee; padding: 12px 18px; border-radius: 10px; font-size: 15px; pointer-events: none; opacity: 0; z-index: 30; }
 #flash.show { animation: flash 1.3s ease-out; }
 @keyframes flash { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.94); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 70% { opacity: 1; } 100% { opacity: 0; } }
-#colour-curve { margin-left: 6px !important; }
-#curve-tabs { flex-wrap: wrap; }
-#colour-curve[hidden] { display: none; }
+#curve-tabs, #colour-tabs { flex-wrap: wrap; }
 #samples li.hl, #probe-list li.hl { background: #4a4430; }
 #samples li { border-radius: 4px; padding: 2px 4px; }
 .sub { margin: 10px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }

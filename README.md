@@ -104,21 +104,21 @@ While you drag the black or white point, the image shows what gets clipped
 (red = white, blue = black), like Lightroom's clipping warning. The panel also says how much is
 clipped.
 
-### Curves
+### Curves and Colour by tone
 
-- **Colour** shows warmth (yellow/blue) and tint (magenta/green) as a function
-  of brightness. Pick Yellow/Blue or Magenta/Green in the menu next to the tab, then drag up or down. This is the panel
-  for "the shadows are too red".
+- **Curves** (Light, R, G, B) shows the classic view by default: output over
+  input with the diagonal, as in Photoshop or Lightroom. Pick ±5 … ±40 in the
+  menu to see only the *change*, magnified, when you need to judge small moves.
+- **Colour by tone** is its own panel: warmth (Yellow/Blue) and tint
+  (Magenta/Green) as a function of brightness, always shown as the change.
+  This is the panel for "the shadows are too red". Shift colour on the image
+  edits these curves too.
 - The histogram of the current image sits behind the curves.
-- **Smooth** (under the curves) relaxes the shown curve(s), like Rhino's
-  Smooth. Click again for more. **Reset curve** or a double-click clears them.
-- **Light, R, G, B** show the classic view by default: output over input
-  with the diagonal, as in Photoshop or Lightroom. Pick ±5 … ±40 in the menu
-  to see only the *change*, magnified, when you need to judge small moves.
-  The Colour tab always shows the change (there is no diagonal for a cast).
+- **Smooth** relaxes the shown curve, like Rhino's Smooth. Click again for
+  more. **Reset** or a double-click clears it.
 - Dragging never places points: the change falls off smoothly around where you
   grab. Press right on the curve for a narrow change, further away from it
-  for a broader one; the shaded bell shows what will move. The background shows which
+  for a broader one; the shaded bell, drawn along the curve, shows what will move. The background shows which
   colour each direction moves the image towards, and while you drag in the
   Colour panel a swatch shows the exact colour of the push. Curves are B-splines whose control points sit
   off the curve, like NURBS in Rhino, so they can't kink. The faint hairlines

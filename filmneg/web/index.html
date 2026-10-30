@@ -141,16 +141,11 @@
     <div class="panel">
       <h3>Curves</h3>
       <div class="tabs" id="curve-tabs">
-        <button data-curve="colour" title="Colour by brightness: pick which curve to edit in the menu">Colour</button>
         <button data-curve="lightness">Light</button>
         <button data-curve="r">R</button>
         <button data-curve="g">G</button>
         <button data-curve="b">B</button>
-        <select id="colour-curve" title="Which colour curve to edit">
-          <option value="warmth">Yellow/Blue</option>
-          <option value="tint">Magenta/Green</option>
-        </select>
-        <select id="zoom" title="Classic: output over input, with the diagonal (Light and R/G/B). ±: only the change, magnified, to see small moves">
+        <select id="zoom" title="Classic: output over input, with the diagonal. ±: only the change, magnified, to see small moves">
           <option value="classic" selected>Classic</option>
           <option value="0.02">±5</option>
           <option value="0.04">±10</option>
@@ -158,12 +153,32 @@
           <option value="0.16">±40</option>
         </select>
       </div>
-      <canvas id="curve" width="560" height="300"></canvas>
+      <canvas id="curve" class="curve" width="560" height="300"></canvas>
       <div class="row">
-        <button id="btn-smooth" title="Smooth the shown curve(s), like Rhino's Smooth. Click again for more">Smooth</button>
-        <button id="btn-curve-reset" title="Reset the shown curve(s)">Reset curve</button>
+        <button data-act="smooth" title="Smooth the shown curve, like Rhino's Smooth. Click again for more">Smooth</button>
+        <button data-act="reset" title="Reset the shown curve">Reset curve</button>
       </div>
       <div class="muted small">Drag up or down. Press right on the curve for a narrow change, further away from it for a broader one; the shaded bell shows what will move.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Colour by tone</h3>
+      <div class="tabs" id="colour-tabs">
+        <button data-curve="warmth" title="Yellow up, blue down">Yellow/Blue</button>
+        <button data-curve="tint" title="Magenta up, green down">Magenta/Green</button>
+        <select id="colour-zoom" title="How much the view is magnified">
+          <option value="0.02">±5</option>
+          <option value="0.04" selected>±10</option>
+          <option value="0.08">±20</option>
+          <option value="0.16">±40</option>
+        </select>
+      </div>
+      <canvas id="colour-by-tone" class="curve" width="560" height="220"></canvas>
+      <div class="row">
+        <button data-act="smooth" title="Smooth the shown curve, like Rhino's Smooth. Click again for more">Smooth</button>
+        <button data-act="reset" title="Reset the shown curve">Reset</button>
+      </div>
+      <div class="muted small">Shifts colour at one brightness only, e.g. warmer highlights or greener shadows. Shift colour on the image edits these curves too.</div>
     </div>
 
     <div class="panel">
