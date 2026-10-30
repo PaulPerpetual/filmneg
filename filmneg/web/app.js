@@ -522,7 +522,7 @@ function pushStrength(d, fine) {
 }
 
 overlay.addEventListener("mousedown", async (ev) => {
-  if (!S.doc) return;
+  if (!S.doc || ev.button !== 0) return;  // right button opens the menu
   const p = toScan(ev);
   const tool = S.tool;
   if (S.hl) {  // the × next to a highlighted mark
@@ -934,6 +934,7 @@ const canvasPoint = (ev) => {
 };
 
 curveCanvas.addEventListener("mousedown", (ev) => {
+  if (ev.button !== 0) return;
   const p = canvasPoint(ev);
   const e = editAt(p.x, p.y);
   S.curveDrag = { ...e, y0: p.y, amount: 0, base: clone(S.params.curves) };
@@ -1219,6 +1220,7 @@ const levelValue = (which, L) => (which === "mid" ? midPos(L) : L[which]);
 // input bar moves the nearest of black / grey / white there (even if it is
 // outside the zoomed view), and the output bar likewise for the output handles.
 levelsCanvas.addEventListener("mousedown", (ev) => {
+  if (ev.button !== 0) return;
   const p = levelPoint(ev), g = levelGeom(), L = curLevel();
   if (S.levelMagnify && p.y < g.outY - 4) {  // magnifier: click zooms in there, ⌥-click zooms out
     const at = clamp(g.v(p.x), 0, 1), f = ev.altKey ? 2 : 0.5, [v0, v1] = S.levelView;
@@ -1320,44 +1322,6 @@ $$("aside .panel").forEach((panel, i) => {
   });
 });
 
-// ---------------------------------------------------------------- straighten panel
-const ST = { base: null, inflight: false, again: false };
-
-function openStraighten() {
-  ST.base = clone(S.params);
-  $("#straighten").hidden = false;
-  for (const id of ["st-strength", "st-smooth"]) $("#" + id).nextElementSibling.textContent = (+$("#" + id).value).toFixed(2);
-  setCurve("colour");
-  previewStraighten();
-}
-
-async function previewStraighten() {
-  if (ST.inflight) { ST.again = true; return; }
-  ST.inflight = true; ST.again = false;
-  try {
-    const r = await api("straighten", {
-      params: ST.base, strength: +$("#st-strength").value, smoothness: +$("#st-smooth").value, keep_overall: $("#st-keep").checked,
-    });
-    if (ST.base) { S.params = r.params; render(); drawCurve(); }
-  } catch (e) { status("straighten failed: " + e.message, 8000); }
-  ST.inflight = false;
-  if (ST.again) previewStraighten();
-}
-
-function closeStraighten(apply) {
-  if (!ST.base) return;
-  if (!apply) { S.params = ST.base; render(); drawCurve(); } else commit();
-  ST.base = null;
-  $("#straighten").hidden = true;
-}
-
-for (const id of ["st-strength", "st-smooth"]) {
-  $("#" + id).addEventListener("input", (e) => { e.target.nextElementSibling.textContent = (+e.target.value).toFixed(2); previewStraighten(); });
-}
-$("#st-keep").addEventListener("change", previewStraighten);
-$("#st-apply").onclick = () => closeStraighten(true);
-$("#st-cancel").onclick = () => closeStraighten(false);
-
 // ---------------------------------------------------------------- controls
 const SLIDERS = ["exposure", "contrast", "saturation", "nr"];
 
@@ -1423,11 +1387,24 @@ $$("[data-eye]").forEach((b) => b.addEventListener("click", (ev) => {
   setShown(b.dataset.eye, b.classList.contains("off"));
 }));
 $$("#tools [data-tool]").forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
-$$("[data-surround]").forEach((b) => (b.onclick = () => {
-  document.documentElement.style.setProperty("--surround", b.dataset.surround);
-  try { localStorage.setItem("filmneg.surround", b.dataset.surround); } catch (e) { /* private mode */ }
-}));
-try { const s = localStorage.getItem("filmneg.surround"); if (s) document.documentElement.style.setProperty("--surround", s); } catch (e) { /* ignore */ }
+// Right-click on the image: background colour around it, fit.
+function setSurround(c) {
+  document.documentElement.style.setProperty("--surround", c);
+  $$("[data-surround]").forEach((b) => b.classList.toggle("on", b.dataset.surround === c));
+  try { localStorage.setItem("filmneg.surround", c); } catch (e) { /* private mode */ }
+}
+function closeMenu() { $("#menu").hidden = true; }
+$("#viewer").addEventListener("contextmenu", (ev) => {
+  ev.preventDefault();
+  const m = $("#menu"), b = $("#viewer").getBoundingClientRect();
+  m.hidden = false;
+  m.style.left = Math.min(ev.clientX - b.left, b.width - m.offsetWidth - 6) + "px";
+  m.style.top = Math.min(ev.clientY - b.top, b.height - m.offsetHeight - 6) + "px";
+});
+$$("[data-surround]").forEach((b) => (b.onclick = () => { setSurround(b.dataset.surround); closeMenu(); }));
+$("#menu [data-action=fit]").onclick = () => { fitView(); closeMenu(); };
+window.addEventListener("mousedown", (ev) => { if (!$("#menu").contains(ev.target)) closeMenu(); }, true);
+try { setSurround(localStorage.getItem("filmneg.surround") || "#808080"); } catch (e) { setSurround("#808080"); }
 
 function setCurve(c) {
   S.curve = c;
@@ -1445,7 +1422,6 @@ $("#btn-solve").onclick = () => guard("Solve", async () => {
   const r = await api("solve", { params: S.params, samples: S.samples });
   S.params = r.params; S.report = r.report; S.casts = r.casts; syncControls(); render(); renderSamples(); commit();
 });
-$("#btn-straighten").onclick = () => ($("#straighten").hidden ? openStraighten() : closeStraighten(false));
 $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
 $("#btn-fit").onclick = fitView;
@@ -1476,7 +1452,7 @@ window.addEventListener("keydown", (ev) => {
   }
   if (ev.metaKey || ev.ctrlKey) return;
   if ((k === "backspace" || k === "delete") && S.hl) { ev.preventDefault(); deleteMark(S.hl); return; }
-  if (k === "escape") { if (ST.base) closeStraighten(false); else setTool("probe"); return; }
+  if (k === "escape") { closeMenu(); setTool("probe"); return; }
   if (k === "\\") { compare(true); return; }
   if (k === "[") { setWidth(S.width * 0.85); return; }
   if (k === "]") { setWidth(S.width / 0.85); return; }

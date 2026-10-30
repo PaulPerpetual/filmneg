@@ -139,11 +139,6 @@ def make_handler(session: Session):
             kinds = [x["kind"] for x in samples]
             report = analysis.sample_report(colors, kinds, p, s.scan.space) if samples else []
             return {"report": report, "casts": s.casts(colors, kinds, report, p)}
-        if route == "straighten":
-            src = pipeline.crop(s.source("thumb", p), p["crop"])
-            return {"params": analysis.straighten(
-                src, p, s.scan.space, float(body.get("strength", 1.0)),
-                float(body.get("smoothness", 1.0)), bool(body.get("keep_overall", True)))}
         if route == "probe":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)

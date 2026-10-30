@@ -68,30 +68,6 @@ def test_lighting_keeps_warmth():
     assert rep["db"] > 10  # the grey is left warm on purpose
 
 
-def test_straighten_flattens_a_tone_dependent_cast():
-    rng = np.random.default_rng(1)
-    t = rng.random((200, 200, 1), dtype=np.float32) * 0.8 + 0.1
-    img = np.concatenate([t + 0.04 * (1 - t), t, t - 0.06 * (1 - t)], axis=-1)  # warm shadows
-    p = pipeline.default_params()
-    before = analysis.cast_by_tone(pipeline.render_pixels(img, p, ADOBE_RGB), ADOBE_RGB, max_chroma=0.08)
-    p2 = analysis.straighten(img, p, ADOBE_RGB, keep_overall=False)
-    after = analysis.cast_by_tone(pipeline.render_pixels(img, p2, ADOBE_RGB), ADOBE_RGB, max_chroma=0.08)
-    err = lambda bands: np.mean([np.hypot(a, b) for a, b, c in bands if c])
-    assert err(after) < 0.5 * err(before)
-
-    # keep_overall: the cast becomes even across tones but its average stays
-    p3 = analysis.straighten(img, p, ADOBE_RGB, keep_overall=True)
-    kept = analysis.cast_by_tone(pipeline.render_pixels(img, p3, ADOBE_RGB), ADOBE_RGB, max_chroma=0.08)
-    spread = lambda bands: np.std([b for a, b, c in bands if c])
-    mean_b = lambda bands: np.mean([b for a, b, c in bands if c])
-    assert spread(kept) < 0.6 * spread(before)
-    assert mean_b(kept) > 0.5 * mean_b(before)
-
-    # strength 0 changes nothing
-    p4 = analysis.straighten(img, p, ADOBE_RGB, strength=0.0)
-    assert not np.any(p4["curves"]["warmth"])
-
-
 def test_tiff_roundtrip_keeps_profile(tmp_path):
     rgb = np.random.default_rng(2).random((20, 30, 3), dtype=np.float32)
     icc = b"\x00" * 128  # contents don't matter for the roundtrip

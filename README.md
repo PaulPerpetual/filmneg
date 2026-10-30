@@ -41,14 +41,10 @@ for Pixelmator.
    any, and **Skin** if there are people. Then **Solve samples**. Each sample
    shows how far it still is from neutral, so you can remove one that wasn't
    really grey.
-3. **Straighten casts…** bends the warmth/tint curves so near-neutral areas
-   stay neutral from shadows to highlights, with a live preview. Strength and
-   smoothness are sliders, and "keep overall colour" (on by default) only
-   removes the part of the cast that changes with brightness.
-4. Set **Light** if the picture should keep its light (golden hour, tungsten,
+3. Set **Light** if the picture should keep its light (golden hour, tungsten,
    shade), then solve again.
-5. Set black and white points in **Levels** if the scan needs it.
-6. Fine-tune by hand with **Shift colour**, **Shift brightness** or the curves.
+4. Set black and white points in **Levels** if the scan needs it.
+5. Fine-tune by hand with **Shift colour**, **Shift brightness** or the curves.
 
 ### Tools and keys
 
@@ -61,6 +57,7 @@ for Pixelmator.
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
 | N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it; hover it and click its × (or press Delete) to remove it |
 | R | Crop |
+| right-click | Background colour around the picture (white, mid grey, dark), fit |
 | \\ (hold) | Before: the scan as the scanner delivered it |
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo (a short note on the image says what was undone) |
 
@@ -140,10 +137,6 @@ sample it reduces to a white balance.
 vary much more. Skin samples are therefore a hue target, not a
 colour target.
 
-**Straighten.** Measures the average cast of near-neutral pixels per
-brightness band and bends the warmth/tint curves against it, smoothed so the
-correction stays a gentle curve.
-
 **Speed.** The per-channel stages are baked into a 16-bit lookup table per
 channel, so a preview renders in well under 0.1 s. Chroma noise reduction (an
 edge-aware blur of the Oklab colour channels only, radius scaled to the image
@@ -163,5 +156,5 @@ pytest
 ```
 
 Code map: `filmneg/pipeline.py` (render), `analysis.py` (auto crop/levels,
-solver, straighten, probe), `curves.py`
+solver, cast report, probe), `curves.py`
 (B-splines), `server.py` (local HTTP API), `web/` (UI, plain JS, no build step).

@@ -12,7 +12,6 @@
   <div class="group">
     <button id="btn-auto" title="Detect crop and set per-channel black/white points from the histogram">Auto</button>
     <button id="btn-solve" title="Fit per-channel slope and offset to your samples (fixes casts that change with brightness)">Solve samples</button>
-    <button id="btn-straighten" title="Even out casts that change between shadows and highlights, with a strength you control">Straighten casts…</button>
   </div>
   <div class="group">
     <button id="btn-undo" class="icon" title="Undo (⌘Z)">
@@ -50,30 +49,26 @@
       <span class="sep"></span>
       <button data-tool="crop" title="Drag a new crop (R)">Crop</button>
       <span class="sep"></span>
-      <button id="btn-fit" title="Fit the image (0). Pinch to zoom, two-finger scroll to move around">Fit</button>
-      <span class="surround" title="Surround colour for judging">
-        <button data-surround="#ffffff" title="White surround"></button>
-        <button data-surround="#808080" title="Mid grey surround"></button>
-        <button data-surround="#1a1a1a" title="Dark surround"></button>
-      </span>
+      <button id="btn-fit" class="icon" title="Fit the whole picture in the window (0). Pinch to zoom, two-finger scroll to move around. Right-click the image for the background colour">
+        <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5"/></svg>
+        Fit</button>
     </div>
     <div id="viewer">
       <canvas id="image"></canvas>
       <canvas id="overlay"></canvas>
       <div id="hint"></div>
+      <div id="menu" hidden>
+        <div class="menu-title">Background</div>
+        <button data-surround="#ffffff"><i style="background:#fff"></i>White (like a print)</button>
+        <button data-surround="#808080"><i style="background:#808080"></i>Mid grey (neutral)</button>
+        <button data-surround="#1a1a1a"><i style="background:#1a1a1a"></i>Dark (like a screen at night)</button>
+        <hr>
+        <button data-action="fit">Fit to window <span class="key">0</span></button>
+      </div>
     </div>
   </section>
 
   <aside>
-    <div class="panel" id="straighten" hidden>
-      <h3>Straighten casts</h3>
-      <p class="muted small">Looks at the near-grey parts of the picture in each brightness band and bends the warmth and tint curves so that they are neutral in every band. With “keep overall colour” on, it only removes the part of the cast that changes between shadows and highlights, and leaves the overall warmth or coolness alone.</p>
-      <div class="slider"><label>Strength</label><input id="st-strength" type="range" min="0" max="1" step="0.05" value="0.5"><output></output></div>
-      <div class="slider"><label>Smoothness</label><input id="st-smooth" type="range" min="0.2" max="5" step="0.1" value="1.5"><output></output></div>
-      <label class="check"><input id="st-keep" type="checkbox" checked> Keep overall colour (only fix casts that shift with brightness)</label>
-      <div class="row"><button id="st-apply" class="primary">Apply</button><button id="st-cancel">Cancel</button></div>
-    </div>
-
     <div class="panel">
       <h3>Base</h3>
       <div class="slider"><label>Exposure</label><input id="exposure" type="range" min="-2" max="2" step="0.01"><input class="num" data-for="exposure" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>

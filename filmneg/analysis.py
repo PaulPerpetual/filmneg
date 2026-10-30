@@ -165,30 +165,6 @@ def solve(colors, kinds, params, space: RGBSpace):
     return out
 
 
-def cast_by_tone(rendered, space: RGBSpace, bins=None, max_chroma=0.04, min_count=50):
-    """Mean Oklab a/b of near-neutral pixels, binned by tone.
-
-    A balanced image gives a flat line at the lighting target; crossover shows
-    as a bend. Bins line up with the curve control positions.
-    """
-    pos = curves.ctrl_positions() if bins is None else bins
-    px = rendered.reshape(-1, 3)
-    lab = _oklab(px, space)
-    t = luma(px)
-    chroma = np.hypot(lab[:, 1], lab[:, 2])
-    keep = chroma < max_chroma
-    width = (pos[1] - pos[0]) if len(pos) > 1 else 1.0
-    out = []
-    for p in pos:
-        m = keep & (np.abs(t - p) < width * 0.75)
-        cnt = int(m.sum())
-        if cnt >= min_count:
-            out.append((float(lab[m, 1].mean()), float(lab[m, 2].mean()), cnt))
-        else:
-            out.append((0.0, 0.0, 0))
-    return out
-
-
 BANDS = (("Shadows", 0.0, 0.33), ("Midtones", 0.33, 0.66), ("Highlights", 0.66, 1.01))  # encoded luma
 BANDS_L = ((0.0, 0.45), (0.45, 0.74), (0.74, 1.01))  # the same bands in Oklab L, for samples
 
@@ -244,60 +220,13 @@ def cast_report(rendered, colors, kinds, report, params, space: RGBSpace):
         if spread < 6:
             summary = "The same cast in all tones: one Grey sample and Solve samples (a white balance) fixes it."
         else:
-            summary = ("The cast changes with brightness. Grey samples at several brightnesses and Solve samples, "
-                       "or Straighten casts, fix that.")
+            summary = ("The cast changes with brightness: add Grey samples at several brightnesses "
+                       "and Solve samples.")
     for i, (k, r) in enumerate(zip(kinds, report)):
         if k == "skin" and abs(r["hue_off"]) > 8:
             way = "too yellow" if r["hue_off"] > 0 else "too red/pink"
             lines.append({"band": f"Skin {i + 1}", "text": f"a bit {way} ({abs(r['hue_off']):.0f}°)", "src": "", "cast": True})
     return {"lines": lines, "summary": summary}
-
-
-def straighten(rgb, params, space: RGBSpace, strength=1.0, smoothness=1.0,
-                keep_overall=True, iterations=4):
-    """Bend the warmth/tint curves so near-neutral areas are neutral at every tone.
-
-    Measures the cast per tone band, converts it to curve units with a
-    measured 2x2 response, then applies a smoothed, damped correction. Only
-    bands with enough near-neutral pixels are trusted.
-
-    keep_overall only removes the part of the cast that *changes* with tone
-    (crossover) and leaves the image's overall colour alone. strength scales
-    the correction (0..1), smoothness how gently it may bend.
-    """
-    p = {**params, "curves": {k: list(v) for k, v in params["curves"].items()}}
-    ta, tb = LIGHTING.get(params["lighting"], (0.0, 0.0))
-    n = curves.N_CTRL
-
-    # How Oklab (a, b) of a mid grey responds to warmth and tint pushes.
-    grey = np.full((1, 3), 0.5, np.float32)
-    flat = {**p, "curves": {k: curves.zero_curve() for k in p["curves"]}, "saturation": 1.0}
-    base = _oklab(render_pixels(grey, flat, space), space)[0, 1:]
-    jac = np.zeros((2, 2))
-    for j, name in enumerate(("warmth", "tint")):
-        q = {**flat, "curves": {**flat["curves"], name: [0.01] * n}}
-        jac[:, j] = (_oklab(render_pixels(grey, q, space), space)[0, 1:] - base) / 0.01
-    inv = np.linalg.inv(jac)
-
-    # Second-difference smoothing keeps the correction a gentle curve.
-    d2 = np.diff(np.eye(n), 2, axis=0)
-    smooth = np.linalg.inv(np.eye(n) + 8.0 * smoothness * d2.T @ d2)
-
-    for _ in range(iterations):
-        out = render_pixels(rgb, p, space)
-        bands = cast_by_tone(out, space)
-        dw, dm = np.zeros(n), np.zeros(n)
-        for i, (a, b, cnt) in enumerate(bands):
-            if cnt:
-                dw[i], dm[i] = inv @ np.array([a - ta, b - tb])
-        conf = np.array([min(c / 2000, 1.0) for *_, c in bands])
-        if keep_overall and conf.sum() > 0:
-            dw[conf > 0] -= np.average(dw, weights=conf)
-            dm[conf > 0] -= np.average(dm, weights=conf)
-        for name, d in (("warmth", dw), ("tint", dm)):
-            p["curves"][name] = list(np.asarray(p["curves"][name]) - smooth @ (0.6 * strength * conf * d))
-    p["curves"] = {k: [float(x) for x in v] for k, v in p["curves"].items()}
-    return p
 
 
 def probe(rgb, rendered, s, params, space: RGBSpace):
