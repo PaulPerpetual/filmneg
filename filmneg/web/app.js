@@ -275,7 +275,7 @@ let liveLoading = null;  // key being fetched
 let liveBusy = false, liveDirty = false, shownGen = 0;
 const liveCanvas = document.createElement("canvas");
 
-function sourceKey(p) { return JSON.stringify([S.doc && S.doc.name, p.crop, p.angle, p.distortion, p.nr, S.dustVer, p.dust_peek || null]); }
+function sourceKey(p) { return JSON.stringify([S.doc && S.doc.name, p.crop, p.angle, p.distortion, p.nr, S.dustVer]); }
 
 function liveReady() {
   return S.dragging && !S.comparing && S.tool !== "crop" && liveSrc && liveSrc.key === sourceKey(viewParams());
@@ -350,7 +350,7 @@ function paintLive(lut) {
 }
 
 // Zoomed in: fetch the visible part from full resolution so it stays sharp.
-function scheduleDetail() {
+function scheduleDetail(wait = 180) {
   clearTimeout(scheduleDetail.t);
   scheduleDetail.t = setTimeout(async () => {
     if (!current || S.view.scale < 1.3 || S.dragging || S.comparing) return;
@@ -361,7 +361,7 @@ function scheduleDetail() {
       const bmp = await fetchImage({ params: viewParams(), region });
       if (gen === renderGen) { detail = { bmp, region, gen }; drawImage(); }
     } catch (e) { console.error(e); }
-  }, 180);
+  }, wait);
 }
 
 function readPreview() {
@@ -1091,32 +1091,6 @@ function dustOrder() {
           shown.filter((d) => d.on === false).sort((a, b) => b.conf - a.conf)];
 }
 
-// A spot's outline: the edge pixels of its bitmap, cached per spot.
-function dustOutline(d) {
-  S.dustOutlines = S.dustOutlines || {};
-  const key = d.id + ":" + d.mask;
-  if (S.dustOutlines[key]) return S.dustOutlines[key];
-  let w = d.mw, h = d.mh, on;
-  if (d.mask) {
-    const bits = atob(d.mask);
-    on = (x, y) => x >= 0 && y >= 0 && x < w && y < h && (bits.charCodeAt((y * w + x) >> 3) >> (7 - ((y * w + x) & 7))) & 1;
-  } else {  // marked by hand: an ellipse
-    w = h = 24;
-    on = (x, y) => ((x + 0.5 - 12) / 12) ** 2 + ((y + 0.5 - 12) / 12) ** 2 <= 1;
-  }
-  const c = document.createElement("canvas"); c.width = w; c.height = h;
-  const ctx = c.getContext("2d"), im = ctx.createImageData(w, h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = (y * w + x) * 4;
-    if (on(x, y)) {
-      const edge = !on(x - 1, y) || !on(x + 1, y) || !on(x, y - 1) || !on(x, y + 1);
-      if (edge) im.data.set([80, 220, 255, 255], i);
-    }
-  }
-  ctx.putImageData(im, 0, 0);
-  return (S.dustOutlines[key] = c);
-}
-
 function drawDust(ctx) {
   const sel = S.dust && S.dust.spots.find((d) => d.id === S.dustSel);
   if (!sel) {  // overview: a circle per spot; once you review one, only that one is marked
@@ -1129,17 +1103,12 @@ function drawDust(ctx) {
     }
     ctx.setLineDash([]);
   } else {
-    // the selected spot: everything else dims, its exact shape is outlined, brackets frame it
+    // the selected spot: everything else dims, brackets frame it
     const p = toScreen(sel.x, sel.y), k = radiusPx(1);  // screen px per unit of view fraction
     const bw = Math.max(sel.bw * k, 4), bh = Math.max(sel.bh * k, 4), R = Math.max(bw, bh) / 2 + 14;
     const trying = S.dustTry === sel.id, shownRepaired = sel.on == null ? trying : sel.healed;
     ctx.fillStyle = "rgba(0,0,0,.28)";
     ctx.beginPath(); ctx.rect(0, 0, overlay.clientWidth, overlay.clientHeight); ctx.arc(p.x, p.y, R + 50, 0, 7); ctx.fill("evenodd");
-    if (!shownRepaired || S.comparing) {
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-(S.params.angle || 0) * Math.PI / 180);
-      ctx.imageSmoothingEnabled = false;
-      ctx.drawImage(dustOutline(sel), -bw / 2, -bh / 2, bw, bh); ctx.restore();
-    }
     const L = Math.min(10, R * 0.5);
     for (const [c, w] of [["rgba(0,0,0,.7)", 4], [shownRepaired ? "#7d7" : "#fff", 2]]) {
       ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
@@ -1213,7 +1182,16 @@ function zoomToDust(d) {
   const now = radiusPx(Math.max(d.bw || 0, d.bh || 0, 1e-4));
   S.view.scale = clamp(S.view.scale * 60 / now, 3, 16);
   S.view.cx = (d.x - c[0]) / (c[2] - c[0]); S.view.cy = (d.y - c[1]) / (c[3] - c[1]);
-  clampView(); detail = null; S.dustTry = null; renderDust(); render();
+  clampView(); S.dustTry = null; renderDust(); peekView();
+}
+
+// Reviewing a spot changes only the zoomed-in detail (the whole-picture render
+// ignores the peek), so fetch just that, at once, and keep the last detail on
+// screen meanwhile instead of dropping back to the blurry preview.
+function peekView() {
+  renderGen++;
+  if (detail) detail.gen = renderGen;
+  drawImage(); scheduleDetail(60);  // short wait: holding an arrow key still sends one request
 }
 
 // Decide a spot and move on to the next one still to review.
@@ -1240,7 +1218,7 @@ function dustKey(ev) {
   if (!d) return false;
   if (ev.key === "Enter") {  // first Return shows the repair, the second keeps it
     ev.preventDefault();
-    if (d.on == null && S.dustTry !== d.id) { S.dustTry = d.id; render(); drawOverlay(); } else decideDust(d, true);
+    if (d.on == null && S.dustTry !== d.id) { S.dustTry = d.id; peekView(); } else decideDust(d, true);
     return true;
   }
   if (ev.key === "Backspace" || ev.key === "Delete") {

@@ -131,8 +131,8 @@ smooth ground (sky, walls, skin) score high; bright details in busy texture
   between two sizes (longest side in scan pixels, 2–150 by default; ↑/↓ in
   the fields step it).
 - Reviewing: click a row, or walk the list with ↑/↓. The spot zooms to a
-  comfortable size, the rest dims, and it shows **unrepaired** with its exact
-  outline. **Return** shows the repair; **Return** again keeps it and moves
+  comfortable size, the rest dims, corner brackets frame it and it shows
+  **unrepaired**. **Return** shows the repair; **Return** again keeps it and moves
   to the next spot; **⌫** leaves it alone and moves on. Decided spots move
   down to *Kept* or *Left alone*. Esc goes back to the overview, where every
   spot has a circle (green repaired, dashed amber not); click one to switch it.

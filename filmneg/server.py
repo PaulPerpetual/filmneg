@@ -175,11 +175,12 @@ class Session:
     def render(self, params, size="preview", cropped=True, original=False, region=None):
         """region (fractions of the cropped image) renders that part from full resolution."""
         params = pipeline.normalize(params)
-        peek = None
+        # a peek (one spot shown or hidden while you review it) is pasted into the
+        # zoomed-in region only; the whole-picture render ignores it, so stepping
+        # through the spots never re-renders the whole scan
+        peek = params.pop("dust_peek", None)
         if region:
-            # at full resolution a peek (one spot shown or hidden while you review it)
-            # is pasted into the region only, so clicking through stays quick
-            size, peek = "full", params.pop("dust_peek", None)
+            size = "full"
         src = self.source(size, params, nr=not original)
         if cropped:
             src = pipeline.crop(src, params["crop"])
