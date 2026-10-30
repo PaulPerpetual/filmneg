@@ -120,7 +120,7 @@ smooth ground (sky, walls, skin) score high; bright details in busy texture
   it. On the image, solid green circles are repaired, dashed amber ones are
   left alone; click a circle to switch it, click anywhere else to mark a spot
   by hand (drag for a bigger one; Delete removes a hand-marked spot).
-- Hold \\ to compare with the unrepaired scan.
+- Hold `\` to compare with the unrepaired scan.
 - A repair clones the best-matching patch nearby (compared on a ring around
   the spot, never taken from other dust) and evens out brightness and colour
   at the edge, like a healing brush, so the grain carries on. Long hairs are
