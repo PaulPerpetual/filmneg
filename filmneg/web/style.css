@@ -74,6 +74,9 @@ button.icon { display: inline-flex; align-items: center; gap: 5px; }
 #busy { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; min-width: 96px; }
 #busy i { width: 9px; height: 9px; border-radius: 50%; background: #5c5; display: inline-block; }
 #busy.busy i { background: #e9b030; animation: pulse .8s ease-in-out infinite alternate; }
+#busy .pie { display: none; color: #e9b030; }
+#busy.task i { display: none; }
+#busy.task .pie { display: inline; }
 @keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
 .check { display: flex; gap: 6px; align-items: flex-start; color: var(--muted); margin: 6px 0; }
 .row { display: flex; gap: 6px; margin-top: 6px; }
@@ -142,22 +145,25 @@ body.dusting aside .panel:not(#dust-panel) { display: none; }
 #versions li button { padding: 0 6px; }
 button:disabled { opacity: .45; cursor: default; }
 
-/* dust review list */
+/* dust review list, like a macOS source list */
 #dust-panel { display: none; }
-#dust-list { max-height: 52vh; overflow-y: auto; margin: 8px 0; border-radius: 4px; background: #222; outline: none; }
-#dust-list .sec { padding: 6px 8px 3px; font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .04em; }
-#dust-list .row-d { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 12px; cursor: pointer; }
-#dust-list .row-d:hover { background: #2c2c2c; }
-#dust-list .row-d.sel { background: #3a4a5e; box-shadow: inset 3px 0 0 #8cf; }
-#dust-list .row-d.done:not(.sel) { opacity: .5; }
-#dust-list .row-d .bar { flex: 1; height: 4px; background: #333; border-radius: 2px; overflow: hidden; }
-#dust-list .row-d .bar i { display: block; height: 100%; background: #8a8a8a; }
-#dust-list .row-d .pct { width: 34px; text-align: right; color: #aaa; font-variant-numeric: tabular-nums; }
-#dust-list .row-d .what { width: 44px; color: #bbb; }
-#dust-list .row-d .px { width: 40px; color: #888; text-align: right; font-variant-numeric: tabular-nums; }
-#dust-list .row-d .hand { color: #e9b44c; font-size: 10px; width: 10px; }
-#dust-list input { margin: 0; }
-.num.ro { display: inline-block; width: 44px; text-align: right; color: #ccc; }
+.dust-head { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+.dust-head .size { font-size: 12px; color: var(--muted); }
+.dust-head .size input { width: 34px; text-align: right; background: #262626; border: 1px solid #3a3a3a; border-radius: 4px; color: var(--text); padding: 1px 4px; font-size: 12px; }
+.dust-head select { font-size: 11px; }
+#dust-list { max-height: 52vh; overflow-y: auto; margin: 4px 0 8px; padding: 2px 4px; border-radius: 6px; background: #1f1f1f;
+  border: 1px solid #333; outline: none; font: 12px -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; }
+#dust-list .sec { padding: 8px 6px 2px; font-size: 11px; font-weight: 600; color: #8a8a8a; }
+#dust-list .row-d { display: grid; grid-template-columns: 16px 1fr 44px 40px; align-items: center; gap: 6px;
+  height: 22px; padding: 0 6px; border-radius: 5px; cursor: default; color: #ddd; }
+#dust-list .row-d:hover { background: rgba(255,255,255,.05); }
+#dust-list .row-d.sel { background: #0a64d6; color: #fff; }
+#dust-list .row-d.done:not(.sel) { color: #888; }
+#dust-list .row-d .st { width: 14px; height: 14px; border-radius: 50%; border: 1.3px solid #777; display: grid; place-items: center; }
+#dust-list .row-d .st.on { background: #34a853; border-color: #34a853; }
+#dust-list .row-d .st.on::after { content: ""; width: 6px; height: 3px; border: solid #fff; border-width: 0 0 1.5px 1.5px; transform: translateY(-1px) rotate(-45deg); }
+#dust-list .row-d.sel .st { border-color: #fff; }
+#dust-list .row-d .px, #dust-list .row-d .pct { text-align: right; font-variant-numeric: tabular-nums; color: inherit; opacity: .75; }
 label.check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #ccc; margin-right: auto; }
 
 /* light the greys keep: tracks show the direction */

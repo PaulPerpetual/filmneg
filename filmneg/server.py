@@ -35,9 +35,10 @@ class Session:
         self.lock = threading.Lock()
         self.scan = None
         self._nr_cache = {}
-        self.dust = {"spots": [], "threshold": 0.6, "repair": True}
+        self.dust = {"spots": [], "threshold": 0.6, "repair": True, "size": [2, 150]}
         self._patches = {}  # size -> {spot id: repairs at that size}
         self._healed = {}   # size -> (key, image with the repairs)
+        self.progress = None  # {"label", "frac"} while a long task runs, for the browser's pie
 
     def files(self):
         folder = self.root if self.root.is_dir() else self.root.parent
@@ -71,7 +72,7 @@ class Session:
             params["black"], params["white"] = analysis.auto_levels(
                 self.proxies["preview"], params, self.scan.space)
             doc = {"params": params, "samples": [], "history": []}
-        self.dust = {"spots": [], "threshold": 0.6, "repair": True, **doc.get("dust", {})}
+        self.dust = {"spots": [], "threshold": 0.6, "repair": True, "size": [2, 150], **doc.get("dust", {})}
         h, w = self.scan.rgb.shape[:2]
         doc["dust"] = self.dust_view(doc["params"])
         doc.update(name=name, width=w, height=h, profile=self.scan.profile_name,
@@ -86,7 +87,7 @@ class Session:
         """
         strength = round(float(params.get("nr", 0)), 3) if nr else 0.0
         angle = (round(float(params.get("angle", 0)), 2), round(float(params.get("distortion", 0)), 2))
-        heal_key, base = self.healed_base(size) if nr else ((), self.raw(size))
+        heal_key, base = self.healed_base(size, params.get("dust_peek")) if nr else ((), self.raw(size))
         key = (size, strength, angle, heal_key)
         if key not in self._nr_cache:
             for k in [k for k in self._nr_cache if k[0] == size and (k[2:] != key[2:] or len(self._nr_cache) > 8)]:
@@ -100,12 +101,24 @@ class Session:
     # ------------------------------------------------------------ dust
     def dust_on(self):
         d = self.dust
-        return dust.healed(d["spots"], d["threshold"]) if d["repair"] else []
+        H, W = self.scan.rgb.shape[:2]
+        for s in d["spots"]:
+            s.setdefault("px", round(max((s["box"][2] - s["box"][0]) * W, (s["box"][3] - s["box"][1]) * H)))
+        return dust.healed(d["spots"], d["threshold"], d["size"]) if d["repair"] else []
 
-    def healed_base(self, size):
+    def task(self, label, frac):
+        self.progress = {"label": label, "frac": float(frac)} if frac < 1 else None
+
+    def healed_base(self, size, peek=None):
         """(key, the scan at this size with the chosen dust repaired). Repairs are
-        computed once per spot and size, so switching one on or off is quick."""
-        on = self.dust_on()
+        computed once per spot and size, so switching one on or off is quick.
+
+        peek {"hide": [ids], "show": [ids]} overrides single spots for the view
+        only, while you review them."""
+        peek = peek or {}
+        hide, show = set(peek.get("hide", [])), set(peek.get("show", []))
+        on = [s for s in self.dust_on() if s["id"] not in hide]
+        on += [s for s in self.dust["spots"] if s["id"] in show and s not in on]
         key = tuple(sorted(s["id"] for s in on))
         if self._healed.get(size, (None,))[0] != key:
             raw = self.raw(size)
@@ -113,7 +126,10 @@ class Session:
             todo = [s for s in on if s["id"] not in done]
             if todo:
                 avoid = [s for s in self.dust["spots"] if s["conf"] >= 0.2 or s.get("on")]
-                done.update(dust.patches(raw, todo, avoid))
+                big = len(todo) > 40
+                done.update(dust.patches(raw, todo, avoid,
+                                         progress=(lambda f: self.task("Repairing dust", f)) if big else None))
+                self.task("", 1)
             self._healed[size] = (key, dust.apply(raw, [p for s in on for p in done.get(s["id"], [])]))
         return self._healed[size]
 
@@ -129,7 +145,8 @@ class Session:
     def dust_view(self, params):
         """The dust state for the browser, with each spot's place in the straightened view."""
         H, W = self.scan.rgb.shape[:2]
-        on = {s["id"] for s in dust.healed(self.dust["spots"], self.dust["threshold"])}
+        self.dust_on()  # fills in sizes of older spots
+        on = {s["id"] for s in dust.healed(self.dust["spots"], self.dust["threshold"], self.dust["size"])}
         out = []
         for s in self.dust["spots"]:
             x0, y0, x1, y1 = s["box"]
@@ -141,13 +158,14 @@ class Session:
                         "mask": s.get("mask"), "mw": s.get("mw"), "mh": s.get("mh"),
                         "bw": (x1 - x0) * W / max(W, H), "bh": (y1 - y0) * H / max(W, H),
                         "on": s.get("on"), "healed": s["id"] in on})
-        return {"spots": out, "threshold": self.dust["threshold"], "repair": self.dust["repair"]}
+        return {"spots": out, "threshold": self.dust["threshold"], "repair": self.dust["repair"], "size": self.dust["size"]}
 
     def dust_mask(self, params):
         """A mask of the marked dust, lined up with the exported TIFF."""
         from PIL import Image
         H, W = self.scan.rgb.shape[:2]
-        m = dust.mask_image(dust.healed(self.dust["spots"], self.dust["threshold"]), H, W)
+        self.dust_on()
+        m = dust.mask_image(dust.healed(self.dust["spots"], self.dust["threshold"], self.dust["size"]), H, W)
         m = pipeline.geometry(m[..., None].astype(np.float32), params["angle"], params["distortion"])
         m = pipeline.crop(m, params["crop"])[..., 0]
         path = self.scan.path.with_name(self.scan.path.stem + "_filmneg_dust.png")
@@ -157,16 +175,60 @@ class Session:
     def render(self, params, size="preview", cropped=True, original=False, region=None):
         """region (fractions of the cropped image) renders that part from full resolution."""
         params = pipeline.normalize(params)
+        peek = None
         if region:
-            size = "full"
+            # at full resolution a peek (one spot shown or hidden while you review it)
+            # is pasted into the region only, so clicking through stays quick
+            size, peek = "full", params.pop("dust_peek", None)
         src = self.source(size, params, nr=not original)
         if cropped:
             src = pipeline.crop(src, params["crop"])
         if region:
-            src = imageio.downsample(pipeline.crop(src, region), REGION)
+            src = pipeline.crop(src, region)
+            if peek and not original:
+                src = self._peek_region(src, params, region, peek)
+            src = imageio.downsample(src, REGION)
         if original:
             return src
         return pipeline.render_pixels(src, params, self.scan.space)
+
+    def _peek_region(self, src, params, region, peek):
+        """Show or hide single spots' repairs inside a full-resolution region.
+        Only without rotation or lens correction, where scan and view pixels match."""
+        if params["angle"] or params["distortion"]:
+            return src
+        H, W = self.scan.rgb.shape[:2]
+        c = params["crop"]
+        ch, cw = int(round(c[3] * H)) - int(round(c[1] * H)), int(round(c[2] * W)) - int(round(c[0] * W))
+        oy = int(round(c[1] * H)) + int(round(region[1] * ch))
+        ox = int(round(c[0] * W)) + int(round(region[0] * cw))
+        out = np.array(src, np.float32, copy=True)
+        spots = {s["id"]: s for s in self.dust["spots"]}
+        done = self._patches.setdefault("full", {})
+        healed_now = {s["id"] for s in self.dust_on()}
+        for sid in peek.get("show", []) + peek.get("hide", []):
+            s = spots.get(sid)
+            if s is None:
+                continue
+            if sid in peek.get("show", []) and sid not in healed_now:
+                if sid not in done:
+                    done.update(dust.patches(self.scan.rgb, [s], self.dust["spots"]))
+                pieces = [(y0 - oy, x0 - ox, v, a) for y0, x0, v, a in done.get(sid, [])]
+            elif sid in peek.get("hide", []) and sid in healed_now:
+                y0, x0, m = dust.spot_mask(s, H, W)
+                y0, x0 = max(0, y0 - 2), max(0, x0 - 2)
+                raw = self.scan.rgb[y0:y0 + m.shape[0] + 4, x0:x0 + m.shape[1] + 4]
+                pieces = [(y0 - oy, x0 - ox, raw, np.ones(raw.shape[:2] + (1,), np.float32))]
+            else:
+                continue
+            for y0, x0, v, a in pieces:  # paste, clipped to the region
+                ya, xa = max(0, y0), max(0, x0)
+                yb, xb = min(out.shape[0], y0 + v.shape[0]), min(out.shape[1], x0 + v.shape[1])
+                if ya < yb and xa < xb:
+                    t = out[ya:yb, xa:xb]
+                    vv, aa = v[ya - y0:yb - y0, xa - x0:xb - x0], a[ya - y0:yb - y0, xa - x0:xb - x0]
+                    t[...] = t * (1 - aa) + vv * aa
+        return out
 
     def sample_colors(self, samples, params):
         """Sample positions are fractions of the whole scan, so they survive re-cropping."""
@@ -195,9 +257,12 @@ class Session:
         return str(side)
 
     def export(self, params):
+        self.task("Exporting", 0.1)
         out = self.render(params, size="full")
+        self.task("Exporting", 0.9)
         path = self.scan.path.with_name(self.scan.path.stem + "_filmneg.tif")
         imageio.save_tiff16(path, out, self.scan.icc)
+        self.task("", 1)
         return str(path)
 
 
@@ -298,7 +363,9 @@ def make_handler(session: Session):
             return {"n": LUT_N, "table": pack(table), "shifts": pack(shifts), "space": s.space_info()}
         if route == "dust_find":
             manual = [d for d in s.dust["spots"] if d.get("manual")]
-            found = dust.find(s.scan.rgb, _unrotated_box(p, s.scan.rgb.shape))
+            found = dust.find(s.scan.rgb, _unrotated_box(p, s.scan.rgb.shape),
+                              progress=lambda f: s.task("Finding dust", f))
+            s.task("", 1)
             for i, d in enumerate(manual):
                 d["id"] = len(found) + i + 1
             s.dust["spots"] = found + manual
@@ -312,8 +379,11 @@ def make_handler(session: Session):
                 d["threshold"] = float(body["threshold"])
             if "repair" in body:
                 d["repair"] = bool(body["repair"])
+            if "size" in body:  # smallest and largest spot considered, in scan pixels
+                d["size"] = [max(1, int(body["size"][0])), max(2, int(body["size"][1]))]
             if body.get("id") in spots and "on" in body:
                 spots[body["id"]]["on"] = body["on"]
+                dust.relearn(d["spots"])  # your decisions move similar spots up or down
             if body.get("remove") in spots:
                 d["spots"].remove(spots[body["remove"]])
             if "add" in body:  # a spot marked by hand, in the straightened view
@@ -323,6 +393,14 @@ def make_handler(session: Session):
                 rx, ry = a["r"] * max(W, H) / W, a["r"] * max(W, H) / H
                 d["spots"].append({"id": max(spots, default=0) + 1, "box": [u - rx, v - ry, u + rx, v + ry],
                                    "conf": 1.0, "kind": "manual", "manual": True, "on": True})
+            if "clone" in body:  # a clone-stamp stroke, in the straightened view
+                H, W = s.scan.rgb.shape[:2]
+                c = body["clone"]
+                raw = lambda x, y: pipeline.geometry_point(x, y, W, H, p["angle"], p["distortion"], inverse=True)
+                pts = [raw(*q) for q in c["points"]]
+                src = raw(*c["src"])
+                d["spots"].append({"id": max(spots, default=0) + 1,
+                                   **dust.clone_spot(pts, c["r"], (src[0] - pts[0][0], src[1] - pts[0][1]), W, H)})
             if len(body) > 1 or "params" not in body:
                 s.dust_changed()
             return s.dust_view(p)
@@ -357,6 +435,8 @@ def make_handler(session: Session):
             self.wfile.write(data)
 
         def do_GET(self):
+            if self.path.startswith("/api/progress"):  # answered without the lock, while a task runs
+                return self._send(200, json.dumps(session.progress).encode(), "application/json")
             name = self.path.split("?")[0].lstrip("/") or "index.html"
             f = (WEB / name).resolve()
             if WEB.resolve() not in f.parents or not f.is_file():
@@ -391,6 +471,7 @@ def make_handler(session: Session):
             except Exception as e:  # report to the UI instead of dropping the connection
                 import traceback
                 traceback.print_exc()
+                session.progress = None
                 self._send(500, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode(), "application/json")
 
     return Handler

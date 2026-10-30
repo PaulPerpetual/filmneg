@@ -126,15 +126,26 @@ crop and lists every candidate with how likely it is dust: specks and hairs on
 smooth ground (sky, walls, skin) score high; bright details in busy texture
 (catch lights, lettering, glass) score low.
 
-- Spots from **Repair from** (60% by default) upwards are repaired; tick or
-  untick any spot to decide yourself (a dot marks your choices).
-- Click a row, or walk the list with ↑/↓, to zoom to the spot: the rest of
-  the picture dims and the spot's exact outline (what gets repaired) is
-  drawn. **Enter** repairs it and jumps to the next spot to review,
-  **Backspace** leaves it alone and jumps on; decided spots move down the
-  list, greyed. Space just switches a spot. On the image, solid green circles are repaired, dashed amber ones are
-  left alone; click a circle to switch it, click anywhere else to mark a spot
-  by hand (drag for a bigger one; Delete removes a hand-marked spot).
+- Spots from **Repair from** (60% by default) upwards are repaired until you
+  decide them yourself. **Size** limits the list and the repairs to spots
+  between two sizes (longest side in scan pixels, 2–150 by default; ↑/↓ in
+  the fields step it).
+- Reviewing: click a row, or walk the list with ↑/↓. The spot zooms to a
+  comfortable size, the rest dims, and it shows **unrepaired** with its exact
+  outline. **Return** shows the repair; **Return** again keeps it and moves
+  to the next spot; **⌫** leaves it alone and moves on. Decided spots move
+  down to *Kept* or *Left alone*. Esc goes back to the overview, where every
+  spot has a circle (green repaired, dashed amber not); click one to switch it.
+- The order of spots to review: *Least sure first* (closest to the Repair
+  from line, where your eye matters most), *Most likely* or *Least likely first*.
+- Every decision teaches the scores: spots that resemble what you rejected
+  (contrast, size, shape, texture around them, brightness) drop, ones like
+  what you kept rise. A few decisions nudge; they don't overturn the scores.
+- **Clone stamp** for repairs that need a hand: ⌥-click a clean area to pick
+  the source, then paint over the spot; the source follows the brush
+  (aligned). `[` `]` change the brush, Esc drops the source. Each stroke is
+  listed and removable (⌫) like a hand-marked spot.
+- Click empty picture to mark a missed spot (drag for a bigger one).
 - Hold `\` to compare with the unrepaired scan.
 - A repair clones the best-matching patch nearby (compared on a ring around
   the spot, never taken from other dust) and evens out brightness and colour

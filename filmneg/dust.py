@@ -44,7 +44,7 @@ def _unpack(s, h, w):
     return bits[:h * w].reshape(h, w).astype(bool)
 
 
-def find(rgb, region=(0.0, 0.0, 1.0, 1.0)):
+def find(rgb, region=(0.0, 0.0, 1.0, 1.0), progress=None):
     """Dust candidates in region (fractions), most confident first.
 
     A white top-hat (the image minus its grey opening) keeps only bright
@@ -52,6 +52,8 @@ def find(rgb, region=(0.0, 0.0, 1.0, 1.0)):
     around each spot, and spots on smooth ground (sky, walls, skin) count as
     more likely dust than spots in busy texture, where catch lights live.
     """
+    if progress:
+        progress(0.05)
     small, f = _downsample(np.asarray(rgb, np.float32), DETECT)
     H, W = rgb.shape[:2]
     h, w = small.shape[:2]
@@ -65,6 +67,8 @@ def find(rgb, region=(0.0, 0.0, 1.0, 1.0)):
     x0, y0, x1, y1 = region
     inside = np.zeros_like(top, bool)
     inside[int(y0 * h) + 2:int(np.ceil(y1 * h)) - 2, int(x0 * w) + 2:int(np.ceil(x1 * w)) - 2] = True
+    if progress:
+        progress(0.25)
     seed = (top > HIGH) & (top / grain > 4) & inside
     extent = (top > LOW) & (top / grain > 1.8)
     labels, n = ndi.label(extent, structure=np.ones((3, 3)))
@@ -73,7 +77,9 @@ def find(rgb, region=(0.0, 0.0, 1.0, 1.0)):
 
     spots = []
     objs = ndi.find_objects(labels)
-    for lab in keep:
+    for i_lab, lab in enumerate(keep):
+        if progress and i_lab % 50 == 0:
+            progress(0.3 + 0.7 * i_lab / max(1, len(keep)))
         sl = objs[lab - 1]
         m = labels[sl] == lab
         area = int(m.sum())
@@ -91,6 +97,9 @@ def find(rgb, region=(0.0, 0.0, 1.0, 1.0)):
                  + (0.3 if area >= 3 else -0.8)
                  + (0.8 if hair else -1.2 * max(0.0, np.log2(area / 40))))  # big blobs are mostly picture
         conf = float(1 / (1 + np.exp(-1.5 * score)))
+        # what learning from your decisions works with, roughly unit-sized
+        feats = [np.log(z / 4), 10 * (peak - HIGH), 10 * tex, np.log2(area) / 3, thick / 3, float(hair),
+                 float(L[sl][m].mean())]
         # one pixel of margin: the soft edge of the speck
         m = np.pad(m, 1)
         ys, xs = sl[0].start - 1, sl[1].start - 1
@@ -98,6 +107,8 @@ def find(rgb, region=(0.0, 0.0, 1.0, 1.0)):
             "box": [xs * f / W, ys * f / H, (xs + m.shape[1]) * f / W, (ys + m.shape[0]) * f / H],
             "mask": _pack(m), "mw": m.shape[1], "mh": m.shape[0],
             "conf": round(conf, 3), "kind": "hair" if hair else "speck",
+            "px": int(round(max(m.shape) * f)),
+            "base": round(1.5 * score, 3), "f": [round(float(v), 3) for v in feats],
         })
     spots.sort(key=lambda s: -s["conf"])
     for i, s in enumerate(spots):
@@ -105,9 +116,43 @@ def find(rgb, region=(0.0, 0.0, 1.0, 1.0)):
     return spots
 
 
-def healed(spots, threshold):
-    """The spots to repair: switched on by hand, or confident enough and not switched off."""
-    return [s for s in spots if s.get("on") or (s.get("on") is None and s["conf"] >= threshold)]
+def relearn(spots):
+    """Adjust every detected spot's confidence from the ones you decided.
+
+    A small logistic regression on top of the built-in score: your accepted
+    and rejected spots pull similar spots (by contrast, size, shape, texture
+    and brightness) up or down. Held close to the built-in score, so a few
+    decisions nudge rather than overturn it.
+    """
+    det = [s for s in spots if "f" in s]
+    done = [s for s in det if s.get("on") is not None]
+    w = np.zeros(len(det[0]["f"]) + 1) if det else None
+    if done and det:
+        X = np.array([s["f"] + [1.0] for s in done])
+        base = np.array([s["base"] for s in done])
+        y = np.array([1.0 if s["on"] else 0.0 for s in done])
+        # held firmly near zero, the overall shift (last term) most of all, so
+        # a few rejections only move spots that resemble them
+        lam = np.diag([4.0] * (len(w) - 1) + [25.0])
+        for _ in range(25):  # Newton steps on the L2-regularised log loss
+            p = 1 / (1 + np.exp(-(base + X @ w)))
+            g = X.T @ (p - y) + lam @ w
+            Hm = X.T @ (X * (p * (1 - p))[:, None]) + lam
+            w -= np.linalg.solve(Hm, g)
+    for s in det:
+        logit = s["base"] + (float(np.clip(np.dot(s["f"] + [1.0], w), -2.5, 2.5)) if done else 0.0)
+        s["conf"] = round(float(1 / (1 + np.exp(-logit))), 3)
+
+
+def in_size(spot, size):
+    """Within the size range (longest side in scan pixels)? Hand-made spots always are."""
+    return spot.get("manual") or not size or size[0] <= spot.get("px", 0) <= size[1]
+
+
+def healed(spots, threshold, size=None):
+    """The spots to repair: switched on by hand, or confident enough, within the
+    size range and not switched off."""
+    return [s for s in spots if s.get("on") or (s.get("on") is None and s["conf"] >= threshold and in_size(s, size))]
 
 
 def spot_mask(spot, H, W):
@@ -124,13 +169,13 @@ def spot_mask(spot, H, W):
     else:  # drawn by hand: an ellipse filling the box
         yy, xx = np.mgrid[0:bh, 0:bw]
         m = ((yy + 0.5 - bh / 2) / (bh / 2)) ** 2 + ((xx + 0.5 - bw / 2) / (bw / 2)) ** 2 <= 1
-    grow = 1 if max(H, W) <= 2000 else 2
+    grow = 0 if spot.get("clone") else 1 if max(H, W) <= 2000 else 2
     m = np.pad(m, grow)
     m = ndi.binary_dilation(m, iterations=grow)
     return py0 - grow, px0 - grow, m
 
 
-def patches(img, spots, avoid=()):
+def patches(img, spots, avoid=(), progress=None):
     """{spot id: (y0, x0, values, alpha)}: each spot's repair, computed from img.
 
     Each repair clones the best-matching nearby patch, compared on a ring just
@@ -145,8 +190,13 @@ def patches(img, spots, avoid=()):
     for y0, x0, m in (spot_mask(s, H, W) for s in list(avoid) + list(spots)):
         _paste_or(busy, y0, x0, m)
     out = {}
-    for s in spots:
+    for i, s in enumerate(spots):
+        if progress and i % 20 == 0:
+            progress(i / max(1, len(spots)))
         y0, x0, m = spot_mask(s, H, W)
+        if s.get("clone"):  # painted with the clone stamp: a plain soft-edged copy
+            out[s["id"]] = [p for p in [_clone(img, y0, x0, m, s, H, W)] if p]
+            continue
         # long hairs are repaired piece by piece, so each piece finds a close match
         out[s["id"]] = [p for ty in range(0, m.shape[0], TILE) for tx in range(0, m.shape[1], TILE)
                         if m[ty:ty + TILE, tx:tx + TILE].any()
@@ -173,6 +223,34 @@ def _paste_or(dst, y0, x0, m):
     yb, xb = min(H, y0 + m.shape[0]), min(W, x0 + m.shape[1])
     if ya < yb and xa < xb:
         dst[ya:yb, xa:xb] |= m[ya - y0:yb - y0, xa - x0:xb - x0]
+
+
+def _clone(img, y0, x0, m, spot, H, W):
+    dy, dx = int(round(spot["clone"][1] * H)), int(round(spot["clone"][0] * W))
+    mh, mw = m.shape
+    sy, sx = y0 + dy, x0 + dx
+    if min(y0, x0, sy, sx) < 0 or max(y0, sy) + mh > H or max(x0, sx) + mw > W:
+        return None
+    soft = max(0.7, 0.25 * spot.get("brush", 0.002) * max(H, W))
+    alpha = np.clip(ndi.gaussian_filter(m.astype(np.float32), soft) * 1.3, 0, 1)[..., None]
+    return y0, x0, img[sy:sy + mh, sx:sx + mw].copy(), alpha
+
+
+def clone_spot(points, radius, offset, W, H):
+    """A clone-stamp stroke as a spot: points and radius (fractions of the
+    unrotated scan; radius of its long side), copied from points + offset."""
+    R = radius * max(W, H)
+    xs, ys = [p[0] * W for p in points], [p[1] * H for p in points]
+    x0, y0, x1, y1 = min(xs) - R, min(ys) - R, max(xs) + R, max(ys) + R
+    scale = min(1.0, 256 / max(x1 - x0, y1 - y0))   # bitmap pixels per scan pixel
+    mw, mh = max(1, int(np.ceil((x1 - x0) * scale))), max(1, int(np.ceil((y1 - y0) * scale)))
+    yy, xx = np.mgrid[0:mh, 0:mw]
+    m = np.zeros((mh, mw), bool)
+    for px, py in zip(xs, ys):
+        m |= (xx + 0.5 - (px - x0) * scale) ** 2 + (yy + 0.5 - (py - y0) * scale) ** 2 <= (R * scale) ** 2
+    return {"box": [x0 / W, y0 / H, x0 / W + mw / scale / W, y0 / H + mh / scale / H], "mask": _pack(m),
+            "mw": mw, "mh": mh, "conf": 1.0, "kind": "clone", "manual": True, "on": True,
+            "clone": [float(offset[0]), float(offset[1])], "brush": float(radius)}
 
 
 def _patch(img, busy, y0, x0, m):

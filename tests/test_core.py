@@ -196,3 +196,24 @@ def test_fix_band_removes_a_highlight_cast():
     before = np.hypot(*casts(p)[2][0])
     after = np.hypot(*casts(analysis.fix_band(casts, 2, p))[2][0])
     assert before > 8 and after < before / 3
+
+
+def test_dust_learning_moves_similar_spots():
+    from filmneg import dust
+    a = {"id": 1, "base": 1.0, "f": [1.0, 0, 0, 0, 0, 0, 0.5], "conf": 0.73}
+    twin = {"id": 2, "base": 1.0, "f": [1.0, 0, 0, 0, 0, 0, 0.5], "conf": 0.73}
+    other = {"id": 3, "base": 1.0, "f": [-1.0, 0, 0, 1, 0, 1, 0.5], "conf": 0.73}
+    a["on"] = False
+    rejected = [dict(a, id=10 + i) for i in range(3)]  # three of a kind rejected
+    dust.relearn(rejected + [twin, other])
+    assert twin["conf"] < 0.6 and other["conf"] > twin["conf"]
+
+
+def test_clone_stroke_copies_from_source():
+    from filmneg import dust
+    img = np.zeros((200, 200, 3), np.float32)
+    img[:, 100:] = 1.0
+    s = dust.clone_spot([(0.25, 0.5)], 0.03, (0.5, 0.0), 200, 200)
+    s["id"] = 1
+    out = dust.heal(img, [s])
+    assert out[100, 50].mean() > 0.95 and out[20, 50].mean() == 0

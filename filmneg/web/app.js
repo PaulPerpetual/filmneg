@@ -31,6 +31,8 @@ const S = {
   view: { scale: 1, cx: 0.5, cy: 0.5 },  // zoom and the image point at the viewer's centre
   hist: null,         // histograms of the latest preview, for the curve panel
   mask: null,         // {kind: "push"|"clip", ...} overlay showing affected or clipped areas
+  clone: null,        // clone stamp in the Dust tool: {src, off, cursor, stroke}
+  cloneR: 12,         // its brush radius, screen px
 };
 
 // ---------------------------------------------------------------- server and busy indicator
@@ -40,6 +42,24 @@ function busy(delta) {
   const el = $("#busy"), on = busyCount > 0 || S.dragging;
   el.className = on ? "busy" : "idle";
   el.querySelector("span").textContent = on ? "Working…" : "Up to date";
+  if (on && !busy.poll) busy.poll = setTimeout(pollProgress, 400);
+}
+
+// Long tasks (finding dust, repairing many spots, export) report how far they are:
+// a filling pie with the task's name replaces the dot.
+async function pollProgress() {
+  busy.poll = null;
+  if (busyCount === 0) return;
+  let pr = null;
+  try { pr = await (await fetch("/api/progress")).json(); } catch (e) { /* ignore */ }
+  const el = $("#busy");
+  if (pr && busyCount > 0) {
+    const a = 2 * Math.PI * Math.max(0.02, Math.min(0.999, pr.frac)), x = 10 + 8.5 * Math.sin(a), y = 10 - 8.5 * Math.cos(a);
+    el.querySelector(".pie path").setAttribute("d", `M10 10V1.5A8.5 8.5 0 ${a > Math.PI ? 1 : 0} 1 ${x.toFixed(2)} ${y.toFixed(2)}Z`);
+    el.classList.add("task");
+    el.querySelector("span").textContent = `${pr.label} ${Math.round(pr.frac * 100)}%`;
+  } else el.classList.remove("task");
+  if (busyCount > 0) busy.poll = setTimeout(pollProgress, 300);
 }
 
 async function api(route, body = {}) {
@@ -202,6 +222,9 @@ function viewParams() {
   if (OFF.has("levels")) for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 });
   for (const n of OFF.has("curves") ? ["lightness", "r", "g", "b"] : []) p.curves[n] = Array(N_CTRL).fill(0);
   for (const n of OFF.has("colour") ? ["warmth", "tint"] : []) p.curves[n] = Array(N_CTRL).fill(0);
+  // reviewing dust: the selected spot shows unrepaired until Return shows its repair
+  const d = S.tool === "dust" && S.dust && S.dust.spots.find((x) => x.id === S.dustSel);
+  if (d && d.on == null) p.dust_peek = S.dustTry === d.id ? { show: [d.id] } : { hide: [d.id] };
   return p;
 }
 $$("[data-power]").forEach((b) => b.addEventListener("click", (ev) => {
@@ -251,14 +274,14 @@ let liveLoading = null;  // key being fetched
 let liveBusy = false, liveDirty = false, shownGen = 0;
 const liveCanvas = document.createElement("canvas");
 
-function sourceKey(p) { return JSON.stringify([S.doc && S.doc.name, p.crop, p.angle, p.distortion, p.nr, S.dustVer]); }
+function sourceKey(p) { return JSON.stringify([S.doc && S.doc.name, p.crop, p.angle, p.distortion, p.nr, S.dustVer, p.dust_peek || null]); }
 
 function liveReady() {
-  return S.dragging && !S.comparing && S.tool !== "crop" && liveSrc && liveSrc.key === sourceKey(S.params);
+  return S.dragging && !S.comparing && S.tool !== "crop" && liveSrc && liveSrc.key === sourceKey(viewParams());
 }
 
 async function ensureSource() {
-  const key = sourceKey(S.params);
+  const key = sourceKey(viewParams());
   if ((liveSrc && liveSrc.key === key) || liveLoading === key) return;
   liveLoading = key;
   try {
@@ -660,8 +683,13 @@ overlay.addEventListener("mousedown", async (ev) => {
   if (!S.doc || ev.button !== 0) return;  // right button opens the menu
   const p = toScan(ev);
   const tool = S.tool;
-  if (tool === "dust") {  // a circle switches that spot; elsewhere marks a new one
-    const hit = dustAt(ev.offsetX, ev.offsetY);
+  if (tool === "dust") {  // ⌥ picks a clone source; with one, painting clones; a circle switches that spot; elsewhere marks a new one
+    if (ev.altKey && p.inside) { S.clone = { src: { x: p.x, y: p.y }, off: null, cursor: p }; hint("clone source set: paint over the spot. Esc drops it"); drawOverlay(); return; }
+    if (S.clone && p.inside) {
+      if (!S.clone.off) S.clone.off = { x: S.clone.src.x - p.x, y: S.clone.src.y - p.y };  // aligned from now on
+      S.clone.stroke = [{ sx: ev.offsetX, sy: ev.offsetY, x: p.x, y: p.y }]; drawOverlay(); return;
+    }
+    const hit = !S.dustSel && dustAt(ev.offsetX, ev.offsetY);
     if (hit) { S.dustSel = hit.id; switchDust(hit); return; }
     if (p.inside) S.dustMark = { sx: ev.offsetX, sy: ev.offsetY, x: p.x, y: p.y, r: 0 };
     return;
@@ -737,6 +765,13 @@ overlay.addEventListener("mousedown", async (ev) => {
 
 overlay.addEventListener("mousemove", (ev) => {
   if (S.dustMark) { S.dustMark.r = Math.hypot(ev.offsetX - S.dustMark.sx, ev.offsetY - S.dustMark.sy); drawOverlay(); return; }
+  if (S.tool === "dust" && S.clone) {
+    const p = toScan(ev), C = S.clone;
+    C.cursor = p; overlay.style.cursor = "crosshair";
+    const last = C.stroke && C.stroke[C.stroke.length - 1];
+    if (last && Math.hypot(ev.offsetX - last.sx, ev.offsetY - last.sy) > S.cloneR / 3) C.stroke.push({ sx: ev.offsetX, sy: ev.offsetY, x: p.x, y: p.y });
+    drawOverlay(); return;
+  }
   if (S.brush || S.sampleMove || S.push || S.cropStart || S.pan || S.rotDrag || ev.buttons) return;
   if (S.tool === "dust") { overlay.style.cursor = dustAt(ev.offsetX, ev.offsetY) ? "pointer" : "crosshair"; return; }
   if (S.tool === "crop") {
@@ -823,6 +858,12 @@ function applyPush(fine) {
 
 window.addEventListener("mouseup", () => {
   S.pan = null;
+  if (S.clone && S.clone.stroke) {
+    const C = S.clone, r = fitRect(), c = shownBox(), W = S.doc.width, H = S.doc.height, p0 = C.stroke[0];
+    const pts = C.stroke.map((q) => [q.x, q.y]);
+    C.stroke = null;
+    dustCall("dust", { clone: { points: pts, r: S.cloneR * (c[2] - c[0]) * W / (Math.max(W, H) * r.w), src: [p0.x + C.off.x, p0.y + C.off.y] } });
+  }
   if (S.dustMark) {
     const M = S.dustMark, r = fitRect(), c = shownBox(), W = S.doc.width, H = S.doc.height;
     S.dustMark = null;
@@ -1008,7 +1049,8 @@ async function refreshReport() {
 // The server finds spots, ranks them by how likely they are dust and repairs the
 // chosen ones in the scan itself; here they are listed, shown and switched.
 const DUST_MIN = 0.1;  // less likely spots are left out of the list
-const dustShown = () => (S.dust ? S.dust.spots.filter((d) => d.conf >= DUST_MIN || d.on != null) : []);
+const dustInSize = (d) => d.kind === "manual" || d.kind === "clone" || !S.dust.size || (d.px >= S.dust.size[0] && d.px <= S.dust.size[1]);
+const dustShown = () => (S.dust ? S.dust.spots.filter((d) => d.on != null || (d.conf >= DUST_MIN && dustInSize(d))) : []);
 
 async function dustCall(route, body = {}) {
   try {
@@ -1032,8 +1074,12 @@ function dustAt(x, y) {
 // The list in review order: spots not yet decided (most likely dust first), then
 // the ones you repaired, then the ones you left alone.
 function dustOrder() {
-  const shown = dustShown().sort((a, b) => b.conf - a.conf);
-  return [shown.filter((d) => d.on == null), shown.filter((d) => d.on === true), shown.filter((d) => d.on === false)];
+  const thr = S.dust ? S.dust.threshold : 0.6, how = $("#dust-sort").value;
+  const key = { unsure: (d) => Math.abs(d.conf - thr), likely: (d) => -d.conf, unlikely: (d) => d.conf }[how];
+  const shown = dustShown();
+  return [shown.filter((d) => d.on == null).sort((a, b) => key(a) - key(b)),
+          shown.filter((d) => d.on === true).sort((a, b) => b.conf - a.conf),
+          shown.filter((d) => d.on === false).sort((a, b) => b.conf - a.conf)];
 }
 
 // A spot's outline: the edge pixels of its bitmap, cached per spot.
@@ -1064,29 +1110,29 @@ function dustOutline(d) {
 
 function drawDust(ctx) {
   const sel = S.dust && S.dust.spots.find((d) => d.id === S.dustSel);
-  for (const d of dustShown()) {
-    if (d === sel) continue;
-    const p = toScreen(d.x, d.y), rad = Math.max(5, radiusPx(d.r) + 3);
-    ctx.globalAlpha = sel ? 0.45 : 1;
-    ctx.setLineDash(d.healed ? [] : [3, 3]);
-    for (const [c, w] of [["rgba(0,0,0,.6)", 3], [d.healed ? "#6c6" : "#e9b44c", 1.3]]) {
-      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
+  if (!sel) {  // overview: a circle per spot; once you review one, only that one is marked
+    for (const d of dustShown()) {
+      const p = toScreen(d.x, d.y), rad = Math.max(5, radiusPx(d.r) + 3);
+      ctx.setLineDash(d.healed ? [] : [3, 3]);
+      for (const [c, w] of [["rgba(0,0,0,.6)", 3], [d.healed ? "#6c6" : "#e9b44c", 1.3]]) {
+        ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
+      }
     }
-  }
-  ctx.globalAlpha = 1; ctx.setLineDash([]);
-  if (sel) {
+    ctx.setLineDash([]);
+  } else {
     // the selected spot: everything else dims, its exact shape is outlined, brackets frame it
-    const p = toScreen(sel.x, sel.y), k = radiusPx(1) * 1;  // screen px per unit of view fraction
+    const p = toScreen(sel.x, sel.y), k = radiusPx(1);  // screen px per unit of view fraction
     const bw = Math.max(sel.bw * k, 4), bh = Math.max(sel.bh * k, 4), R = Math.max(bw, bh) / 2 + 14;
+    const trying = S.dustTry === sel.id, shownRepaired = sel.on == null ? trying : sel.healed;
     ctx.fillStyle = "rgba(0,0,0,.28)";
     ctx.beginPath(); ctx.rect(0, 0, overlay.clientWidth, overlay.clientHeight); ctx.arc(p.x, p.y, R + 50, 0, 7); ctx.fill("evenodd");
-    if (!sel.healed || S.comparing) {
+    if (!shownRepaired || S.comparing) {
       ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-(S.params.angle || 0) * Math.PI / 180);
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(dustOutline(sel), -bw / 2, -bh / 2, bw, bh); ctx.restore();
     }
     const L = Math.min(10, R * 0.5);
-    for (const [c, w] of [["rgba(0,0,0,.7)", 4], [sel.healed ? "#7d7" : "#fff", 2]]) {
+    for (const [c, w] of [["rgba(0,0,0,.7)", 4], [shownRepaired ? "#7d7" : "#fff", 2]]) {
       ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
       for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
         const x = p.x + sx * R, y = p.y + sy * R;
@@ -1094,14 +1140,39 @@ function drawDust(ctx) {
       }
       ctx.stroke();
     }
-    ctx.font = "12px sans-serif"; ctx.textAlign = "left"; ctx.fillStyle = "#fff";
+    const what = sel.on == null ? (trying ? "repair shown · Return keeps it, ⌫ leaves it" : "Return shows the repair · ⌫ leaves it")
+      : sel.on ? "kept" : "left alone";
+    ctx.font = "12px -apple-system, sans-serif"; ctx.textAlign = "left"; ctx.fillStyle = "#fff";
     ctx.shadowColor = "#000"; ctx.shadowBlur = 3;
-    ctx.fillText(`${Math.round(sel.conf * 100)}% · ${sel.healed ? "repaired" : "not repaired"} · Enter repair, ⌫ leave`, p.x + R + 10, p.y - R - 4);
+    ctx.fillText(`${Math.round(sel.conf * 100)}% · ${what}`, p.x + R + 10, p.y - R - 4);
     ctx.shadowBlur = 0;
   }
+  drawClone(ctx);
   if (S.dustMark) {
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(S.dustMark.sx, S.dustMark.sy, Math.max(5, S.dustMark.r), 0, 7); ctx.stroke();
+  }
+}
+
+// ---- clone stamp: ⌥-click picks the source, painting copies from there (aligned)
+function drawClone(ctx) {
+  const C = S.clone;
+  if (!C) return;
+  const r = S.cloneR, cur = C.cursor && toScreen(C.cursor.x, C.cursor.y);
+  if (cur) {
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(cur.x, cur.y, r, 0, 7); ctx.stroke();
+  }
+  // the source: where the copy comes from, following the brush once aligned
+  const src = C.off ? (C.cursor && toScreen(C.cursor.x + C.off.x, C.cursor.y + C.off.y)) : toScreen(C.src.x, C.src.y);
+  if (src) {
+    ctx.strokeStyle = "#8cf"; ctx.lineWidth = 1.2; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.arc(src.x, src.y, r, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(src.x - 5, src.y); ctx.lineTo(src.x + 5, src.y); ctx.moveTo(src.x, src.y - 5); ctx.lineTo(src.x, src.y + 5); ctx.stroke();
+  }
+  if (C.stroke) {
+    ctx.fillStyle = "rgba(140,200,255,.25)";
+    for (const q of C.stroke) { ctx.beginPath(); ctx.arc(q.sx, q.sy, r, 0, 7); ctx.fill(); }
   }
 }
 
@@ -1111,16 +1182,17 @@ function renderDust() {
   $("#dust-threshold").value = D.threshold;
   $("#dust-threshold-num").textContent = Math.round(D.threshold * 100) + "%";
   $("#dust-repair").checked = D.repair;
+  if (document.activeElement !== $("#dust-min")) $("#dust-min").value = D.size[0];
+  if (document.activeElement !== $("#dust-max")) $("#dust-max").value = D.size[1];
   const [todo, fixed, left] = dustOrder();
   const healed = dustShown().filter((d) => d.healed).length;
   $("#dust-count").textContent = D.spots.length ? `${healed} repaired · ${todo.length} to review` : "nothing searched yet";
+  const name = (d) => ({ manual: "Marked by hand", clone: "Clone stroke", hair: "Hair" }[d.kind] || "Speck");
   const row = (d) => `<div class="row-d${d.id === S.dustSel ? " sel" : ""}${d.on != null ? " done" : ""}" data-id="${d.id}">
-    <input type="checkbox"${d.healed ? " checked" : ""} title="Repair this spot">
-    <span class="what">${d.kind === "manual" ? "by hand" : d.kind}</span><span class="px">${d.px} px</span>
-    <span class="bar"><i style="width:${Math.round(d.conf * 100)}%"></i></span>
-    <span class="pct">${Math.round(d.conf * 100)}%</span></div>`;
+    <span class="st${d.healed ? " on" : ""}" title="${d.healed ? "Repaired" : "Not repaired"}"></span>
+    <span>${name(d)}</span><span class="px">${d.px} px</span><span class="pct">${d.kind === "clone" || d.kind === "manual" ? "" : Math.round(d.conf * 100) + "%"}</span></div>`;
   const sec = (title, ds) => (ds.length ? `<div class="sec">${title} (${ds.length})</div>` + ds.map(row).join("") : "");
-  list.innerHTML = sec("To review", todo) + sec("Repaired by you", fixed) + sec("Left alone by you", left);
+  list.innerHTML = sec("To review", todo) + sec("Kept", fixed) + sec("Left alone", left);
   const sel = list.querySelector(".sel");
   if (sel) sel.scrollIntoView({ block: "nearest" });
 }
@@ -1132,13 +1204,14 @@ function zoomToDust(d) {
   const now = radiusPx(Math.max(d.bw || 0, d.bh || 0, 1e-4));
   S.view.scale = clamp(S.view.scale * 60 / now, 3, 16);
   S.view.cx = (d.x - c[0]) / (c[2] - c[0]); S.view.cy = (d.y - c[1]) / (c[3] - c[1]);
-  clampView(); detail = null; drawImage(); scheduleDetail(); renderDust();
+  clampView(); detail = null; S.dustTry = null; renderDust(); render();
 }
 
 // Decide a spot and move on to the next one still to review.
 async function decideDust(d, on) {
   const todo = dustOrder()[0], i = todo.findIndex((x) => x.id === d.id);
   const next = todo[i + 1] || todo[i - 1];
+  S.dustTry = null;
   await dustCall("dust", { id: d.id, on });
   const fresh = next && S.dust.spots.find((x) => x.id === next.id);
   if (fresh && fresh.on == null) zoomToDust(fresh);
@@ -1156,13 +1229,18 @@ function dustKey(ev) {
     return true;
   }
   if (!d) return false;
-  if (ev.key === "Enter") { ev.preventDefault(); decideDust(d, true); return true; }
+  if (ev.key === "Enter") {  // first Return shows the repair, the second keeps it
+    ev.preventDefault();
+    if (d.on == null && S.dustTry !== d.id) { S.dustTry = d.id; render(); drawOverlay(); } else decideDust(d, true);
+    return true;
+  }
   if (ev.key === "Backspace" || ev.key === "Delete") {
     ev.preventDefault();
     if (d.kind === "manual") dustCall("dust", { remove: d.id }); else decideDust(d, false);
     return true;
   }
   if (ev.key === " ") { ev.preventDefault(); switchDust(d); return true; }
+  if (ev.key === "[" || ev.key === "]") { S.cloneR = clamp(S.cloneR * (ev.key === "]" ? 1.25 : 0.8), 3, 200); drawOverlay(); return true; }
   return false;
 }
 
@@ -1170,7 +1248,7 @@ $("#dust-list").addEventListener("click", (ev) => {
   const r = ev.target.closest(".row-d");
   if (!r) return;
   const d = S.dust.spots.find((x) => x.id === +r.dataset.id);
-  if (ev.target.type === "checkbox") { ev.preventDefault(); ev.target.blur(); S.dustSel = d.id; switchDust(d); } else zoomToDust(d);
+  if (ev.target.classList.contains("st")) { S.dustSel = d.id; switchDust(d); } else zoomToDust(d);
 });
 $("#dust-find").onclick = () => guard("Find dust", async () => { await dustCall("dust_find"); status(`${S.dust.spots.filter((d) => d.healed).length} spots repaired`); });
 $("#dust-threshold").addEventListener("input", (e) => { $("#dust-threshold-num").textContent = Math.round(e.target.value * 100) + "%"; });
@@ -1178,6 +1256,17 @@ $("#dust-threshold").addEventListener("change", (e) => dustCall("dust", { thresh
 $("#dust-repair").onchange = (e) => dustCall("dust", { repair: e.target.checked });
 $("#dust-mask").onclick = () => guard("Export mask", async () => status("Saved " + (await api("dust_mask", { params: S.params })).path, 6000));
 $("#dust-done").onclick = () => setTool("probe");
+$("#dust-sort").onchange = () => renderDust();
+for (const id of ["#dust-min", "#dust-max"]) {
+  const el = $(id);
+  const apply = () => { const a = parseInt($("#dust-min").value, 10), b = parseInt($("#dust-max").value, 10); if (a > 0 && b > a) dustCall("dust", { size: [a, b] }); };
+  el.addEventListener("keydown", (ev) => {
+    const step = { ArrowUp: 1, ArrowDown: -1 }[ev.key];
+    if (step) { ev.preventDefault(); el.value = Math.max(1, (parseInt(el.value, 10) || 0) + step * (ev.shiftKey ? 10 : 1)); clearTimeout(el.t); el.t = setTimeout(apply, 400); }
+    if (ev.key === "Enter") { apply(); el.blur(); }
+  });
+  el.addEventListener("change", apply);
+}
 
 // ---------------------------------------------------------------- curve panels
 // Two panels share this code: Curves (Light, R, G, B; output over input with the
@@ -1994,6 +2083,7 @@ function setTool(t) {
   if (t === "crop") fitView();
   document.body.classList.toggle("cropping", t === "crop");
   document.body.classList.toggle("dusting", t === "dust");
+  if (t !== "dust") { S.clone = null; S.dustTry = null; }
   if (t === "dust") {  // positions follow the current straightening
     renderDust();
     api("dust", { params: S.params }).then((r) => { S.dust = r; renderDust(); drawOverlay(); }).catch(console.error);
@@ -2104,7 +2194,12 @@ window.addEventListener("keydown", (ev) => {
   }
   if (ev.metaKey || ev.ctrlKey) return;
   if ((k === "backspace" || k === "delete") && S.hl) { ev.preventDefault(); deleteMark(S.hl); return; }
-  if (k === "escape") { closeMenu(); setTool("probe"); return; }
+  if (k === "escape") {
+    closeMenu();
+    if (S.tool === "dust" && S.clone) { S.clone = null; hint(""); drawOverlay(); return; }        // drop the clone source
+    if (S.tool === "dust" && S.dustSel) { S.dustSel = null; S.dustTry = null; renderDust(); render(); return; }  // back to the overview
+    setTool("probe"); return;
+  }
   if (S.tool === "dust" && dustKey(ev)) return;
   if (k === "\\") { compare(true); return; }
   if (k === "[") { setWidth(S.width * 0.85); return; }
