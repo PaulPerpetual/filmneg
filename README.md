@@ -75,8 +75,10 @@ one each (a channel's levels apply first, then RGB). The number fields take
 exact values. To fine-tune clipping, zoom into the histogram: pinch or scroll
 over it, or pick *Shadows* / *Highlights*; drag it to move around and
 double-click to see everything. A drag then moves the triangles in finer steps.
-Hold ⌥ while dragging a triangle to see clipped areas on the image (red =
-white, blue = black); the panel also says how much is clipped.
+While you drag the black or white point, the image shows what gets clipped
+(red = white, blue = black), fading in a little before it clips so you can
+see where the brightest and darkest parts are. The panel also says how much is
+clipped.
 
 ### Curves
 

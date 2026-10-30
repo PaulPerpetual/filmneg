@@ -299,8 +299,9 @@ function previewTone(u, v) {
 // ---------------------------------------------------------------- overlay
 const KIND_COLOR = { neutral: "#9ad", white: "#fff", black: "#000", skin: "#e9a37a" };
 
-// A canvas the size of previewPx: dims what a push leaves alone, or marks clipped pixels.
+// A canvas the size of previewPx that dims what a push leaves alone, or the clipping overlay.
 function maskCanvas() {
+  if (S.mask && S.mask.kind === "clip") return clipCanvas();
   if (!S.mask || !previewPx) return null;
   const key = JSON.stringify(S.mask) + previewPx.w;
   if (S.maskCache && S.maskCache.key === key) return S.maskCache.canvas;
@@ -308,16 +309,9 @@ function maskCanvas() {
   const c = document.createElement("canvas"); c.width = w; c.height = h;
   const ctx = c.getContext("2d"), im = ctx.createImageData(w, h), o = im.data;
   for (let i = 0; i < data.length; i += 4) {
-    if (S.mask.kind === "push") {
-      const t = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
-      const wgt = Math.exp(-0.5 * ((t - S.mask.tone) / S.mask.width) ** 2);
-      o[i] = o[i + 1] = o[i + 2] = 110; o[i + 3] = (1 - wgt) * 190;  // grey veil over what stays untouched
-    } else {
-      const hi = data[i] >= 254 || data[i + 1] >= 254 || data[i + 2] >= 254;
-      const lo = data[i] <= 1 || data[i + 1] <= 1 || data[i + 2] <= 1;
-      if (hi) { o[i] = 255; o[i + 1] = 40; o[i + 2] = 40; o[i + 3] = 220; }
-      else if (lo) { o[i] = 40; o[i + 1] = 110; o[i + 2] = 255; o[i + 3] = 220; }
-    }
+    const t = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+    const wgt = Math.exp(-0.5 * ((t - S.mask.tone) / S.mask.width) ** 2);
+    o[i] = o[i + 1] = o[i + 2] = 110; o[i + 3] = (1 - wgt) * 190;  // grey veil over what stays untouched
   }
   ctx.putImageData(im, 0, 0);
   S.maskCache = { key, canvas: c };
@@ -343,7 +337,7 @@ function drawOverlay() {
   }
 
   const m = maskCanvas();
-  if (m) { const r = fitRect(); ctx.imageSmoothingEnabled = false; ctx.drawImage(m, r.x, r.y, r.w, r.h); ctx.imageSmoothingEnabled = true; }
+  if (m) { const r = fitRect(); ctx.imageSmoothingQuality = "high"; ctx.drawImage(m, r.x, r.y, r.w, r.h); }
 
   S.samples.forEach((s, i) => drawBrush(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
   if (S.brush) drawBrush(ctx, S.brush, S.brush.kind ? KIND_COLOR[S.brush.kind] : "#fff", S.brush.label);
@@ -875,10 +869,64 @@ function scheduleLevelHist() {
   clearTimeout(scheduleLevelHist.t);
   scheduleLevelHist.t = setTimeout(async () => {
     try {
-      const r = await api("histogram", { params: S.params, bins: 2048 });
-      S.levelHist = r; S.levelHistKey = key; drawLevels();
+      const [r, pre] = await Promise.all([api("histogram", { params: S.params, bins: 2048 }), fetchPre(S.params)]);
+      S.levelHist = r; S.pre = pre; S.levelHistKey = key; S.clipCache = null; drawLevels();
+      if (S.mask && S.mask.kind === "clip") drawOverlay();
     } catch (e) { console.error(e); }
   }, S.dragging ? 250 : 60);
+}
+
+// The image before levels, 16-bit, for the clipping overlay: {w, h, data: Uint16Array}.
+async function fetchPre(params) {
+  busy(1);
+  try {
+    const res = await fetch("/api/prelevels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ params }) });
+    if (!res.ok) throw new Error(res.statusText);
+    const [w, h] = res.headers.get("X-Size").split("x").map(Number);
+    return { w, h, data: new Uint16Array(await res.arrayBuffer()) };
+  } finally { busy(-1); }
+}
+
+// Clipping overlay, computed here from the image before levels, so it follows a drag
+// instantly. It fades in over the last few levels before a channel clips, which shows
+// where the brightest (red) and darkest (blue) parts are before they are cut off.
+const CLIP_BAND = 0.035;
+function clipCanvas() {
+  const P = S.pre;
+  if (!P || P.w * P.h * 3 !== P.data.length) return null;
+  const key = JSON.stringify(S.params.levels) + S.levelCh + P.w;
+  if (S.clipCache && S.clipCache.key === key) return S.clipCache.canvas;
+  const chans = S.levelCh === "rgb" ? [0, 1, 2] : ["rgb".indexOf(S.levelCh)], M = S.params.levels.rgb;
+  const smooth = (e0, e1, x) => { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); };
+  // per channel, a table from the 12 high bits of the value to highlight and shadow strength
+  const N = 4096, hiT = [], loT = [];
+  for (const c of chans) {
+    const L = S.params.levels["rgb"[c]], hi = new Float32Array(N), lo = new Float32Array(N);
+    for (let k = 0; k < N; k++) {
+      const x = (k + 0.5) / N, u = (x - L.lo) / Math.max(L.hi - L.lo, 1e-3), uc = clamp(u, 0, 1);
+      const out = L.out_lo + (L.gamma === 1 ? uc : uc ** (1 / L.gamma)) * (L.out_hi - L.out_lo);
+      const v = (out - M.lo) / Math.max(M.hi - M.lo, 1e-3);
+      hi[k] = smooth(1 - CLIP_BAND, 1, Math.max(u, v));
+      lo[k] = 1 - smooth(0, CLIP_BAND, Math.min(u, v));
+    }
+    hiT.push(hi); loT.push(lo);
+  }
+  const c = S.clipCache?.canvas || document.createElement("canvas");
+  if (c.width !== P.w || c.height !== P.h) { c.width = P.w; c.height = P.h; }
+  const ctx = c.getContext("2d"), im = ctx.createImageData(P.w, P.h), o = im.data, d = P.data, n = P.w * P.h;
+  for (let i = 0; i < n; i++) {
+    let h = 0, l = 0;
+    for (let j = 0; j < chans.length; j++) {
+      const k = d[i * 3 + chans[j]] >> 4;
+      if (hiT[j][k] > h) h = hiT[j][k];
+      if (loT[j][k] > l) l = loT[j][k];
+    }
+    if (h >= l && h > 0) { o[i * 4] = 255; o[i * 4 + 1] = 55; o[i * 4 + 2] = 55; o[i * 4 + 3] = h * 150; }
+    else if (l > 0) { o[i * 4] = 40; o[i * 4 + 1] = 120; o[i * 4 + 2] = 255; o[i * 4 + 3] = l * 160; }
+  }
+  ctx.putImageData(im, 0, 0);
+  S.clipCache = { key, canvas: c };
+  return c;
 }
 
 // Share of pixels pushed to pure black or white by the levels, for the shown channel(s).
@@ -1017,7 +1065,7 @@ levelsCanvas.addEventListener("mousedown", (ev) => {
   const p = levelPoint(ev), which = levelHandleAt(p);
   if (which) {
     S.levelDrag = { which, x0: p.x, base: { ...curLevel() } };
-    if (ev.altKey && which !== "mid") { S.mask = { kind: "clip" }; drawOverlay(); }
+    if (which === "lo" || which === "hi") { S.mask = { kind: "clip" }; drawOverlay(); }
     startDrag();
   } else if (p.y < LV_HIST) {
     S.levelPan = { x0: p.x, view: [...S.levelView] };
@@ -1043,9 +1091,8 @@ window.addEventListener("mousemove", (ev) => {
     L.gamma = clamp(Math.log((m - L.lo) / (L.hi - L.lo)) / Math.log(0.5), 0.1, 9.99);
   } else if (D.which === "out_lo") L.out_lo = clamp(B.out_lo + dx, 0, L.out_hi - 2 / 255);
   else L.out_hi = clamp(B.out_hi + dx, L.out_lo + 2 / 255, 1);
-  const wantMask = ev.altKey && D.which !== "mid";
-  if (wantMask !== !!S.mask) { S.mask = wantMask ? { kind: "clip" } : null; }
   drawLevels(); render();
+  if (S.mask) { cancelAnimationFrame(S.clipFrame); S.clipFrame = requestAnimationFrame(drawOverlay); }
 });
 
 window.addEventListener("mouseup", () => {

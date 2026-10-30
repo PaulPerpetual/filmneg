@@ -17,6 +17,7 @@ WEB = Path(__file__).parent / "web"
 PREVIEW = 1600
 DRAG = 800      # lighter preview while a slider or curve is being dragged
 THUMB = 520
+CLIP_VIEW = 1100  # the browser draws the clipping overlay from a copy of the image before levels
 REGION = 2000   # zoomed-in detail is rendered from full resolution, up to this size
 SCAN_EXT = {".tif", ".tiff", ".jpg", ".jpeg", ".png"}
 
@@ -188,6 +189,18 @@ def make_handler(session: Session):
                         rgb = session.render(body.get("params"), body.get("size", "preview"),
                                              original=bool(body.get("original")), region=body.get("region"))
                         return self._send(200, imageio.to_jpeg(rgb, session.scan.icc, 90), "image/jpeg")
+                    if route == "prelevels":
+                        # 8-bit is too coarse to place the overlay's edge; send 16-bit RGB
+                        p = pipeline.normalize(body.get("params"))
+                        src = imageio.downsample(pipeline.crop(session.source("preview", p), p["crop"]), CLIP_VIEW)
+                        pre = np.clip(pipeline.pre_levels(src, p, session.scan.space), 0, 1)
+                        data = np.rint(pre * 65535).astype("<u2").tobytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/octet-stream")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.send_header("X-Size", f"{pre.shape[1]}x{pre.shape[0]}")
+                        self.end_headers()
+                        return self.wfile.write(data)
                     result = api(route, body)
                 self._send(200, json.dumps(result, default=_jsonable).encode(), "application/json")
             except Exception as e:  # report to the UI instead of dropping the connection
