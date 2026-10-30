@@ -132,7 +132,7 @@ def pre_levels(enc, params, space: RGBSpace):
     return space.encode(_shoulder(lin, params["shoulder"])).astype(np.float32)
 
 
-def _channel_stages(enc, params, space: RGBSpace):
+def channel_stages(enc, params, space: RGBSpace):
     """Every stage that treats R, G and B independently, on (..., 3) arrays."""
     out = pre_levels(enc, params, space)
     lv = params["levels"]
@@ -157,11 +157,11 @@ def render_pixels(enc, params, space: RGBSpace):
     enc = np.asarray(enc, dtype=np.float32)
     if enc.size >= 3 * 4 * _LUT_N:
         ramp = np.repeat(np.linspace(0, 1, _LUT_N, dtype=np.float32)[:, None], 3, axis=1)
-        table = _channel_stages(ramp, params, space)
+        table = channel_stages(ramp, params, space)
         idx = np.clip(np.rint(enc * (_LUT_N - 1)), 0, _LUT_N - 1).astype(np.int32)
         out = np.stack([table[idx[..., i], i] for i in range(3)], axis=-1)
     else:
-        out = _channel_stages(enc, params, space)
+        out = channel_stages(enc, params, space)
 
     c = params["curves"]
     t = np.clip(luma(out), 0.0, 1.0).astype(np.float32)

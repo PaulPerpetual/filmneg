@@ -199,21 +199,112 @@ function viewParams() {
 
 async function render() {
   renderGen++;
+  if (liveReady()) { renderLive(); return; }
   if (inflight) { dirty = true; return; }
   inflight = true; dirty = false;
   const gen = renderGen;
   try {
     const full = S.tool === "crop";
-    current = await fetchImage({ params: viewParams(), original: S.comparing, size: S.dragging ? "drag" : "preview" });
-    currentFull = full;
-    readPreview();
-    drawImage();
-    drawCurve();
-    scheduleLevelHist();
-    if (!S.dragging && !dirty && gen === renderGen) { scheduleDetail(); refreshProbes(); }
+    const bmp = await fetchImage({ params: viewParams(), original: S.comparing, size: S.dragging ? "drag" : "preview" });
+    if (gen >= shownGen) {  // a newer live frame may already be on screen
+      shownGen = gen;
+      current = bmp; currentFull = full;
+      showCurrent();
+    }
+    if (!S.dragging && !dirty && gen === renderGen) { scheduleDetail(); refreshProbes(); if (S.tool !== "crop") ensureSource(); }
   } catch (e) { status("render failed: " + e.message, 8000); }
   inflight = false;
   if (dirty) render();
+}
+
+function showCurrent() {
+  readPreview();
+  drawImage();
+  drawCurve();
+  scheduleLevelHist();
+}
+
+// ---------------------------------------------------------------- live preview
+// While something is dragged, the browser applies the edit itself to a small 16-bit
+// copy of the input (rotated, denoised and cropped by the server once). Per change it
+// only fetches the per-channel stages as a 4096-entry table, so a frame is a lookup
+// per pixel instead of rendering and sending a whole image. The full render replaces
+// it when the drag ends.
+let liveSrc = null;      // {key, w, h, data: Uint16Array}
+let liveLoading = null;  // key being fetched
+let liveBusy = false, liveDirty = false, shownGen = 0;
+const liveCanvas = document.createElement("canvas");
+
+function sourceKey(p) { return JSON.stringify([S.doc && S.doc.name, p.crop, p.angle, p.distortion, p.nr]); }
+
+function liveReady() {
+  return S.dragging && !S.comparing && S.tool !== "crop" && liveSrc && liveSrc.key === sourceKey(S.params);
+}
+
+async function ensureSource() {
+  const key = sourceKey(S.params);
+  if ((liveSrc && liveSrc.key === key) || liveLoading === key) return;
+  liveLoading = key;
+  try {
+    const src = await fetchRGB16("source", S.params);
+    if (liveLoading === key) liveSrc = { key, ...src };
+  } catch (e) { console.error(e); }
+  if (liveLoading === key) liveLoading = null;
+}
+
+async function renderLive() {
+  if (liveBusy) { liveDirty = true; return; }
+  liveBusy = true; liveDirty = false;
+  const gen = renderGen;
+  try {
+    const lut = await api("lut", { params: S.params });
+    if (liveReady() && gen >= shownGen) {
+      shownGen = gen;
+      paintLive(lut);
+      current = liveCanvas; currentFull = false;
+      showCurrent();
+    }
+  } catch (e) { console.error(e); }
+  liveBusy = false;
+  if (liveDirty && liveReady()) renderLive();
+}
+
+const f32 = (b64) => { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return new Float32Array(u.buffer); };
+const SRGB_ENC = (() => {  // linear 0..1 in 65536 steps -> sRGB 8-bit
+  const t = new Uint8ClampedArray(65536);
+  for (let i = 0; i < 65536; i++) { const v = i / 65535; t[i] = 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055) + 0.5; }
+  return t;
+})();
+
+// The same steps as pipeline.render_pixels after the per-channel table, then on to sRGB.
+function paintLive(lut) {
+  const { w, h, data } = liveSrc, n = lut.n, T = f32(lut.table), Sh = f32(lut.shifts), sp = lut.space;
+  const N1 = n - 1, sat = S.params.saturation, toS = sp.to_srgb.flat();
+  const dec = new Float32Array(n);  // encoded (scan space) -> linear
+  for (let i = 0; i < n; i++) { const v = i / N1; dec[i] = sp.gamma ? v ** sp.gamma : v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }
+  const A = sp.lin_to_lms.flat(), B = sp.m2.flat(), Bi = sp.m2_inv.flat(), Ai = sp.lms_to_lin.flat();
+  liveCanvas.width = w; liveCanvas.height = h;
+  const ctx = liveCanvas.getContext("2d"), im = ctx.createImageData(w, h), o = im.data;
+  const q = (v) => (v <= 0 ? 0 : v >= 1 ? N1 : (v * N1 + 0.5) | 0);
+  for (let p = 0, j = 0; p < data.length; p += 3, j += 4) {
+    let r = T[(data[p] >> 4) * 3], g = T[(data[p + 1] >> 4) * 3 + 1], b = T[(data[p + 2] >> 4) * 3 + 2];
+    const t = q(0.2126 * r + 0.7152 * g + 0.0722 * b), wm = Sh[t * 2], m = Sh[t * 2 + 1];
+    r += wm / 2 + m / 3; g -= 2 * m / 3; b += -wm / 2 + m / 3;
+    r = dec[q(r)]; g = dec[q(g)]; b = dec[q(b)];
+    if (sat !== 1) {  // Oklab chroma scale, then back to the scan's encoding and linear again
+      let l = Math.cbrt(A[0] * r + A[1] * g + A[2] * b), mm = Math.cbrt(A[3] * r + A[4] * g + A[5] * b), s_ = Math.cbrt(A[6] * r + A[7] * g + A[8] * b);
+      const L = B[0] * l + B[1] * mm + B[2] * s_, a = (B[3] * l + B[4] * mm + B[5] * s_) * sat, bb = (B[6] * l + B[7] * mm + B[8] * s_) * sat;
+      l = (Bi[0] * L + Bi[1] * a + Bi[2] * bb) ** 3; mm = (Bi[3] * L + Bi[4] * a + Bi[5] * bb) ** 3; s_ = (Bi[6] * L + Bi[7] * a + Bi[8] * bb) ** 3;
+      r = Ai[0] * l + Ai[1] * mm + Ai[2] * s_; g = Ai[3] * l + Ai[4] * mm + Ai[5] * s_; b = Ai[6] * l + Ai[7] * mm + Ai[8] * s_;
+      r = Math.min(1, Math.max(0, r)); g = Math.min(1, Math.max(0, g)); b = Math.min(1, Math.max(0, b));  // clipped in encoded space too
+    }
+    const R = toS[0] * r + toS[1] * g + toS[2] * b, G = toS[3] * r + toS[4] * g + toS[5] * b, Bl = toS[6] * r + toS[7] * g + toS[8] * b;
+    o[j] = SRGB_ENC[R <= 0 ? 0 : R >= 1 ? 65535 : (R * 65535) | 0];
+    o[j + 1] = SRGB_ENC[G <= 0 ? 0 : G >= 1 ? 65535 : (G * 65535) | 0];
+    o[j + 2] = SRGB_ENC[Bl <= 0 ? 0 : Bl >= 1 ? 65535 : (Bl * 65535) | 0];
+    o[j + 3] = 255;
+  }
+  ctx.putImageData(im, 0, 0);
 }
 
 // Zoomed in: fetch the visible part from full resolution so it stays sharp.
@@ -348,7 +439,7 @@ function maskCanvas() {
   for (let i = 0; i < data.length; i += 4) {
     const t = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
     const wgt = Math.exp(-0.5 * ((t - S.mask.tone) / S.mask.width) ** 2);
-    o[i] = o[i + 1] = o[i + 2] = 110; o[i + 3] = (1 - wgt) * 190;  // grey veil over what stays untouched
+    o[i] = o[i + 1] = o[i + 2] = 0; o[i + 3] = (1 - wgt) * 70;  // light shade over what stays untouched
   }
   ctx.putImageData(im, 0, 0);
   S.maskCache = { key, canvas: c };
@@ -679,6 +770,8 @@ window.addEventListener("mousemove", (ev) => {
   if (S.push) {
     const b = overlay.getBoundingClientRect();
     S.push.cx = ev.clientX - b.left; S.push.cy = ev.clientY - b.top;
+    // the shade shows what the press reaches; it goes once you move, so the colour reads true
+    if (S.mask && S.mask.kind === "push" && Math.hypot(S.push.cx - S.push.sx, S.push.cy - S.push.sy) > 4) S.mask = null;
     applyPush(ev.altKey);
     drawOverlay();
   }
@@ -692,13 +785,13 @@ function applyPush(fine) {
   if (P.kind === "light") {
     const a = pushStrength(Math.abs(dy), fine) * (dy < 0 ? 1 : -1);
     S.params.curves.lightness = addTo(P.base.lightness, bump(P.tone, a, S.width));
-    hint(`light at tone ${(P.tone * 100).toFixed(0)}%: ${fmt(a * 255)} · width ${S.width.toFixed(2)} ([ ]) · ⌥ finer · dimmed = not affected`);
+    hint(`light at tone ${(P.tone * 100).toFixed(0)}%: ${fmt(a * 255)} · width ${S.width.toFixed(2)} ([ ]) · ⌥ finer`);
   } else {
     const d = Math.hypot(dx, dy), a = pushStrength(d, fine);
     const tint = d ? a * dx / d : 0, warm = d ? a * -dy / d : 0;
     S.params.curves.warmth = addTo(P.base.warmth, bump(P.tone, warm, S.width));
     S.params.curves.tint = addTo(P.base.tint, bump(P.tone, tint, S.width));
-    hint(`colour at tone ${(P.tone * 100).toFixed(0)}%: warmth ${fmt(warm * 255)}, tint ${fmt(tint * 255)} · width ${S.width.toFixed(2)} ([ ]) · ⌥ finer · dimmed = not affected`);
+    hint(`colour at tone ${(P.tone * 100).toFixed(0)}%: warmth ${fmt(warm * 255)}, tint ${fmt(tint * 255)} · width ${S.width.toFixed(2)} ([ ]) · ⌥ finer`);
   }
   render(); drawCurve();
 }
@@ -1105,10 +1198,12 @@ function scheduleLevelHist() {
 }
 
 // The image before levels, 16-bit, for the clipping overlay: {w, h, data: Uint16Array}.
-async function fetchPre(params) {
+const fetchPre = (params) => fetchRGB16("prelevels", params);
+
+async function fetchRGB16(route, params) {
   busy(1);
   try {
-    const res = await fetch("/api/prelevels", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ params }) });
+    const res = await fetch("/api/" + route, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ params }) });
     if (!res.ok) throw new Error(res.statusText);
     const [w, h] = res.headers.get("X-Size").split("x").map(Number);
     return { w, h, data: new Uint16Array(await res.arrayBuffer()) };

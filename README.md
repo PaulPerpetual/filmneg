@@ -51,7 +51,7 @@ for Pixelmator.
 | Key | Tool |
 |---|---|
 | P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. hover one and click its × (or press Delete) to remove it, drag to move it |
-| C | Shift colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. The parts of the image it leaves alone are veiled while you drag |
+| C | Shift colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. On the press, a light shade shows what it leaves alone; it lifts as soon as you drag so the colours read true |
 | L | Shift brightness: same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
@@ -137,6 +137,12 @@ scan (encoded) -> linear light
   -> curves: lightness, R/G/B, warmth/tint by tone
   -> saturation (Oklab)
 ```
+
+While you drag a slider, curve, levels handle or shift tool, the browser renders
+the preview itself: it keeps a small 16-bit copy of the cropped input and, per
+change, fetches only the per-channel stages as a 4096-entry table (`/api/lut`),
+so the image follows the drag instantly. The full render replaces it when you
+let go. Crop, rotation and colour noise still render on the server.
 
 **Crossover.** The three dye layers of a colour film have slightly different
 contrast, so after inversion the cast changes with brightness: neutral mids,

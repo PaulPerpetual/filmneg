@@ -3,6 +3,7 @@
 Run with `filmneg path/to/scan.tif` or `filmneg path/to/folder`.
 """
 import argparse
+import base64
 import json
 import threading
 import webbrowser
@@ -11,14 +12,16 @@ from pathlib import Path
 
 import numpy as np
 
-from . import analysis, imageio, pipeline
+from . import analysis, color, curves, imageio, pipeline
 
 WEB = Path(__file__).parent / "web"
 PREVIEW = 1600
 DRAG = 800      # lighter preview while a slider or curve is being dragged
 THUMB = 520
 CLIP_VIEW = 1100  # the browser draws the clipping overlay from a copy of the image before levels
+LIVE = 1100       # the browser's live preview while dragging
 REGION = 2000   # zoomed-in detail is rendered from full resolution, up to this size
+LUT_N = 4096
 SCAN_EXT = {".tif", ".tiff", ".jpg", ".jpeg", ".png"}
 
 
@@ -105,6 +108,16 @@ class Session:
         src = self.source("preview", params)
         return [analysis.sample_color(src, s) for s in samples]
 
+    def space_info(self):
+        sp = self.scan.space
+        lms = color._OKLAB_M1 @ sp.to_xyz
+        return {
+            "gamma": sp.gamma,  # None: the sRGB curve
+            "lin_to_lms": lms.tolist(), "lms_to_lin": np.linalg.inv(lms).tolist(),
+            "m2": color._OKLAB_M2.tolist(), "m2_inv": np.linalg.inv(color._OKLAB_M2).tolist(),
+            "to_srgb": (np.linalg.inv(color.SRGB.to_xyz) @ sp.to_xyz).tolist(),
+        }
+
     def casts(self, colors, kinds, report, params):
         out = pipeline.render_pixels(pipeline.crop(self.source("thumb", params), params["crop"]), params, self.scan.space)
         return analysis.cast_report(out, colors, kinds, report, params, self.scan.space)
@@ -184,6 +197,16 @@ def make_handler(session: Session):
                 side.write_text(json.dumps(doc, indent=1))
                 count += 1
             return {"count": count}
+        if route == "lut":
+            # every per-channel stage as a table over the input value, plus the colour
+            # maths the browser needs to finish the live preview itself
+            ramp = np.repeat(np.linspace(0, 1, LUT_N, dtype=np.float32)[:, None], 3, axis=1)
+            table = pipeline.channel_stages(ramp, p, s.scan.space)
+            tone = ramp[:, 0]
+            shifts = np.stack([curves.apply(p["curves"]["warmth"], tone),
+                               curves.apply(p["curves"]["tint"], tone)], axis=1)
+            pack = lambda a: base64.b64encode(np.ascontiguousarray(a, "<f4").tobytes()).decode()
+            return {"n": LUT_N, "table": pack(table), "shifts": pack(shifts), "space": s.space_info()}
         if route == "save":
             return {"path": s.save(body)}
         if route == "export":
@@ -200,6 +223,15 @@ def make_handler(session: Session):
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
+
+        def _send_rgb16(self, rgb):
+            data = np.rint(np.clip(rgb, 0, 1) * 65535).astype("<u2").tobytes()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("X-Size", f"{rgb.shape[1]}x{rgb.shape[0]}")
             self.end_headers()
             self.wfile.write(data)
 
@@ -221,18 +253,18 @@ def make_handler(session: Session):
                         rgb = session.render(body.get("params"), body.get("size", "preview"),
                                              original=bool(body.get("original")), region=body.get("region"))
                         return self._send(200, imageio.to_jpeg(rgb, session.scan.icc, 90), "image/jpeg")
+                    if route == "source":
+                        # the input as the browser's live preview uses it: rotated, denoised,
+                        # cropped and small, 16-bit; the browser applies the edit on top
+                        p = pipeline.normalize(body.get("params"))
+                        src = imageio.downsample(pipeline.crop(session.source("preview", p), p["crop"]), LIVE)
+                        return self._send_rgb16(src)
                     if route == "prelevels":
                         # 8-bit is too coarse to place the overlay's edge; send 16-bit RGB
                         p = pipeline.normalize(body.get("params"))
                         src = imageio.downsample(pipeline.crop(session.source("preview", p), p["crop"]), CLIP_VIEW)
                         pre = np.clip(pipeline.pre_levels(src, p, session.scan.space), 0, 1)
-                        data = np.rint(pre * 65535).astype("<u2").tobytes()
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/octet-stream")
-                        self.send_header("Content-Length", str(len(data)))
-                        self.send_header("X-Size", f"{pre.shape[1]}x{pre.shape[0]}")
-                        self.end_headers()
-                        return self.wfile.write(data)
+                        return self._send_rgb16(pre)
                     result = api(route, body)
                 self._send(200, json.dumps(result, default=_jsonable).encode(), "application/json")
             except Exception as e:  # report to the UI instead of dropping the connection
