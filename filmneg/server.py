@@ -77,13 +77,13 @@ class Session:
         Cached per size; only the latest strength and angle are kept per size.
         """
         strength = round(float(params.get("nr", 0)), 3) if nr else 0.0
-        angle = round(float(params.get("angle", 0)), 2)
+        angle = (round(float(params.get("angle", 0)), 2), round(float(params.get("distortion", 0)), 2))
         key = (size, strength, angle)
         if key not in self._nr_cache:
             for k in [k for k in self._nr_cache if k[0] == size and (k[2] != angle or len(self._nr_cache) > 8)]:
                 del self._nr_cache[k]
             base = self.scan.rgb if size == "full" else self.proxies[size]
-            self._nr_cache[key] = pipeline.chroma_denoise(pipeline.rotate(base, angle), strength, self.scan.space)
+            self._nr_cache[key] = pipeline.chroma_denoise(pipeline.geometry(base, *angle), strength, self.scan.space)
         return self._nr_cache[key]
 
     def render(self, params, size="preview", cropped=True, original=False, region=None):
@@ -129,13 +129,13 @@ def make_handler(session: Session):
         if route == "load":
             return s.load(body.get("name") or s.default)
         if route == "auto":
-            p["crop"] = analysis.auto_crop(pipeline.rotate(s.proxies["preview"], p["angle"]))
-            p["black"], p["white"] = analysis.auto_levels(pipeline.rotate(s.proxies["preview"], p["angle"]), p, s.scan.space)
+            p["crop"] = analysis.auto_crop(pipeline.geometry(s.proxies["preview"], p["angle"], p["distortion"]))
+            p["black"], p["white"] = analysis.auto_levels(pipeline.geometry(s.proxies["preview"], p["angle"], p["distortion"]), p, s.scan.space)
             return {"params": p}
         if route == "autocrop":
-            return {"crop": analysis.auto_crop(pipeline.rotate(s.proxies["preview"], p["angle"]))}
+            return {"crop": analysis.auto_crop(pipeline.geometry(s.proxies["preview"], p["angle"], p["distortion"]))}
         if route == "levels":
-            p["black"], p["white"] = analysis.auto_levels(pipeline.rotate(s.proxies["preview"], p["angle"]), p, s.scan.space)
+            p["black"], p["white"] = analysis.auto_levels(pipeline.geometry(s.proxies["preview"], p["angle"], p["distortion"]), p, s.scan.space)
             return {"params": p}
         if route == "solve":
             samples = body.get("samples", [])

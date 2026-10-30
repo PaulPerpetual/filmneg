@@ -36,6 +36,7 @@ DEFAULTS = {
     "base": None,                  # film base, linear RGB, negative mode only
     "crop": [0.0, 0.0, 1.0, 1.0],  # x0, y0, x1, y1 as fractions of the (rotated) scan
     "angle": 0.0,                  # straighten: degrees, counter-clockwise, applied before the crop
+    "distortion": 0.0,             # lens: + removes barrel, - pincushion
     "black": [0.0, 0.0, 0.0],      # linear levels per channel
     "white": [1.0, 1.0, 1.0],
     "slope": [1.0, 1.0, 1.0],      # per-channel contrast in log2 domain
@@ -178,12 +179,36 @@ def render_pixels(enc, params, space: RGBSpace):
     return np.clip(out, 0.0, 1.0)
 
 
-def rotate(img, angle):
-    """Rotate about the centre, keeping the size (the uncovered corners are black)."""
-    if not angle:
+def geometry(img, angle=0.0, distortion=0.0):
+    """Rotate about the centre and correct radial lens distortion, keeping the size.
+
+    angle: degrees, counter-clockwise. distortion: + removes barrel (lines that
+    bow outwards), - removes pincushion; about the edge displacement in percent
+    of the half-diagonal. The uncovered corners are black.
+    """
+    if not angle and not distortion:
         return img
-    from scipy.ndimage import rotate as _rotate
-    return _rotate(img, angle, axes=(1, 0), reshape=False, order=1, mode="constant", cval=0.0).astype(np.float32)
+    from scipy.ndimage import map_coordinates
+    h, w = img.shape[:2]
+    cy, cx, R = (h - 1) / 2, (w - 1) / 2, np.hypot(h, w) / 2
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    x, y = (xx - cx) / R, (yy - cy) / R
+    # undistort: barrel squeezed the edges inwards, so sample further in (and out for pincushion)
+    k = -0.01 * distortion
+    scale = 1 + k * (x * x + y * y)
+    x, y = x * scale, y * scale
+    # rotate the sampling grid the other way; screen y points down
+    a = np.radians(angle)
+    sx = cx + R * (np.cos(a) * x - np.sin(a) * y)
+    sy = cy + R * (np.sin(a) * x + np.cos(a) * y)
+    out = np.empty_like(img, dtype=np.float32)
+    for c in range(img.shape[2]):
+        out[..., c] = map_coordinates(img[..., c], [sy, sx], order=1, mode="constant", cval=0.0)
+    return out
+
+
+def rotate(img, angle):
+    return geometry(img, angle)
 
 
 def crop(img, box):

@@ -56,7 +56,7 @@ for Pixelmator.
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
 | N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it; hover it and click its × (or press Delete) to remove it |
-| R | Crop. The bar on top rotates (angle slider, or type it), *Level by line* straightens along a line you draw (a horizon, a wall edge), *Reset* goes back to the automatic crop |
+| R | Crop & straighten: the sidebar shows angle, *Level by line* (draw along a horizon or wall edge), aspect ratio (6×7, 4×5, …), lens distortion and *Reset*. Drag on the picture for a new crop, outside it to rotate (⌥ finer) |
 | right-click | Background colour around the picture (white, mid grey, dark), fit |
 | \\ (hold) | Before: the scan as the scanner delivered it |
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo (a short note on the image says what was undone) |

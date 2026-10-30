@@ -143,3 +143,14 @@ def test_rotate_keeps_size_and_centre():
     img[20, :, :] = 1.0                            # a horizontal line through the centre
     out = pipeline.rotate(img, 10)
     assert out.shape == img.shape and out[20, 30, 0] > 0.5 and out[20, 5, 0] < 0.5
+
+
+def test_distortion_straightens_a_bowed_line():
+    img = np.zeros((101, 101, 3), np.float32)
+    xs = np.arange(101)
+    ys = np.rint(80 - 0.0024 * (xs - 50) ** 2).astype(int)   # barrel: the middle bulges outwards
+    img[np.clip(ys, 0, 100), xs] = 1.0
+    def bow(im):
+        rows = [np.argmax(im[:, x, 0]) for x in (10, 50, 90)]
+        return (rows[0] + rows[2]) / 2 - rows[1]
+    assert abs(bow(pipeline.geometry(img, 0, 10))) < abs(bow(img)) <= abs(bow(pipeline.geometry(img, 0, -10)))

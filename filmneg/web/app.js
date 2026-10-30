@@ -137,7 +137,7 @@ function restore(snap) {
 
 // What changed between two snapshots, in words, for the undo/redo flash.
 const PARAM_NAMES = {
-  exposure: "Exposure", contrast: "Contrast", angle: "Rotation", shoulder: "Highlight roll-off", toe: "Shadow roll-off", saturation: "Saturation", nr: "Colour noise", lighting: "Light",
+  exposure: "Exposure", contrast: "Contrast", angle: "Rotation", distortion: "Lens distortion", shoulder: "Highlight roll-off", toe: "Shadow roll-off", saturation: "Saturation", nr: "Colour noise", lighting: "Light",
   crop: "Crop", levels: "Levels", black: "Auto levels", white: "Auto levels", slope: "Colour balance", offset: "Colour balance", mode: "Mode",
 };
 const CURVE_LABELS = { warmth: "Yellow/blue curve", tint: "Magenta/green curve", lightness: "Light curve", r: "Red curve", g: "Green curve", b: "Blue curve" };
@@ -362,11 +362,8 @@ function drawOverlay() {
   if (S.tool === "crop") {
     const c = S.cropDrag || S.params.crop;
     const a = toScreen(c[0], c[1]), b = toScreen(c[2], c[3]), r = fitRect();
-    ctx.fillStyle = "rgba(0,0,0,.5)";
-    ctx.fillRect(r.x, r.y, r.w, a.y - r.y);
-    ctx.fillRect(r.x, b.y, r.w, r.y + r.h - b.y);
-    ctx.fillRect(r.x, a.y, a.x - r.x, b.y - a.y);
-    ctx.fillRect(b.x, a.y, r.x + r.w - b.x, b.y - a.y);
+    ctx.fillStyle = "rgba(0,0,0,.5)";  // one even-odd path, so the veil has no seams
+    ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.fill("evenodd");
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1;
     ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
     // thirds, and a finer grid while rotating, to judge what is level
@@ -558,6 +555,11 @@ overlay.addEventListener("mousedown", async (ev) => {
 
   if (tool === "crop") {
     if (S.leveling) { S.levelLine = { x0: ev.offsetX, y0: ev.offsetY, x1: ev.offsetX, y1: ev.offsetY }; return; }
+    if (!p.inside) {  // outside the picture: drag around it to rotate
+      const r = fitRect(), cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+      S.rotDrag = { cx, cy, a0: Math.atan2(ev.offsetY - cy, ev.offsetX - cx), angle0: S.params.angle };
+      S.rotating = true; startDrag(); return;
+    }
     S.cropStart = p; S.cropDrag = [p.x, p.y, p.x, p.y]; return;
   }
   if (!p.inside) {
@@ -597,7 +599,8 @@ overlay.addEventListener("mousedown", async (ev) => {
 });
 
 overlay.addEventListener("mousemove", (ev) => {
-  if (S.brush || S.sampleMove || S.push || S.cropStart || S.pan || ev.buttons) return;
+  if (S.brush || S.sampleMove || S.push || S.cropStart || S.pan || S.rotDrag || ev.buttons) return;
+  if (S.tool === "crop") { overlay.style.cursor = S.leveling || toScan(ev).inside ? "crosshair" : ROTATE_CURSOR; return; }
   const m = S.hl && markOf(S.hl), onDel = m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10;
   if (!onDel) setHighlight(markAt(ev.offsetX, ev.offsetY));
   overlay.style.cursor = onDel ? "pointer" : S.hl ? "move" : S.tool === "push" ? "move" : S.tool === "light" ? "ns-resize" : "crosshair";
@@ -605,6 +608,14 @@ overlay.addEventListener("mousemove", (ev) => {
 overlay.addEventListener("mouseleave", () => { if (!S.sampleMove) setHighlight(null); });
 
 window.addEventListener("mousemove", (ev) => {
+  if (S.rotDrag) {
+    const b = overlay.getBoundingClientRect(), R = S.rotDrag;
+    const a = Math.atan2(ev.clientY - b.top - R.cy, ev.clientX - b.left - R.cx);
+    let d = (a - R.a0) * 180 / Math.PI;
+    d = ((d + 540) % 360) - 180;
+    setGeom("angle", R.angle0 - d * (ev.altKey ? 0.2 : 1));
+    drawOverlay(); return;
+  }
   if (S.levelLine) {
     const b = overlay.getBoundingClientRect();
     S.levelLine.x1 = ev.clientX - b.left; S.levelLine.y1 = ev.clientY - b.top;
@@ -614,7 +625,7 @@ window.addEventListener("mousemove", (ev) => {
   }
   if (S.cropStart) {
     const p = toScan(ev), a = S.cropStart;
-    S.cropDrag = [clamp(Math.min(a.x, p.x), 0, 1), clamp(Math.min(a.y, p.y), 0, 1), clamp(Math.max(a.x, p.x), 0, 1), clamp(Math.max(a.y, p.y), 0, 1)];
+    S.cropDrag = constrainCrop(a.x, a.y, p.x, p.y);
     drawOverlay(); return;
   }
   if (S.brush) {
@@ -676,6 +687,7 @@ window.addEventListener("mouseup", () => {
     if (S.sampleMove.moved) S.sampleMove.probe ? refreshProbes() : commit();
     S.sampleMove = null;
   }
+  if (S.rotDrag) { S.rotDrag = null; S.rotating = false; commit(); endDrag(); drawOverlay(); }
   if (S.levelLine) {
     const L = S.levelLine; S.levelLine = null; hint("");
     if (Math.hypot(L.x1 - L.x0, L.y1 - L.y0) > 20) {
@@ -1469,35 +1481,75 @@ for (const k of SLIDERS) {
 }
 $("#lighting").addEventListener("change", (e) => { S.params.lighting = e.target.value; commit(); });
 
-// ---- crop bar: rotation, level by line, reset
-function setAngle(a) {
-  S.params.angle = clamp(Math.round(a * 100) / 100, -45, 45);
-  $("#angle").value = S.params.angle; $("#angle-num").value = S.params.angle.toFixed(2);
+// ---- crop panel: rotation, level by line, aspect, lens distortion, reset
+function setGeom(key, v) {
+  const lim = key === "angle" ? 45 : 10;
+  S.params[key] = clamp(Math.round(v * 100) / 100, -lim, lim);
+  $("#" + key).value = S.params[key]; $("#" + key + "-num").value = S.params[key].toFixed(2);
   render();
 }
+const setAngle = (a) => setGeom("angle", a);
+for (const key of ["angle", "distortion"]) {
+  const el = $("#" + key), num = $("#" + key + "-num");
+  el.addEventListener("input", () => { if (!S.dragging) startDrag(); S.rotating = true; setGeom(key, +el.value); });
+  el.addEventListener("change", () => { S.rotating = false; commit(); endDrag(); drawOverlay(); });
+  el.addEventListener("dblclick", () => { setGeom(key, 0); commit(); });
+  num.addEventListener("focus", () => num.select());
+  num.addEventListener("keydown", (ev) => {
+    const step = { ArrowUp: 0.1, ArrowDown: -0.1, ArrowRight: 0.01, ArrowLeft: -0.01 }[ev.key];
+    if (step) { ev.preventDefault(); setGeom(key, S.params[key] + step * (ev.shiftKey ? 10 : 1)); clearTimeout(num.t); num.t = setTimeout(commit, 500); }
+    else if (ev.key === "Enter") { const v = parseFloat(num.value.replace(",", ".").replace("−", "-")); if (Number.isFinite(v)) { setGeom(key, v); commit(); } num.blur(); }
+  });
+  num.addEventListener("blur", () => (num.value = (+S.params[key]).toFixed(2)));
+}
+
 function setLeveling(on) {
   S.leveling = on;
   $("#crop-level").classList.toggle("active", on);
-  overlay.style.cursor = on ? "crosshair" : "crosshair";
-  hint(on ? "draw a line along something that should be level or upright" : "drag the new crop");
+  hint(on ? "draw a line along something that should be level or upright" : "drag on the picture for a new crop, outside it to rotate");
 }
-$("#angle").addEventListener("input", (e) => { if (!S.dragging) startDrag(); S.rotating = true; setAngle(+e.target.value); });
-$("#angle").addEventListener("change", () => { S.rotating = false; commit(); endDrag(); drawOverlay(); });
-$("#angle").addEventListener("dblclick", () => { setAngle(0); commit(); });
-$("#angle-num").addEventListener("focus", (e) => e.target.select());
-$("#angle-num").addEventListener("keydown", (ev) => {
-  const step = { ArrowUp: 0.1, ArrowDown: -0.1, ArrowRight: 0.01, ArrowLeft: -0.01 }[ev.key];
-  if (step) { ev.preventDefault(); setAngle(S.params.angle + step * (ev.shiftKey ? 10 : 1)); clearTimeout(setAngle.t); setAngle.t = setTimeout(commit, 500); }
-  else if (ev.key === "Enter") { const v = parseFloat(ev.target.value.replace(",", ".").replace("−", "-")); if (Number.isFinite(v)) { setAngle(v); commit(); } ev.target.blur(); }
-});
-$("#angle-num").addEventListener("blur", (e) => (e.target.value = (+S.params.angle).toFixed(2)));
 $("#crop-level").onclick = () => setLeveling(!S.leveling);
+
+// Aspect ratio as width/height in pixels (>= 1); null = free.
+function aspectRatio() {
+  const v = $("#aspect").value;
+  if (v === "free") return null;
+  const r = v === "orig" ? S.doc.width / S.doc.height : +v;
+  return Math.max(r, 1 / r);
+}
+// Fit box [x0, y0, x1, y1] (scan fractions) to the aspect, around anchor (ax, ay) towards (bx, by).
+function constrainCrop(ax, ay, bx, by) {
+  const r = aspectRatio(), W = S.doc.width, H = S.doc.height;
+  if (r) {
+    let w = Math.abs(bx - ax) * W, h = Math.abs(by - ay) * H;
+    const rr = w >= h ? r : 1 / r;
+    if (w / Math.max(h, 1e-6) > rr) w = h * rr; else h = w / rr;
+    bx = ax + Math.sign(bx - ax || 1) * w / W; by = ay + Math.sign(by - ay || 1) * h / H;
+  }
+  return [clamp(Math.min(ax, bx), 0, 1), clamp(Math.min(ay, by), 0, 1), clamp(Math.max(ax, bx), 0, 1), clamp(Math.max(ay, by), 0, 1)];
+}
+$("#aspect").onchange = () => {
+  try { localStorage.setItem("filmneg.aspect", $("#aspect").value); } catch (e) { /* ignore */ }
+  const r = aspectRatio(), c = S.params.crop;
+  if (!r) return;
+  // shrink the current crop around its centre to the new shape
+  const W = S.doc.width, H = S.doc.height, cx = (c[0] + c[2]) / 2, cy = (c[1] + c[3]) / 2;
+  let w = (c[2] - c[0]) * W, h = (c[3] - c[1]) * H;
+  const rr = w >= h ? r : 1 / r;
+  if (w / h > rr) w = h * rr; else h = w / rr;
+  S.params.crop = [cx - w / W / 2, cy - h / H / 2, cx + w / W / 2, cy + h / H / 2];
+  commit(); drawOverlay();
+};
+try { const a = localStorage.getItem("filmneg.aspect"); if (a) $("#aspect").value = a; } catch (e) { /* ignore */ }
+
 $("#crop-reset").onclick = () => guard("Reset crop", async () => {
-  S.params.angle = 0;
+  S.params.angle = 0; S.params.distortion = 0;
   S.params.crop = (await api("autocrop", { params: S.params })).crop;
-  setAngle(0); commit(); drawOverlay();
+  setGeom("angle", 0); setGeom("distortion", 0); commit(); drawOverlay();
 });
 $("#crop-done").onclick = () => setTool("probe");
+
+const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2.2-5.1" fill="none" stroke="black" stroke-width="4" stroke-linecap="round"/><path d="M5 12a7 7 0 1 0 2.2-5.1" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M3.5 3.5v5h5" fill="none" stroke="black" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 3.5v5h5" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>')}") 12 12, grab`;
 
 function setTool(t) {
   S.tool = t;
@@ -1506,13 +1558,13 @@ function setTool(t) {
   $$("#tools [data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));
   overlay.style.cursor = t === "push" ? "move" : t === "light" ? "ns-resize" : "crosshair";
   if (t === "crop") fitView();
-  $("#cropbar").hidden = t !== "crop";
-  if (t === "crop") { setAngle(S.params.angle || 0); setLeveling(false); }
+  document.body.classList.toggle("cropping", t === "crop");
+  if (t === "crop") { setGeom("angle", S.params.angle || 0); setGeom("distortion", S.params.distortion || 0); setLeveling(false); }
   if (t === "crop" || currentFull) render(); else drawOverlay();
   hint({
     push: "click a spot, then drag towards a colour; further = stronger. [ ] = width",
     light: "click a spot, then drag up to brighten or down to darken that brightness. [ ] = width",
-    crop: "drag the new crop",
+    crop: "drag on the picture for a new crop, outside it to rotate",
   }[t] || "");
 }
 // Eye buttons: show or hide samples / measured points on the image.
