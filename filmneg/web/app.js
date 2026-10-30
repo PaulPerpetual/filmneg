@@ -538,21 +538,27 @@ function hint(t) { $("#hint").textContent = t; }
 const fmt = (v, d = 1) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
 
 function castWords(a, b) {
+  const c = Math.hypot(a, b);
+  if (c < 0.004) return "neutral grey";
   const parts = [];
   if (Math.abs(b) > 0.003) parts.push(b > 0 ? "yellow" : "blue");
   if (Math.abs(a) > 0.003) parts.push(a > 0 ? "magenta" : "green");
-  return parts.length ? "leans " + parts.join(" + ") : "neutral";
+  const how = c < 0.012 ? "slightly " : c < 0.03 ? "" : "strongly ";
+  return how + parts.join("-") + (c >= 0.03 ? " (a coloured object rather than a grey)" : "");
 }
 
 function showProbe() {
   const p = S.probe;
   const rgb = (v) => v.map((x) => Math.round(x * 255)).join(" / ");
+  const zone = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][Math.round(p.tone * 10)];
+  const skin = Math.abs(p.skin_hue_off) < 5 ? "matches typical skin" :
+    `${Math.abs(p.skin_hue_off).toFixed(0)}° ${p.skin_hue_off > 0 ? "more yellow" : "more red/pink"} than typical skin`;
   $("#probe").innerHTML = `<table>
-    <tr><td>scan</td><td>${rgb(p.input)}</td></tr>
-    <tr><td>now</td><td>${rgb(p.output)}</td></tr>
-    <tr><td>tone</td><td>${(p.tone * 100).toFixed(0)}%</td></tr>
-    <tr><td>cast</td><td>a ${fmt(p.a * 1000)} · b ${fmt(p.b * 1000)} · ${castWords(p.a, p.b)}</td></tr>
-    <tr><td>skin hue</td><td>${fmt(p.skin_hue_off, 0)}° from the skin line</td></tr></table>`;
+    <tr><td>original</td><td>R/G/B ${rgb(p.input)} (as scanned)</td></tr>
+    <tr><td>now</td><td>R/G/B ${rgb(p.output)} (with your edits)</td></tr>
+    <tr><td>brightness</td><td>${(p.tone * 100).toFixed(0)}% · about zone ${zone} · marked on the curves</td></tr>
+    <tr><td>colour</td><td>${castWords(p.a, p.b)}<br><span class="muted">yellow↔blue ${fmt(p.b * 1000, 0)}, magenta↔green ${fmt(p.a * 1000, 0)} (0 = grey; under ±4 looks neutral)</span></td></tr>
+    <tr><td>if skin</td><td>${skin}</td></tr></table>`;
 }
 
 // ---------------------------------------------------------------- samples
@@ -887,7 +893,8 @@ function drawScopes() {
   }
   cctx.fillStyle = "#777"; cctx.font = "9px sans-serif";
   cctx.fillText("shadows", 3, CH - 3); cctx.fillText("highlights", CW - 48, CH - 3);
-  cctx.fillText("yellow / magenta ↑", 3, 10);
+  cctx.fillStyle = CURVE_COLORS.warmth; cctx.fillText("yellow ↑ blue ↓", 3, 10);
+  cctx.fillStyle = CURVE_COLORS.tint; cctx.fillText("magenta ↑ green ↓", 3, 21);
 }
 
 const SKIN_HUE = (() => {
