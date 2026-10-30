@@ -192,11 +192,26 @@ let renderGen = 0;       // bumps whenever the edit changes; stale detail render
 let detail = null;       // {bmp, region, gen}: sharp full-resolution render of the zoomed-in area
 let previewPx = null;    // {w, h, data}: small copy of the preview pixels for masks and histograms
 
+// Panels switched off for a moment: their adjustments are left out of the view only.
+const OFF = new Set();
 function viewParams() {
   const p = clone(S.params);
   if (S.tool === "crop") p.crop = [0, 0, 1, 1];
+  if (OFF.has("base")) Object.assign(p, SLIDER_DEFAULTS);
+  if (OFF.has("samples")) { p.slope = [1, 1, 1]; p.offset = [0, 0, 0]; }
+  if (OFF.has("levels")) for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 });
+  for (const n of OFF.has("curves") ? ["lightness", "r", "g", "b"] : []) p.curves[n] = Array(N_CTRL).fill(0);
+  for (const n of OFF.has("colour") ? ["warmth", "tint"] : []) p.curves[n] = Array(N_CTRL).fill(0);
   return p;
 }
+$$("[data-power]").forEach((b) => b.addEventListener("click", (ev) => {
+  ev.stopPropagation();  // the title click would fold the panel
+  const k = b.dataset.power, off = !OFF.has(k);
+  off ? OFF.add(k) : OFF.delete(k);
+  b.closest(".panel").classList.toggle("off", off);
+  b.title = off ? "Switch this panel's adjustments back on" : "Switch this panel's adjustments off for a moment (not saved)";
+  render();
+}));
 
 async function render() {
   renderGen++;
@@ -247,7 +262,7 @@ async function ensureSource() {
   if ((liveSrc && liveSrc.key === key) || liveLoading === key) return;
   liveLoading = key;
   try {
-    const src = await fetchRGB16("source", S.params);
+    const src = await fetchRGB16("source", viewParams());
     if (liveLoading === key) liveSrc = { key, ...src };
   } catch (e) { console.error(e); }
   if (liveLoading === key) liveLoading = null;
@@ -258,7 +273,7 @@ async function renderLive() {
   liveBusy = true; liveDirty = false;
   const gen = renderGen;
   try {
-    const lut = await api("lut", { params: S.params });
+    const lut = await api("lut", { params: viewParams() });
     if (liveReady() && gen >= shownGen) {
       shownGen = gen;
       paintLive(lut);
@@ -280,7 +295,7 @@ const SRGB_ENC = (() => {  // linear 0..1 in 65536 steps -> sRGB 8-bit
 // The same steps as pipeline.render_pixels after the per-channel table, then on to sRGB.
 function paintLive(lut) {
   const { w, h, data } = liveSrc, n = lut.n, T = f32(lut.table), Sh = f32(lut.shifts), sp = lut.space;
-  const N1 = n - 1, sat = S.params.saturation, toS = sp.to_srgb.flat();
+  const N1 = n - 1, sat = OFF.has("base") ? 1 : S.params.saturation, toS = sp.to_srgb.flat();
   const dec = new Float32Array(n);  // encoded (scan space) -> linear
   for (let i = 0; i < n; i++) { const v = i / N1; dec[i] = sp.gamma ? v ** sp.gamma : v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }
   const A = sp.lin_to_lms.flat(), B = sp.m2.flat(), Bi = sp.m2_inv.flat(), Ai = sp.lms_to_lin.flat();

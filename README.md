@@ -75,6 +75,11 @@ some, otherwise from grey-ish areas of the picture) and what would fix it.
 until it is neutral (or matches the light you set), keeping the other bands
 as they are.
 
+The power button in the title of Base, Levels, Curves, Colour by tone and
+Samples switches that panel's adjustments off for a moment (Samples: the
+solved colour), to see what it does. It isn't saved and doesn't touch the
+settings. Dust has its own *Repair here* switch.
+
 The numbers next to the Base sliders are fields: click one, then ↑/↓ steps
 by 0.1 and ←/→ by 0.01 (⇧ for ten times that), or type a value and press
 Enter. Double-click a slider to reset it.
