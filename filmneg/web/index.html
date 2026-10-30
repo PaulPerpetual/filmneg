@@ -53,6 +53,7 @@
       <button data-tool="skin" class="k-skin" title="Add a skin area (S)">Skin</button>
       <span class="sep"></span>
       <button data-tool="crop" class="icon" title="Crop and straighten (R)"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 1.5v13h13"/><path d="M1.5 5.5h13v13"/></svg>Crop</button>
+      <button data-tool="dust" class="icon" title="Dust (D): find dust and hairs, review them and repair"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 9.3 6.7 13.5 8 9.3 9.3 8 13.5 6.7 9.3 2.5 8 6.7 6.7z"/><path d="M15 11.5l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7z"/></svg>Dust</button>
       <span class="sep"></span>
       <button id="btn-fit" class="icon" title="Fit the whole picture in the window (0). Pinch to zoom, two-finger scroll to move around. Right-click the image for the background colour">
         <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5"/></svg>
@@ -95,6 +96,19 @@
       <div class="slider"><label title="Straightens lines that bow: + for barrel (lines bulge outwards), − for pincushion">Distortion</label><input id="distortion" type="range" min="-5" max="5" step="0.05" title="Double-click for 0"><input id="distortion-num" class="num" type="text" inputmode="decimal" title="↑/↓ 0.1, ←/→ 0.01, or type a value"></div>
       <div class="row"><button id="crop-reset" title="Back to the automatic crop, no rotation or distortion correction">Reset</button><button id="crop-done" class="primary" title="Done (Esc)">Done</button></div>
       <div class="muted small">Drag the corners or edges to fine-tune, inside the crop to move it. A press outside the crop pulls the nearest edge there; ⇧-drag draws a new crop. Drag outside the picture to rotate. Changing the crop leaves exposure and colour alone. Distortion: + straightens lines that bulge outwards (barrel), − lines that bend inwards (pincushion). The grid helps judge both.</div>
+    </div>
+
+    <div class="panel" id="dust-panel">
+      <h3>Dust</h3>
+      <div class="row"><button id="dust-find" class="primary" title="Look for dust and hairs inside the crop">Find dust</button><span id="dust-count" class="muted small"></span></div>
+      <div class="slider"><label title="Spots at least this likely to be dust are repaired; check or uncheck any spot to decide yourself">Repair from</label><input id="dust-threshold" type="range" min="0.05" max="0.99" step="0.01"><span id="dust-threshold-num" class="num ro"></span></div>
+      <div id="dust-list" tabindex="0"></div>
+      <div class="row">
+        <label class="check" title="Off: spots stay marked (for the mask) but filmneg doesn't repair them"><input id="dust-repair" type="checkbox" checked> Repair here</label>
+        <button id="dust-mask" title="Save a black and white mask of the marked spots next to the scan, lined up with the exported TIFF, e.g. for Pixelmator Pro's Repair tool">Export mask</button>
+        <button id="dust-done" class="primary" title="Done (Esc)">Done</button>
+      </div>
+      <div class="muted small">Most likely dust first. Click a row (or ↑/↓) to zoom to it; the checkbox or Space switches its repair. On the image, click a circle to switch it, or click elsewhere to mark a spot yourself (drag for a bigger one). Hold \ to compare with the unrepaired scan.</div>
     </div>
 
     <div class="panel">

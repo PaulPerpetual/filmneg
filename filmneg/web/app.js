@@ -236,7 +236,7 @@ let liveLoading = null;  // key being fetched
 let liveBusy = false, liveDirty = false, shownGen = 0;
 const liveCanvas = document.createElement("canvas");
 
-function sourceKey(p) { return JSON.stringify([S.doc && S.doc.name, p.crop, p.angle, p.distortion, p.nr]); }
+function sourceKey(p) { return JSON.stringify([S.doc && S.doc.name, p.crop, p.angle, p.distortion, p.nr, S.dustVer]); }
 
 function liveReady() {
   return S.dragging && !S.comparing && S.tool !== "crop" && liveSrc && liveSrc.key === sourceKey(S.params);
@@ -493,6 +493,7 @@ function drawOverlay() {
     ctx.drawImage(m, r.x, r.y, r.w, r.h); ctx.restore();
   }
 
+  if (S.tool === "dust") { drawDust(ctx); return; }
   if (S.showSamples) S.samples.forEach((s, i) => drawSample(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
   if (S.showProbes) S.probes.forEach((p, i) => drawMeasure(ctx, p.at, PROBE_COLORS[i % PROBE_COLORS.length], "P" + (i + 1)));
   if (S.hl) drawHighlight(ctx);
@@ -644,6 +645,12 @@ overlay.addEventListener("mousedown", async (ev) => {
   if (!S.doc || ev.button !== 0) return;  // right button opens the menu
   const p = toScan(ev);
   const tool = S.tool;
+  if (tool === "dust") {  // a circle switches that spot; elsewhere marks a new one
+    const hit = dustAt(ev.offsetX, ev.offsetY);
+    if (hit) { S.dustSel = hit.id; switchDust(hit); return; }
+    if (p.inside) S.dustMark = { sx: ev.offsetX, sy: ev.offsetY, x: p.x, y: p.y, r: 0 };
+    return;
+  }
   if (S.hl) {  // the × next to a highlighted mark
     const m = markOf(S.hl);
     if (m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10) { deleteMark(S.hl); return; }
@@ -714,7 +721,9 @@ overlay.addEventListener("mousedown", async (ev) => {
 });
 
 overlay.addEventListener("mousemove", (ev) => {
+  if (S.dustMark) { S.dustMark.r = Math.hypot(ev.offsetX - S.dustMark.sx, ev.offsetY - S.dustMark.sy); drawOverlay(); return; }
   if (S.brush || S.sampleMove || S.push || S.cropStart || S.pan || S.rotDrag || ev.buttons) return;
+  if (S.tool === "dust") { overlay.style.cursor = dustAt(ev.offsetX, ev.offsetY) ? "pointer" : "crosshair"; return; }
   if (S.tool === "crop") {
     const hit = !S.leveling && cropHit(ev.offsetX, ev.offsetY);
     const p = toScan(ev), c = S.params.crop;
@@ -799,6 +808,12 @@ function applyPush(fine) {
 
 window.addEventListener("mouseup", () => {
   S.pan = null;
+  if (S.dustMark) {
+    const M = S.dustMark, r = fitRect(), c = shownBox(), W = S.doc.width, H = S.doc.height;
+    S.dustMark = null;
+    const px = Math.max(5, M.r);  // a click marks a small spot
+    dustCall("dust", { add: { x: M.x, y: M.y, r: px * (c[2] - c[0]) * W / (Math.max(W, H) * r.w) } });
+  }
   if (S.brush) {
     const { kind, x, y, r } = S.brush;
     S.brush = null; hint("");
@@ -968,6 +983,105 @@ async function refreshReport() {
     catch (e) { console.error(e); }
   }, 300);
 }
+
+// ---------------------------------------------------------------- dust
+// The server finds spots, ranks them by how likely they are dust and repairs the
+// chosen ones in the scan itself; here they are listed, shown and switched.
+const DUST_MIN = 0.1;  // less likely spots are left out of the list
+const dustShown = () => (S.dust ? S.dust.spots.filter((d) => d.conf >= DUST_MIN || d.on != null) : []);
+
+async function dustCall(route, body = {}) {
+  try {
+    S.dust = await api(route, { params: S.params, ...body });
+    S.dustVer = (S.dustVer || 0) + 1;
+    renderDust(); drawOverlay(); render();
+  } catch (e) { status("dust: " + e.message, 8000); }
+}
+
+function switchDust(d) { dustCall("dust", { id: d.id, on: !d.healed }); }
+
+function dustAt(x, y) {
+  let best = null;
+  for (const d of dustShown()) {
+    const p = toScreen(d.x, d.y), dist = Math.hypot(p.x - x, p.y - y);
+    if (dist <= Math.max(6, radiusPx(d.r) + 4) && (!best || dist < best.dist)) best = { d, dist };
+  }
+  return best && best.d;
+}
+
+function drawDust(ctx) {
+  for (const d of dustShown()) {
+    const p = toScreen(d.x, d.y), rad = Math.max(5, radiusPx(d.r) + 3), sel = d.id === S.dustSel;
+    ctx.setLineDash(d.healed ? [] : [3, 3]);
+    for (const [c, w] of [["rgba(0,0,0,.6)", sel ? 4 : 3], [d.healed ? "#6c6" : "#e9b44c", sel ? 2.2 : 1.3]]) {
+      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
+    }
+  }
+  ctx.setLineDash([]);
+  if (S.dustMark) {
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(S.dustMark.sx, S.dustMark.sy, Math.max(5, S.dustMark.r), 0, 7); ctx.stroke();
+  }
+}
+
+function renderDust() {
+  const D = S.dust, list = $("#dust-list");
+  if (!D) return;
+  $("#dust-threshold").value = D.threshold;
+  $("#dust-threshold-num").textContent = Math.round(D.threshold * 100) + "%";
+  $("#dust-repair").checked = D.repair;
+  const shown = dustShown().sort((a, b) => b.conf - a.conf);
+  const on = shown.filter((d) => d.healed), off = shown.filter((d) => !d.healed);
+  $("#dust-count").textContent = D.spots.length ? `${on.length} repaired · ${off.length} left alone` : "nothing searched yet";
+  const row = (d) => `<div class="row-d${d.id === S.dustSel ? " sel" : ""}" data-id="${d.id}">
+    <input type="checkbox"${d.healed ? " checked" : ""} title="Repair this spot">
+    <span class="what">${d.kind === "manual" ? "by hand" : d.kind}</span><span class="px">${d.px} px</span>
+    <span class="bar"><i style="width:${Math.round(d.conf * 100)}%"></i></span>
+    <span class="pct">${Math.round(d.conf * 100)}%</span>
+    <span class="hand" title="${d.on != null ? "decided by hand" : ""}">${d.on != null && d.kind !== "manual" ? "•" : ""}</span></div>`;
+  list.innerHTML = (on.length ? `<div class="sec">Repaired (${on.length})</div>` + on.map(row).join("") : "")
+    + (off.length ? `<div class="sec">Left alone (${off.length})</div>` + off.map(row).join("") : "");
+  const sel = list.querySelector(".sel");
+  if (sel) sel.scrollIntoView({ block: "nearest" });
+}
+
+function zoomToDust(d) {
+  S.dustSel = d.id;
+  const c = shownBox();
+  S.view.scale = Math.max(S.view.scale, 6);
+  S.view.cx = (d.x - c[0]) / (c[2] - c[0]); S.view.cy = (d.y - c[1]) / (c[3] - c[1]);
+  clampView(); detail = null; drawImage(); scheduleDetail(); renderDust();
+}
+
+// ↑/↓ walk the list, Space switches the selected spot, Delete removes a hand-marked one.
+function dustKey(ev) {
+  const shown = dustShown().sort((a, b) => (b.healed - a.healed) || (b.conf - a.conf));
+  const i = shown.findIndex((d) => d.id === S.dustSel);
+  if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+    ev.preventDefault();
+    const n = shown[clamp(i + (ev.key === "ArrowDown" ? 1 : -1), 0, shown.length - 1)];
+    if (n) zoomToDust(n);
+    return true;
+  }
+  if (ev.key === " " && i >= 0) { ev.preventDefault(); switchDust(shown[i]); return true; }
+  if ((ev.key === "Backspace" || ev.key === "Delete") && i >= 0 && shown[i].kind === "manual") {
+    ev.preventDefault(); dustCall("dust", { remove: shown[i].id }); return true;
+  }
+  return false;
+}
+
+$("#dust-list").addEventListener("click", (ev) => {
+  const r = ev.target.closest(".row-d");
+  if (!r) return;
+  const d = S.dust.spots.find((x) => x.id === +r.dataset.id);
+  if (ev.target.type === "checkbox") { ev.preventDefault(); ev.target.blur(); S.dustSel = d.id; switchDust(d); } else zoomToDust(d);
+});
+$("#dust-find").onclick = () => guard("Find dust", async () => { await dustCall("dust_find"); status(`${S.dust.spots.filter((d) => d.healed).length} spots repaired`); });
+$("#dust-threshold").addEventListener("input", (e) => { $("#dust-threshold-num").textContent = Math.round(e.target.value * 100) + "%"; });
+$("#dust-threshold").addEventListener("change", (e) => dustCall("dust", { threshold: +e.target.value }));
+$("#dust-repair").onchange = (e) => dustCall("dust", { repair: e.target.checked });
+$("#dust-mask").onclick = () => guard("Export mask", async () => status("Saved " + (await api("dust_mask", { params: S.params })).path, 6000));
+$("#dust-done").onclick = () => setTool("probe");
 
 // ---------------------------------------------------------------- curve panels
 // Two panels share this code: Curves (Light, R, G, B; output over input with the
@@ -1745,12 +1859,18 @@ function setTool(t) {
   overlay.style.cursor = t === "push" ? "move" : t === "light" ? "ns-resize" : "crosshair";
   if (t === "crop") fitView();
   document.body.classList.toggle("cropping", t === "crop");
+  document.body.classList.toggle("dusting", t === "dust");
+  if (t === "dust") {  // positions follow the current straightening
+    renderDust();
+    api("dust", { params: S.params }).then((r) => { S.dust = r; renderDust(); drawOverlay(); }).catch(console.error);
+  }
   if (t === "crop") { setGeom("angle", S.params.angle || 0); setGeom("distortion", S.params.distortion || 0); setLeveling(false); }
   if (t === "crop" || currentFull) render(); else drawOverlay();
   hint({
     push: "click a spot, then drag towards a colour; further = stronger. [ ] = width",
     light: "click a spot, then drag up to brighten or down to darken that brightness. [ ] = width",
     crop: "drag on the picture for a new crop, outside it to rotate",
+    dust: "click a circle to switch its repair, click elsewhere to mark a spot. Hold \\ to compare",
   }[t] || "");
 }
 // Eye buttons: show or hide samples / measured points on the image.
@@ -1851,11 +1971,12 @@ window.addEventListener("keydown", (ev) => {
   if (ev.metaKey || ev.ctrlKey) return;
   if ((k === "backspace" || k === "delete") && S.hl) { ev.preventDefault(); deleteMark(S.hl); return; }
   if (k === "escape") { closeMenu(); setTool("probe"); return; }
+  if (S.tool === "dust" && dustKey(ev)) return;
   if (k === "\\") { compare(true); return; }
   if (k === "[") { setWidth(S.width * 0.85); return; }
   if (k === "]") { setWidth(S.width / 0.85); return; }
   if (k === "0") { fitView(); return; }
-  const tools = { p: "probe", c: "push", l: "light", n: "neutral", w: "white", k: "black", s: "skin", r: "crop" };
+  const tools = { p: "probe", c: "push", l: "light", n: "neutral", w: "white", k: "black", s: "skin", r: "crop", d: "dust" };
   if (tools[k]) setTool(tools[k]);
 });
 window.addEventListener("keyup", (ev) => {
@@ -1869,7 +1990,7 @@ document.addEventListener("gesturestart", (ev) => ev.preventDefault());
 // ---------------------------------------------------------------- start
 async function load(name) {
   const d = await api("load", { name });
-  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.versions = d.versions || []; S.undo = []; S.redo = []; S.probes = [];
+  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.dust = d.dust; S.dustSel = null; S.dustVer = (S.dustVer || 0) + 1; S.versions = d.versions || []; S.undo = []; S.redo = []; S.probes = [];
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
   $("#lighting").innerHTML = d.lighting_options.map((o) => `<option>${o}</option>`).join("");

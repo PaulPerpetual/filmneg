@@ -207,6 +207,25 @@ def geometry(img, angle=0.0, distortion=0.0):
     return out
 
 
+def geometry_point(u, v, w, h, angle=0.0, distortion=0.0, inverse=False):
+    """Map a point (fractions) through geometry(): where a scan point ends up in
+    the output, or with inverse=True, which scan point an output point shows."""
+    cy, cx, R = (h - 1) / 2, (w - 1) / 2, np.hypot(h, w) / 2
+    k, a = -0.01 * distortion, np.radians(angle)
+    x, y = (u * w - 0.5 - cx) / R, (v * h - 0.5 - cy) / R
+    if inverse:  # output -> scan: exactly the sampling map of geometry()
+        s = 1 + k * (x * x + y * y)
+        x, y = x * s, y * s
+        x, y = np.cos(a) * x - np.sin(a) * y, np.sin(a) * x + np.cos(a) * y
+    else:        # scan -> output: undo the rotation, then solve the radial scale
+        X, Y = np.cos(a) * x + np.sin(a) * y, -np.sin(a) * x + np.cos(a) * y
+        x, y = X, Y
+        for _ in range(8):
+            s = 1 + k * (x * x + y * y)
+            x, y = X / s, Y / s
+    return (cx + R * x + 0.5) / w, (cy + R * y + 0.5) / h
+
+
 def rotate(img, angle):
     return geometry(img, angle)
 

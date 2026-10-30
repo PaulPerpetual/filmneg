@@ -57,6 +57,7 @@ for Pixelmator.
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
 | N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it; hover it and click its × (or press Delete) to remove it |
 | R | Crop & straighten: the sidebar shows angle, *Level by line* (draw along a horizon or wall edge), aspect ratio (6×7, 4×5, …), lens distortion and *Reset*. Drag the corners or edges to fine-tune, inside to move; a press outside the crop pulls the nearest edge there, ⇧-drag draws a new crop, dragging outside the picture rotates (⌥ finer). Leave with Done |
+| D | Dust: find dust and hairs, review the ranked list, repair (see below) |
 | right-click | Background colour around the picture (white, mid grey, dark), fit |
 | \\ (hold) | Before: the scan as the scanner delivered it |
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo (a short note on the image says what was undone) |
@@ -103,6 +104,32 @@ that is out of view.
 While you drag the black or white point, the image shows what gets clipped
 (red = white, blue = black), like Lightroom's clipping warning. The panel also says how much is
 clipped.
+
+### Dust
+
+The Flextight has no infrared dust channel, so filmneg finds dust in the
+picture itself. On an inverted scan, dust and hairs are small bright specks
+and thin bright lines. **Find dust** (in the Dust tool, D) looks inside the
+crop and lists every candidate with how likely it is dust: specks and hairs on
+smooth ground (sky, walls, skin) score high; bright details in busy texture
+(catch lights, lettering, glass) score low.
+
+- Spots from **Repair from** (60% by default) upwards are repaired; tick or
+  untick any spot to decide yourself (a dot marks your choices).
+- Click a row, or walk the list with ↑/↓, to zoom to the spot; Space switches
+  it. On the image, solid green circles are repaired, dashed amber ones are
+  left alone; click a circle to switch it, click anywhere else to mark a spot
+  by hand (drag for a bigger one; Delete removes a hand-marked spot).
+- Hold \\ to compare with the unrepaired scan.
+- A repair clones the best-matching patch nearby (compared on a ring around
+  the spot, never taken from other dust) and evens out brightness and colour
+  at the edge, like a healing brush, so the grain carries on. Long hairs are
+  repaired piece by piece.
+- **Export mask** saves `<scan>_filmneg_dust.png`, white where spots are
+  marked, lined up with the exported TIFF, e.g. to use with Pixelmator Pro's
+  Repair tool. Untick **Repair here** to only mark spots for the mask.
+- Spots are stored in the sidecar in unrotated scan coordinates, so they stay
+  put when you change the crop or angle. The exported TIFF includes the repairs.
 
 ### Curves and Colour by tone
 

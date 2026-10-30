@@ -12,7 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-from . import analysis, color, curves, imageio, pipeline
+from . import analysis, color, curves, dust, imageio, pipeline
 
 WEB = Path(__file__).parent / "web"
 PREVIEW = 1600
@@ -35,6 +35,9 @@ class Session:
         self.lock = threading.Lock()
         self.scan = None
         self._nr_cache = {}
+        self.dust = {"spots": [], "threshold": 0.6, "repair": True}
+        self._patches = {}  # size -> {spot id: repairs at that size}
+        self._healed = {}   # size -> (key, image with the repairs)
 
     def files(self):
         folder = self.root if self.root.is_dir() else self.root.parent
@@ -47,7 +50,7 @@ class Session:
     def load(self, name):
         path = self.folder() / name
         self.scan = imageio.load(path)
-        self._nr_cache = {}
+        self._nr_cache, self._patches, self._healed = {}, {}, {}
         self.proxies = {
             "preview": imageio.downsample(self.scan.rgb, PREVIEW),
             "drag": imageio.downsample(self.scan.rgb, DRAG),
@@ -68,7 +71,9 @@ class Session:
             params["black"], params["white"] = analysis.auto_levels(
                 self.proxies["preview"], params, self.scan.space)
             doc = {"params": params, "samples": [], "history": []}
+        self.dust = {"spots": [], "threshold": 0.6, "repair": True, **doc.get("dust", {})}
         h, w = self.scan.rgb.shape[:2]
+        doc["dust"] = self.dust_view(doc["params"])
         doc.update(name=name, width=w, height=h, profile=self.scan.profile_name,
                    space=self.scan.space.name, files=self.files(),
                    lighting_options=list(analysis.LIGHTING))
@@ -81,13 +86,70 @@ class Session:
         """
         strength = round(float(params.get("nr", 0)), 3) if nr else 0.0
         angle = (round(float(params.get("angle", 0)), 2), round(float(params.get("distortion", 0)), 2))
-        key = (size, strength, angle)
+        heal_key, base = self.healed_base(size) if nr else ((), self.raw(size))
+        key = (size, strength, angle, heal_key)
         if key not in self._nr_cache:
-            for k in [k for k in self._nr_cache if k[0] == size and (k[2] != angle or len(self._nr_cache) > 8)]:
+            for k in [k for k in self._nr_cache if k[0] == size and (k[2:] != key[2:] or len(self._nr_cache) > 8)]:
                 del self._nr_cache[k]
-            base = self.scan.rgb if size == "full" else self.proxies[size]
             self._nr_cache[key] = pipeline.chroma_denoise(pipeline.geometry(base, *angle), strength, self.scan.space)
         return self._nr_cache[key]
+
+    def raw(self, size):
+        return self.scan.rgb if size == "full" else self.proxies[size]
+
+    # ------------------------------------------------------------ dust
+    def dust_on(self):
+        d = self.dust
+        return dust.healed(d["spots"], d["threshold"]) if d["repair"] else []
+
+    def healed_base(self, size):
+        """(key, the scan at this size with the chosen dust repaired). Repairs are
+        computed once per spot and size, so switching one on or off is quick."""
+        on = self.dust_on()
+        key = tuple(sorted(s["id"] for s in on))
+        if self._healed.get(size, (None,))[0] != key:
+            raw = self.raw(size)
+            done = self._patches.setdefault(size, {})
+            todo = [s for s in on if s["id"] not in done]
+            if todo:
+                avoid = [s for s in self.dust["spots"] if s["conf"] >= 0.2 or s.get("on")]
+                done.update(dust.patches(raw, todo, avoid))
+            self._healed[size] = (key, dust.apply(raw, [p for s in on for p in done.get(s["id"], [])]))
+        return self._healed[size]
+
+    def dust_changed(self, new_spots=False):
+        if new_spots:
+            self._patches = {}
+        self._healed = {}
+        side = sidecar_path(self.scan.path)
+        doc = json.loads(side.read_text()) if side.exists() else {}
+        doc["dust"] = self.dust
+        side.write_text(json.dumps(doc, indent=1))
+
+    def dust_view(self, params):
+        """The dust state for the browser, with each spot's place in the straightened view."""
+        H, W = self.scan.rgb.shape[:2]
+        on = {s["id"] for s in dust.healed(self.dust["spots"], self.dust["threshold"])}
+        out = []
+        for s in self.dust["spots"]:
+            x0, y0, x1, y1 = s["box"]
+            u, v = pipeline.geometry_point((x0 + x1) / 2, (y0 + y1) / 2, W, H, params["angle"], params["distortion"])
+            r = max((x1 - x0) * W, (y1 - y0) * H) / 2 / max(W, H)
+            out.append({"id": s["id"], "x": u, "y": v, "r": r, "conf": s["conf"], "kind": s.get("kind", "speck"),
+                        "px": round(max((x1 - x0) * W, (y1 - y0) * H)),
+                        "on": s.get("on"), "healed": s["id"] in on})
+        return {"spots": out, "threshold": self.dust["threshold"], "repair": self.dust["repair"]}
+
+    def dust_mask(self, params):
+        """A mask of the marked dust, lined up with the exported TIFF."""
+        from PIL import Image
+        H, W = self.scan.rgb.shape[:2]
+        m = dust.mask_image(dust.healed(self.dust["spots"], self.dust["threshold"]), H, W)
+        m = pipeline.geometry(m[..., None].astype(np.float32), params["angle"], params["distortion"])
+        m = pipeline.crop(m, params["crop"])[..., 0]
+        path = self.scan.path.with_name(self.scan.path.stem + "_filmneg_dust.png")
+        Image.fromarray(np.where(m > 127, 255, 0).astype(np.uint8)).save(path)
+        return str(path)
 
     def render(self, params, size="preview", cropped=True, original=False, region=None):
         """region (fractions of the cropped image) renders that part from full resolution."""
@@ -125,6 +187,7 @@ class Session:
     def save(self, doc):
         side = sidecar_path(self.scan.path)
         keep = {k: doc[k] for k in ("params", "samples", "versions", "history") if k in doc}
+        keep["dust"] = self.dust
         side.write_text(json.dumps(keep, indent=1))
         return str(side)
 
@@ -133,6 +196,16 @@ class Session:
         path = self.scan.path.with_name(self.scan.path.stem + "_filmneg.tif")
         imageio.save_tiff16(path, out, self.scan.icc)
         return str(path)
+
+
+def _unrotated_box(params, shape):
+    """The crop in unrotated scan fractions (its bounding box), a little larger."""
+    H, W = shape[:2]
+    x0, y0, x1, y1 = params["crop"]
+    pts = [pipeline.geometry_point(x, y, W, H, params["angle"], params["distortion"], inverse=True)
+           for x in (x0, x1) for y in (y0, y1)]
+    xs, ys = [q[0] for q in pts], [q[1] for q in pts]
+    return [max(0.0, min(xs) - 0.01), max(0.0, min(ys) - 0.01), min(1.0, max(xs) + 0.01), min(1.0, max(ys) + 0.01)]
 
 
 def make_handler(session: Session):
@@ -207,6 +280,38 @@ def make_handler(session: Session):
                                curves.apply(p["curves"]["tint"], tone)], axis=1)
             pack = lambda a: base64.b64encode(np.ascontiguousarray(a, "<f4").tobytes()).decode()
             return {"n": LUT_N, "table": pack(table), "shifts": pack(shifts), "space": s.space_info()}
+        if route == "dust_find":
+            manual = [d for d in s.dust["spots"] if d.get("manual")]
+            found = dust.find(s.scan.rgb, _unrotated_box(p, s.scan.rgb.shape))
+            for i, d in enumerate(manual):
+                d["id"] = len(found) + i + 1
+            s.dust["spots"] = found + manual
+            s.dust_changed(new_spots=True)
+            return s.dust_view(p)
+        if route == "dust":
+            # change the dust list: switch a spot, set the threshold, add or remove a spot
+            d = s.dust
+            spots = {x["id"]: x for x in d["spots"]}
+            if "threshold" in body:
+                d["threshold"] = float(body["threshold"])
+            if "repair" in body:
+                d["repair"] = bool(body["repair"])
+            if body.get("id") in spots and "on" in body:
+                spots[body["id"]]["on"] = body["on"]
+            if body.get("remove") in spots:
+                d["spots"].remove(spots[body["remove"]])
+            if "add" in body:  # a spot marked by hand, in the straightened view
+                H, W = s.scan.rgb.shape[:2]
+                a = body["add"]
+                u, v = pipeline.geometry_point(a["x"], a["y"], W, H, p["angle"], p["distortion"], inverse=True)
+                rx, ry = a["r"] * max(W, H) / W, a["r"] * max(W, H) / H
+                d["spots"].append({"id": max(spots, default=0) + 1, "box": [u - rx, v - ry, u + rx, v + ry],
+                                   "conf": 1.0, "kind": "manual", "manual": True, "on": True})
+            if len(body) > 1 or "params" not in body:
+                s.dust_changed()
+            return s.dust_view(p)
+        if route == "dust_mask":
+            return {"path": s.dust_mask(p)}
         if route == "save":
             return {"path": s.save(body)}
         if route == "export":

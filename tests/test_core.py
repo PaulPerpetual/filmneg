@@ -154,3 +154,25 @@ def test_distortion_straightens_a_bowed_line():
         rows = [np.argmax(im[:, x, 0]) for x in (10, 50, 90)]
         return (rows[0] + rows[2]) / 2 - rows[1]
     assert abs(bow(pipeline.geometry(img, 0, 10))) < abs(bow(img)) <= abs(bow(pipeline.geometry(img, 0, -10)))
+
+
+def test_dust_found_and_healed():
+    from filmneg import dust
+    rng = np.random.default_rng(0)
+    clean = np.clip(0.5 + rng.normal(0, 0.01, (400, 500, 3)), 0, 1).astype(np.float32)
+    img = clean.copy()
+    yy, xx = np.ogrid[:400, :500]
+    for cy, cx in [(100, 120), (250, 300), (330, 80)]:
+        img[(yy - cy) ** 2 + (xx - cx) ** 2 <= 9] += 0.3       # specks
+    img[200:202, 50:150] += 0.3                                  # a hair
+    spots = dust.find(img)
+    sure = [s for s in spots if s["conf"] > 0.6]
+    assert len(sure) == 4 and any(s["kind"] == "hair" for s in sure)
+    out = dust.heal(img, sure, spots)
+    assert np.abs(out - clean).max() < 0.08
+    assert np.abs(img - clean).max() > 0.25
+
+
+def test_geometry_point_round_trip():
+    u, v = pipeline.geometry_point(0.7, 0.2, 400, 300, 7, 3)
+    assert np.allclose(pipeline.geometry_point(u, v, 400, 300, 7, 3, inverse=True), (0.7, 0.2))
