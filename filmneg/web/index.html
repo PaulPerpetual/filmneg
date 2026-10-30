@@ -38,7 +38,7 @@
   <section id="viewer-wrap">
     <div id="tools">
       <button data-tool="probe" class="icon" title="Measure (P): click a spot or drag an area to see its colour and brightness. Measurements stay pinned and show up on the curves">
-        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 2.8a2 2 0 0 1 2.8 0l.9.9a2 2 0 0 1 0 2.8l-2 2-3.7-3.7z"/><path d="M11.8 5.3 4.2 12.9 3 17l4.1-1.2 7.6-7.6"/></svg>
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.2 4.3 13.6 2.9a2.1 2.1 0 0 1 3 3l-1.4 1.4" /><path d="M10.6 3.8l5.6 5.6" /><path d="M14.6 7.8 7 15.4c-.5.5-1.1.8-1.8.9L3.2 17l.6-2c.1-.7.4-1.3.9-1.8l7.6-7.6" /><path d="M5.2 12.7h5" /></svg>
         Measure</button>
       <button data-tool="push" class="icon" title="Shift colour (C): click a spot, then drag towards a colour. Only tones as bright as that spot change, gently">
         <svg viewBox="0 0 20 20" width="16" height="16"><path d="M10 2.5a7.5 7.5 0 0 1 7.5 7.5H10z" fill="#ffd23c"/><path d="M17.5 10A7.5 7.5 0 0 1 10 17.5V10z" fill="#e040e0"/><path d="M10 17.5A7.5 7.5 0 0 1 2.5 10H10z" fill="#3c78ff"/><path d="M2.5 10A7.5 7.5 0 0 1 10 2.5V10z" fill="#40e040"/><circle cx="10" cy="10" r="2.6" fill="#3b3b3b"/></svg>
@@ -94,7 +94,7 @@
       </select></div>
       <div class="slider"><label title="Straightens lines that bow: + for barrel (lines bulge outwards), − for pincushion">Distortion</label><input id="distortion" type="range" min="-5" max="5" step="0.05" title="Double-click for 0"><input id="distortion-num" class="num" type="text" inputmode="decimal" title="↑/↓ 0.1, ←/→ 0.01, or type a value"></div>
       <div class="row"><button id="crop-reset" title="Back to the automatic crop, no rotation or distortion correction">Reset</button><button id="crop-done" class="primary" title="Done (Esc)">Done</button></div>
-      <div class="muted small">Drag on the picture for a new crop; drag outside it to rotate. Distortion: + straightens lines that bulge outwards (barrel), − lines that bend inwards (pincushion). The grid helps judge both.</div>
+      <div class="muted small">Drag the corners or edges to fine-tune, inside the crop to move it, elsewhere for a new crop, outside the picture to rotate. Changing the crop leaves exposure and colour alone. Distortion: + straightens lines that bulge outwards (barrel), − lines that bend inwards (pincushion). The grid helps judge both.</div>
     </div>
 
     <div class="panel">

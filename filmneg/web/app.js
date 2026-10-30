@@ -366,6 +366,15 @@ function drawOverlay() {
     ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y); ctx.fill("evenodd");
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1;
     ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    // handles: corners and edge midpoints
+    ctx.lineWidth = 3; ctx.beginPath();
+    const L = Math.min(18, (b.x - a.x) / 4, (b.y - a.y) / 4), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    for (const [x, y, sx, sy] of [[a.x, a.y, 1, 1], [b.x, a.y, -1, 1], [b.x, b.y, -1, -1], [a.x, b.y, 1, -1]]) {
+      ctx.moveTo(x, y + sy * L); ctx.lineTo(x, y); ctx.lineTo(x + sx * L, y);
+    }
+    ctx.moveTo(mx - L / 2, a.y); ctx.lineTo(mx + L / 2, a.y); ctx.moveTo(mx - L / 2, b.y); ctx.lineTo(mx + L / 2, b.y);
+    ctx.moveTo(a.x, my - L / 2); ctx.lineTo(a.x, my + L / 2); ctx.moveTo(b.x, my - L / 2); ctx.lineTo(b.x, my + L / 2);
+    ctx.stroke(); ctx.lineWidth = 1;
     // thirds, and a finer grid while rotating, to judge what is level
     const n = S.rotating ? 12 : 3;
     ctx.strokeStyle = S.rotating ? "rgba(255,255,255,.28)" : "rgba(255,255,255,.4)"; ctx.beginPath();
@@ -560,7 +569,13 @@ overlay.addEventListener("mousedown", async (ev) => {
       S.rotDrag = { cx, cy, a0: Math.atan2(ev.offsetY - cy, ev.offsetX - cx), angle0: S.params.angle };
       S.rotating = true; startDrag(); return;
     }
-    S.cropStart = p; S.cropDrag = [p.x, p.y, p.x, p.y]; return;
+    const hit = cropHit(ev.offsetX, ev.offsetY), c = S.params.crop;
+    if (hit && hit.corner) S.cropStart = { mode: "corner", ax: hit.ax, ay: hit.ay };
+    else if (hit && hit.edge) S.cropStart = { mode: "edge", edge: hit.edge, c0: [...c] };
+    else if (hit && hit.inside) S.cropStart = { mode: "move", x: p.x, y: p.y, c0: [...c] };
+    else S.cropStart = { mode: "corner", ax: p.x, ay: p.y };
+    S.cropDrag = [...c];
+    return;
   }
   if (!p.inside) {
     if (S.view.scale > 1) S.pan = { x: ev.clientX, y: ev.clientY, cx: S.view.cx, cy: S.view.cy };
@@ -600,7 +615,11 @@ overlay.addEventListener("mousedown", async (ev) => {
 
 overlay.addEventListener("mousemove", (ev) => {
   if (S.brush || S.sampleMove || S.push || S.cropStart || S.pan || S.rotDrag || ev.buttons) return;
-  if (S.tool === "crop") { overlay.style.cursor = S.leveling || toScan(ev).inside ? "crosshair" : ROTATE_CURSOR; return; }
+  if (S.tool === "crop") {
+    const hit = !S.leveling && cropHit(ev.offsetX, ev.offsetY);
+    overlay.style.cursor = S.leveling ? "crosshair" : hit ? hit.cursor : toScan(ev).inside ? "crosshair" : ROTATE_CURSOR;
+    return;
+  }
   const m = S.hl && markOf(S.hl), onDel = m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10;
   if (!onDel) setHighlight(markAt(ev.offsetX, ev.offsetY));
   overlay.style.cursor = onDel ? "pointer" : S.hl ? "move" : S.tool === "push" ? "move" : S.tool === "light" ? "ns-resize" : "crosshair";
@@ -625,7 +644,12 @@ window.addEventListener("mousemove", (ev) => {
   }
   if (S.cropStart) {
     const p = toScan(ev), a = S.cropStart;
-    S.cropDrag = constrainCrop(a.x, a.y, p.x, p.y);
+    if (a.mode === "corner") S.cropDrag = constrainCrop(a.ax, a.ay, p.x, p.y);
+    else if (a.mode === "move") {
+      const c = a.c0, w = c[2] - c[0], h = c[3] - c[1];
+      const x0 = clamp(c[0] + p.x - a.x, 0, 1 - w), y0 = clamp(c[1] + p.y - a.y, 0, 1 - h);
+      S.cropDrag = [x0, y0, x0 + w, y0 + h];
+    } else S.cropDrag = dragEdge(a.c0, a.edge, p);
     drawOverlay(); return;
   }
   if (S.brush) {
@@ -698,12 +722,11 @@ window.addEventListener("mouseup", () => {
     setLeveling(false); drawOverlay();
   }
   if (S.cropStart) {
+    // only the crop changes: exposure, colour and black/white points stay as they are
     const c = S.cropDrag;
     S.cropStart = null; S.cropDrag = null;
-    if (c[2] - c[0] > 0.05 && c[3] - c[1] > 0.05) {
-      S.params.crop = c;
-      guard("Levels", async () => { S.params = (await api("levels", { params: S.params })).params; commit(); setTool("probe"); });
-    } else drawOverlay();
+    if (c && c[2] - c[0] > 0.03 && c[3] - c[1] > 0.03 && JSON.stringify(c) !== JSON.stringify(S.params.crop)) { S.params.crop = c; commit(); }
+    drawOverlay();
   }
   if (S.push) {
     const changed = S.push.cx !== S.push.sx || S.push.cy !== S.push.sy;
@@ -1509,6 +1532,36 @@ function setLeveling(on) {
   hint(on ? "draw a line along something that should be level or upright" : "drag on the picture for a new crop, outside it to rotate");
 }
 $("#crop-level").onclick = () => setLeveling(!S.leveling);
+
+// What a press at screen point (x, y) grabs on the current crop: a corner (with
+// the opposite corner as anchor), an edge, the inside (move), or nothing.
+function cropHit(x, y) {
+  const c = S.params.crop, A = toScreen(c[0], c[1]), B = toScreen(c[2], c[3]), near = 12;
+  for (const [xi, yi] of [[0, 1], [2, 1], [2, 3], [0, 3]]) {
+    const P = toScreen(c[xi], c[yi]);
+    if (Math.hypot(P.x - x, P.y - y) < near) return { corner: true, ax: c[2 - xi], ay: c[4 - yi], cursor: xi === 0 ^ yi === 1 ? "nesw-resize" : "nwse-resize" };
+  }
+  const inY = y > A.y && y < B.y, inX = x > A.x && x < B.x;
+  if (inY && Math.abs(x - A.x) < near / 1.5) return { edge: 0, cursor: "ew-resize" };
+  if (inY && Math.abs(x - B.x) < near / 1.5) return { edge: 2, cursor: "ew-resize" };
+  if (inX && Math.abs(y - A.y) < near / 1.5) return { edge: 1, cursor: "ns-resize" };
+  if (inX && Math.abs(y - B.y) < near / 1.5) return { edge: 3, cursor: "ns-resize" };
+  if (inX && inY) return { inside: true, cursor: "move" };
+  return null;
+}
+
+// Drag one edge; with a fixed aspect the other dimension follows, centred.
+function dragEdge(c0, edge, p) {
+  const c = [...c0], v = edge % 2 ? p.y : p.x, min = 0.03;
+  c[edge] = edge < 2 ? clamp(v, 0, c0[edge + 2] - min) : clamp(v, c0[edge - 2] + min, 1);
+  const r = aspectRatio();
+  if (r) {
+    const W = S.doc.width, H = S.doc.height, land = (c0[2] - c0[0]) * W >= (c0[3] - c0[1]) * H, rr = land ? r : 1 / r;
+    if (edge % 2 === 0) { const h = (c[2] - c[0]) * W / rr / H, m = (c0[1] + c0[3]) / 2; c[1] = m - h / 2; c[3] = m + h / 2; }
+    else { const w = (c[3] - c[1]) * H * rr / W, m = (c0[0] + c0[2]) / 2; c[0] = m - w / 2; c[2] = m + w / 2; }
+  }
+  return c.map((v) => clamp(v, 0, 1));
+}
 
 // Aspect ratio as width/height in pixels (>= 1); null = free.
 function aspectRatio() {
