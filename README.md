@@ -89,8 +89,7 @@ pick Shadows / Highlights in the menu. Scroll sideways to move along. A drag
 then moves the triangles in finer steps, and a click still places a triangle
 that is out of view.
 While you drag the black or white point, the image shows what gets clipped
-(red = white, blue = black), fading in a little before it clips so you can
-see where the brightest and darkest parts are. The panel also says how much is
+(red = white, blue = black), like Lightroom's clipping warning. The panel also says how much is
 clipped.
 
 ### Curves

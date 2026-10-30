@@ -372,7 +372,12 @@ function drawOverlay() {
   }
 
   const m = maskCanvas();
-  if (m) { const r = fitRect(); ctx.imageSmoothingQuality = "high"; ctx.drawImage(m, r.x, r.y, r.w, r.h); }
+  if (m) {
+    const r = fitRect();
+    ctx.save(); ctx.imageSmoothingQuality = "high";
+    if (S.mask.kind === "clip") ctx.filter = "blur(0.8px)";  // keeps grain from turning into speckles
+    ctx.drawImage(m, r.x, r.y, r.w, r.h); ctx.restore();
+  }
 
   if (S.showSamples) S.samples.forEach((s, i) => drawSample(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
   if (S.showProbes) S.probes.forEach((p, i) => drawMeasure(ctx, p.at, PROBE_COLORS[i % PROBE_COLORS.length], "P" + (i + 1)));
@@ -1029,9 +1034,9 @@ async function fetchPre(params) {
 }
 
 // Clipping overlay, computed here from the image before levels, so it follows a drag
-// instantly. It fades in over the last few levels before a channel clips, which shows
-// where the brightest (red) and darkest (blue) parts are before they are cut off.
-const CLIP_BAND = 0.035;
+// instantly. Like Lightroom's clipping warning: only pixels that actually clip,
+// red for white and blue for black, with a one-level soft edge.
+const CLIP_BAND = 0.01;
 function clipCanvas() {
   const P = S.pre;
   if (!P || P.w * P.h * 3 !== P.data.length) return null;
@@ -1062,8 +1067,8 @@ function clipCanvas() {
       if (hiT[j][k] > h) h = hiT[j][k];
       if (loT[j][k] > l) l = loT[j][k];
     }
-    if (h >= l && h > 0) { o[i * 4] = 255; o[i * 4 + 1] = 55; o[i * 4 + 2] = 55; o[i * 4 + 3] = h * 150; }
-    else if (l > 0) { o[i * 4] = 40; o[i * 4 + 1] = 120; o[i * 4 + 2] = 255; o[i * 4 + 3] = l * 160; }
+    if (h >= l && h > 0) { o[i * 4] = 235; o[i * 4 + 1] = 45; o[i * 4 + 2] = 45; o[i * 4 + 3] = h * 180; }
+    else if (l > 0) { o[i * 4] = 30; o[i * 4 + 1] = 100; o[i * 4 + 2] = 235; o[i * 4 + 3] = l * 180; }
   }
   ctx.putImageData(im, 0, 0);
   S.clipCache = { key, canvas: c };
@@ -1091,6 +1096,19 @@ function levelClipping() {
   return n ? { lo, hi } : null;
 }
 
+// Gaussian blur of a 1-D array (edges clamped), to take the noise out of the histogram.
+function blur1d(a, sigma) {
+  const r = Math.ceil(sigma * 3), k = [];
+  for (let i = -r; i <= r; i++) k.push(Math.exp(-0.5 * (i / sigma) ** 2));
+  const ks = k.reduce((x, y) => x + y), out = new Float32Array(a.length);
+  for (let i = 0; i < a.length; i++) {
+    let sum = 0;
+    for (let j = -r; j <= r; j++) sum += a[clamp(i + j, 0, a.length - 1)] * k[j + r];
+    out[i] = sum / ks;
+  }
+  return out;
+}
+
 function drawLevels() {
   if (!S.params) return;
   const ctx = levelsCanvas.getContext("2d"), g = levelGeom(), L = curLevel();
@@ -1100,7 +1118,8 @@ function drawLevels() {
   const H = S.levelHist;
   if (H) {
     const chans = S.levelCh === "rgb" ? [0, 1, 2] : ["rgb".indexOf(S.levelCh)];
-    const colors = S.levelCh === "rgb" ? ["rgba(255,70,70,.75)", "rgba(70,230,70,.75)", "rgba(80,120,255,.75)"] : null;
+    // muted channel colours that add up to a neutral grey where all three overlap, as in Lightroom
+    const colors = S.levelCh === "rgb" ? ["rgba(181,82,79,.55)", "rgba(90,154,90,.55)", "rgba(79,111,181,.55)"] : null;
     const cols = [];
     for (const c of chans) {
       const h = H.hist[c], col = new Float32Array(g.span);
@@ -1110,14 +1129,14 @@ function drawLevels() {
         for (let b = Math.max(0, b0); b < Math.min(H.bins, b1); b++) { sum += h[b]; cnt++; }
         col[px] = cnt ? sum / cnt : 0;
       }
-      cols.push(col);
+      cols.push(blur1d(col, Math.max(2.5, 0.6 * g.span / ((S.levelView[1] - S.levelView[0]) * H.bins))));
     }
     // scale to the tall but not extreme columns, so a spike at pure black or white doesn't flatten everything
     const all = cols.flatMap((c) => [...c]).filter((v) => v > 0).sort((a, b) => a - b);
     const norm = (all[Math.floor(all.length * 0.985)] || 1) * 1.1;
     ctx.globalCompositeOperation = "lighter";
     cols.forEach((col, k) => {
-      ctx.fillStyle = colors ? colors[k] : { r: "#e05050", g: "#50c050", b: "#5080f0" }[S.levelCh];
+      ctx.fillStyle = colors ? colors[k] : { r: "rgba(201,98,94,.8)", g: "rgba(104,170,104,.8)", b: "rgba(96,128,200,.8)" }[S.levelCh];
       ctx.beginPath(); ctx.moveTo(g.pad, LV_HIST);
       for (let px = 0; px < g.span; px++) ctx.lineTo(g.pad + px + 0.5, LV_HIST - Math.min(1, col[px] / norm) * (LV_HIST - 8));
       ctx.lineTo(g.pad + g.span, LV_HIST); ctx.closePath(); ctx.fill();
