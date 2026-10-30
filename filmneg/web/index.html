@@ -32,9 +32,15 @@
 <main>
   <section id="viewer-wrap">
     <div id="tools">
-      <button data-tool="probe" title="Probe: inspect an area (P)">Probe</button>
-      <button data-tool="push" title="Colour push: click, then drag towards a colour on the wheel. Bends warmth/tint gently at that brightness (C)">Push colour</button>
-      <button data-tool="light" title="Light push: click, then drag up to brighten or down to darken that brightness (L)">Push light</button>
+      <button data-tool="probe" class="icon" title="Measure (P): click a spot or drag an area to see its colour and brightness. Measurements stay pinned and show up on the curves">
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 2.8a2 2 0 0 1 2.8 0l.9.9a2 2 0 0 1 0 2.8l-2 2-3.7-3.7z"/><path d="M11.8 5.3 4.2 12.9 3 17l4.1-1.2 7.6-7.6"/></svg>
+        Measure</button>
+      <button data-tool="push" class="icon" title="Shift colour (C): click a spot, then drag towards a colour. Only tones as bright as that spot change, gently">
+        <svg viewBox="0 0 20 20" width="16" height="16"><path d="M10 2.5a7.5 7.5 0 0 1 7.5 7.5H10z" fill="#ffd23c"/><path d="M17.5 10A7.5 7.5 0 0 1 10 17.5V10z" fill="#e040e0"/><path d="M10 17.5A7.5 7.5 0 0 1 2.5 10H10z" fill="#3c78ff"/><path d="M2.5 10A7.5 7.5 0 0 1 10 2.5V10z" fill="#40e040"/><circle cx="10" cy="10" r="2.6" fill="#3b3b3b"/></svg>
+        Shift colour</button>
+      <button data-tool="light" class="icon" title="Shift brightness (L): click a spot, then drag up to brighten or down to darken tones as bright as that spot">
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="10" r="3"/><path d="M8 3v1.5M8 15.5V17M2 10h1.5M12.5 10H14M3.8 5.8l1 1M11.2 13.2l1 1M3.8 14.2l1-1M11.2 6.8l1-1"/><path d="M17 4v12M15.3 5.7 17 4l1.7 1.7M15.3 14.3 17 16l1.7-1.7" stroke-linejoin="round"/></svg>
+        Shift brightness</button>
       <label title="How wide a range of brightness a push or curve edit affects. [ and ] change it, also while dragging">width <input id="width" type="range" min="0.03" max="1" step="0.005" value="0.12"></label>
       <span class="sep"></span>
       <button data-tool="neutral" class="k-neutral" title="Add a neutral grey area (N)">Grey</button>
@@ -135,8 +141,8 @@
     </div>
 
     <div class="panel">
-      <h3>Probe</h3>
-      <div id="probe" class="muted small">Probe tool: click the image.</div>
+      <h3>Measure</h3>
+      <div id="probe" class="muted small">Measure tool (P): click a spot or drag an area.</div>
     </div>
 
   </aside>

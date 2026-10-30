@@ -48,15 +48,15 @@ for Pixelmator.
 4. Set **Light** if the picture should keep its light (golden hour, tungsten,
    shade), then solve again.
 5. Set black and white points in **Levels** if the scan needs it.
-6. Fine-tune by hand with **Push** or the curves.
+6. Fine-tune by hand with **Shift colour**, **Shift brightness** or the curves.
 
 ### Tools and keys
 
 | Key | Tool |
 |---|---|
-| P | Probe: click a spot or drag an area. Probes stay pinned (P1, P2, …), update after every edit and are marked on the curves. ⇧-click removes one, dragging moves it |
-| C | Push colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. The parts of the image it leaves alone are veiled while you drag |
-| L | Push light: same, but drag up to brighten or down to darken that brightness |
+| P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. ⇧-click removes one, dragging moves it |
+| C | Shift colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. The parts of the image it leaves alone are veiled while you drag |
+| L | Shift brightness: same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider edits (also scroll while pushing, or the width slider) |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
 | N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it, ⇧-click to remove it |

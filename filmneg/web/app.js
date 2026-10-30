@@ -601,7 +601,7 @@ function castWords(a, b) {
 
 function showProbe() {
   const box = $("#probe");
-  if (!S.probes.length) { box.innerHTML = "Probe tool: click a spot or drag an area. Each click adds a probe (P1, P2, …); ⇧-click one to remove it, drag it to move it."; return; }
+  if (!S.probes.length) { box.innerHTML = "Measure tool: click a spot or drag an area. Each click pins a point (P1, P2, …); ⇧-click one to remove it, drag it to move it."; return; }
   const sel = clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1);
   const rows = S.probes.map((q, i) => `<li data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot" style="background:${PROBE_COLORS[i % PROBE_COLORS.length]}"></span>
     <span>P${i + 1}</span><span class="res">${(q.res.tone * 100).toFixed(0)}% · ${castWords(q.res.a, q.res.b).replace(/ \(.*\)/, "")}</span><button title="Remove">×</button></li>`).join("");
