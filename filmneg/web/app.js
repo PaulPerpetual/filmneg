@@ -760,7 +760,7 @@ overlay.addEventListener("mousedown", async (ev) => {
     const bt = previewTone(p.u, p.v);
     if (bt != null) S.mask = { kind: "push", tone: bt, width: S.width };
     startDrag(); drawOverlay();
-    if (tool === "light") setCurve("lightness"); else setCurve("colour");
+    if (tool === "light") setCurve("lightness");  // colour shifts show in the Colour by tone panel
     const pr = await api("probe", { params: S.params, at });
     if (S.push) { S.push.tone = pr.tone; applyPush(ev.altKey); }
   }
@@ -2130,6 +2130,7 @@ window.addEventListener("mousedown", (ev) => { if (!$("#menu").contains(ev.targe
 try { setSurround(localStorage.getItem("filmneg.surround") || "#808080"); } catch (e) { setSurround("#808080"); }
 
 function setCurve(c) {
+  if (!["lightness", "r", "g", "b"].includes(c)) c = "lightness";  // e.g. "colour" from an older version
   S.curve = c;
   $$("#curve-tabs [data-curve]").forEach((b) => b.classList.toggle("active", b.dataset.curve === c));
   drawCurve();
