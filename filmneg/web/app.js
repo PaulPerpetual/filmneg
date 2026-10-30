@@ -13,7 +13,8 @@ const S = {
   tool: "probe",
   curve: "colour",
   zoom: 0.04,         // curve panel shows ±zoom (encoded units)
-  falloff: 0.12,      // soft-edit width on the tone axis
+  falloff: 0.12,      // push tool: soft-edit width on the tone axis
+  widthScale: 1,      // curves: scroll multiplies the width you get from where you grab
   probe: null,        // last probe result + position
   push: null,         // active colour push gesture
   undo: [], redo: [],
@@ -398,10 +399,54 @@ function curveGeom() {
            t: (px) => (px - pad) / (W - 2 * pad), v: (py) => -(py - H / 2) / (H / 2 - pad) * S.zoom };
 }
 
+// Soft-edit width from where you grab: near the middle line it pulls a narrow
+// range of tones, towards the top or bottom edge it pulls a broad one.
+function widthAt(py) {
+  const g = curveGeom(), d = Math.min(1, Math.abs(py - g.H / 2) / (g.H / 2 - g.pad));
+  return Math.min(0.5, Math.max(0.03, S.widthScale * (0.035 + 0.3 * d)));
+}
+
+// What colour the image moves towards when a curve goes up (first) or down.
+const CURVE_DIRECTIONS = {
+  colour: ["#ffd23c", "#3c78ff"], lightness: ["#ffffff", "#000000"],
+  r: ["#ff4040", "#30e0e0"], g: ["#40e040", "#e040e0"], b: ["#4070ff", "#ffe040"],
+};
+
+// Same wheel as the push tool: right = magenta, up = yellow, left = green, down = blue.
+function pushColour(tint, warm) {
+  const ang = Math.atan2(warm, tint), hue = ((ang * 180 / Math.PI) + 360) % 360;
+  // map wheel angle to a display hue: 0 magenta(300), 90 yellow(55), 180 green(120), 270 blue(225)
+  const stops = [[0, 310], [45, 375], [90, 412], [135, 445], [180, 480], [225, 545], [270, 585], [315, 630], [360, 670]];
+  let h = 310;
+  for (let i = 1; i < stops.length; i++) if (hue <= stops[i][0]) {
+    const [a0, h0] = stops[i - 1], [a1, h1] = stops[i];
+    h = h0 + (h1 - h0) * (hue - a0) / (a1 - a0); break;
+  }
+  return `hsl(${h % 360}, 85%, 55%)`;
+}
+
 function drawCurve() {
   if (!S.params) return;
   const ctx = curveCanvas.getContext("2d"), g = curveGeom();
   ctx.clearRect(0, 0, g.W, g.H);
+
+  // background: the colour the image moves towards above and below the line
+  const [up, down] = CURVE_DIRECTIONS[S.curve];
+  const bg = ctx.createLinearGradient(0, 0, 0, g.H);
+  bg.addColorStop(0, up); bg.addColorStop(0.5, "rgba(0,0,0,0)"); bg.addColorStop(1, down);
+  ctx.globalAlpha = 0.16; ctx.fillStyle = bg; ctx.fillRect(0, 0, g.W, g.H);
+  if (S.curve === "colour") {
+    // tint is the horizontal drag: faint magenta on the right edge, green on the left
+    const side = ctx.createLinearGradient(0, 0, g.W, 0);
+    side.addColorStop(0, "#40e040"); side.addColorStop(0.12, "rgba(0,0,0,0)");
+    side.addColorStop(0.88, "rgba(0,0,0,0)"); side.addColorStop(1, "#e040e0");
+    ctx.fillStyle = side; ctx.fillRect(0, 0, g.W, g.H);
+  }
+  ctx.globalAlpha = 1;
+  // tone ramp along the bottom, so you see which tones you're touching
+  const ramp = ctx.createLinearGradient(g.x(0), 0, g.x(1), 0);
+  ramp.addColorStop(0, "#000"); ramp.addColorStop(1, "#fff");
+  ctx.fillStyle = ramp; ctx.fillRect(g.x(0), g.H - 4, g.x(1) - g.x(0), 4);
 
   // zone bands (II..VIII) and grid
   ctx.font = "13px sans-serif"; ctx.textAlign = "center";
@@ -418,10 +463,12 @@ function drawCurve() {
   ctx.fillText(`+${Math.round(S.zoom * 255)}`, 2, 10); ctx.fillText(`−${Math.round(S.zoom * 255)}`, 2, g.H - 14);
 
   // falloff preview under the cursor
-  if (S.hoverT != null && !S.curveDrag) {
-    ctx.fillStyle = "rgba(255,255,255,.05)";
+  const shownWidth = S.curveDrag ? S.curveDrag.width : S.hoverY != null ? widthAt(S.hoverY) : null;
+  const shownT = S.curveDrag ? S.curveDrag.t : S.hoverT;
+  if (shownT != null && shownWidth != null) {
+    ctx.fillStyle = "rgba(255,255,255,.06)";
     for (let px = 0; px < g.W; px += 2) {
-      const w = Math.exp(-0.5 * ((g.t(px) - S.hoverT) / S.falloff) ** 2);
+      const w = Math.exp(-0.5 * ((g.t(px) - shownT) / shownWidth) ** 2);
       ctx.fillRect(px, g.H / 2 - w * (g.H / 2 - g.pad), 2, 2 * w * (g.H / 2 - g.pad));
     }
   }
@@ -469,17 +516,27 @@ function drawCurve() {
       ctx.lineTo(x + cl(S.probe.a) * k, y - cl(S.probe.b) * k); ctx.stroke();
     }
   }
+
+  // while dragging in the Colour panel: a swatch of the colour you're pushing towards
+  if (S.curveDrag && S.curve === "colour" && S.curveDrag.push) {
+    const [tint, warm] = S.curveDrag.push, x = g.x(S.curveDrag.t);
+    if (Math.hypot(tint, warm) > 1e-5) {
+      ctx.fillStyle = pushColour(tint, warm); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(x, g.pad + 12, 9, 0, 7); ctx.fill(); ctx.stroke();
+    }
+  }
 }
 
 curveCanvas.addEventListener("mousedown", (ev) => {
   const g = curveGeom(), sc = curveCanvas.width / curveCanvas.clientWidth;
-  S.curveDrag = { t: g.t(ev.offsetX * sc), x0: ev.offsetX, y0: ev.offsetY, base: clone(S.params.curves) };
+  S.curveDrag = { t: g.t(ev.offsetX * sc), x0: ev.offsetX, y0: ev.offsetY, width: widthAt(ev.offsetY * sc),
+                  base: clone(S.params.curves) };
 });
 
 window.addEventListener("mousemove", (ev) => {
   const g = curveGeom(), sc = curveCanvas.width / curveCanvas.clientWidth;
   if (!S.curveDrag) {
-    if (ev.target === curveCanvas) { S.hoverT = g.t(ev.offsetX * sc); drawCurve(); }
+    if (ev.target === curveCanvas) { S.hoverT = g.t(ev.offsetX * sc); S.hoverY = ev.offsetY * sc; drawCurve(); }
     return;
   }
   const D = S.curveDrag, b = curveCanvas.getBoundingClientRect();
@@ -487,19 +544,20 @@ window.addEventListener("mousemove", (ev) => {
   const perPx = (S.zoom * 2) / (g.H - 2 * g.pad) * sc * 0.5 * gain;
   const dy = -(ev.clientY - b.top - D.y0) * perPx, dx = (ev.clientX - b.left - D.x0) * perPx;
   if (S.curve === "colour") {
-    S.params.curves.warmth = addTo(D.base.warmth, bump(D.t, dy, S.falloff));
-    S.params.curves.tint = addTo(D.base.tint, bump(D.t, dx, S.falloff));
+    S.params.curves.warmth = addTo(D.base.warmth, bump(D.t, dy, D.width));
+    S.params.curves.tint = addTo(D.base.tint, bump(D.t, dx, D.width));
+    D.push = [dx, dy];
   } else {
-    S.params.curves[S.curve] = addTo(D.base[S.curve], bump(D.t, dy, S.falloff));
+    S.params.curves[S.curve] = addTo(D.base[S.curve], bump(D.t, dy, D.width));
   }
   drawCurve(); render();
 });
 
 window.addEventListener("mouseup", () => { if (S.curveDrag) { S.curveDrag = null; commit(); } });
-curveCanvas.addEventListener("mouseleave", () => { S.hoverT = null; drawCurve(); });
+curveCanvas.addEventListener("mouseleave", () => { S.hoverT = null; S.hoverY = null; drawCurve(); });
 curveCanvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
-  S.falloff = Math.min(0.4, Math.max(0.04, S.falloff * (ev.deltaY > 0 ? 1.1 : 0.9)));
+  S.widthScale = Math.min(3, Math.max(0.3, S.widthScale * (ev.deltaY > 0 ? 1.1 : 0.9)));
   drawCurve();
 }, { passive: false });
 curveCanvas.addEventListener("dblclick", () => {

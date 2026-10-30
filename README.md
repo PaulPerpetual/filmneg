@@ -71,7 +71,10 @@ for Pixelmator.
 - **Light, R, G, B** are classic curves, but drawn as the *change* from
   neutral, magnified (±5 to ±40 levels), so small moves are visible.
 - Dragging never places points: the change falls off smoothly around where you
-  grab (scroll to set the width). Curves are B-splines whose control points sit
+  grab. Grab near the middle line to pull a narrow range of tones, near the top
+  or bottom edge for a broad one (scroll scales it). The background shows which
+  colour each direction moves the image towards, and while you drag in the
+  Colour panel a swatch shows the exact colour of the push. Curves are B-splines whose control points sit
   off the curve, like NURBS in Rhino, so they can't kink. The faint hairlines
   are a curvature comb: bumps there mean bumps in the tones.
 - The x-axis is labelled in zones (I to IX).
