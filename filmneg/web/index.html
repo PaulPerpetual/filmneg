@@ -13,7 +13,6 @@
     <button id="btn-auto" title="Detect crop and set per-channel black/white points from the histogram">Auto</button>
     <button id="btn-solve" title="Fit per-channel slope and offset to your samples (fixes casts that change with brightness)">Solve samples</button>
     <button id="btn-straighten" title="Even out casts that change between shadows and highlights, with a strength you control">Straighten casts…</button>
-    <button id="btn-variants" title="Ring-around: pick the best of 9 variants, repeat (V)">Variants</button>
   </div>
   <div class="group">
     <button id="btn-undo" class="icon" title="Undo (⌘Z)">
@@ -42,7 +41,6 @@
       <button data-tool="white" class="k-white" title="Add a white area (W)">White</button>
       <button data-tool="black" class="k-black" title="Add a black area (K)">Black</button>
       <button data-tool="skin" class="k-skin" title="Add a skin area (S)">Skin</button>
-      <label title="Click = one point, click and drag = an area. Softness: how gently the area's weight fades towards its edge (also scroll while dragging)">softness <input id="soft" type="range" min="0" max="1" step="0.05" value="0.5"></label>
       <span class="sep"></span>
       <button data-tool="crop" title="Drag a new crop (R)">Crop</button>
       <span class="sep"></span>
@@ -79,6 +77,34 @@
       <div class="slider"><label>Light</label><select id="lighting"></select></div>
     </div>
 
+    <div class="panel" id="levels-panel">
+      <h3>Levels</h3>
+      <div class="tabs" id="level-tabs">
+        <button data-level="rgb">RGB</button>
+        <button data-level="r">R</button>
+        <button data-level="g">G</button>
+        <button data-level="b">B</button>
+        <select id="level-zoom" title="Look closer at one end of the histogram. You can also pinch or scroll over it">
+          <option value="0,1">Whole range</option>
+          <option value="0,0.25">Shadows</option>
+          <option value="0.75,1">Highlights</option>
+          <option value="zoomed" hidden>Zoomed in</option>
+        </select>
+      </div>
+      <canvas id="levels" width="560" height="214"></canvas>
+      <div class="level-nums">
+        <span class="muted">Input</span>
+        <input id="lv-lo" type="number" min="0" max="254" step="1" title="Black point">
+        <input id="lv-gamma" type="number" min="0.1" max="9.99" step="0.01" title="Grey point (gamma)">
+        <input id="lv-hi" type="number" min="1" max="255" step="1" title="White point">
+        <span class="muted">Output</span>
+        <input id="lv-out-lo" type="number" min="0" max="254" step="1" title="Output black">
+        <input id="lv-out-hi" type="number" min="1" max="255" step="1" title="Output white">
+      </div>
+      <div class="muted small" id="lv-clip"></div>
+      <div class="muted small">Drag the black, grey and white triangles under the histogram; the lower bar sets the output. Pinch or scroll over the histogram to zoom in, drag it to move around, double-click to see everything. Hold ⌥ while dragging to see clipped areas on the image. Double-click the triangles to reset.</div>
+    </div>
+
     <div class="panel">
       <h3>Curves <span class="muted" id="curve-help"></span></h3>
       <div class="tabs" id="curve-tabs">
@@ -87,7 +113,6 @@
         <button data-curve="r">R</button>
         <button data-curve="g">G</button>
         <button data-curve="b">B</button>
-        <button id="btn-smooth" title="Smooth the shown curve(s), like Rhino's Smooth. Click again for more">Smooth</button>
         <select id="zoom" title="Vertical zoom: the curve shows the change, magnified">
           <option value="0.02">±5</option>
           <option value="0.04" selected>±10</option>
@@ -95,14 +120,18 @@
           <option value="0.16">±40</option>
         </select>
       </div>
-      <canvas id="curve" width="560" height="320"></canvas>
-      <div class="muted small">Grab a curve and drag up or down. Grabbing right on the curve uses the width setting; grabbing further away from it pulls a broader range. The triangles at the bottom are the black and white points; the image shows what gets clipped while you drag them. Double-click resets the curve.</div>
+      <canvas id="curve" width="560" height="300"></canvas>
+      <div class="row">
+        <button id="btn-smooth" title="Smooth the shown curve(s), like Rhino's Smooth. Click again for more">Smooth</button>
+        <button id="btn-curve-reset" title="Reset the shown curve(s)">Reset curve</button>
+      </div>
+      <div class="muted small">Grab a curve and drag up or down. Grabbing right on the curve uses the width setting; grabbing further away from it pulls a broader range.</div>
     </div>
 
     <div class="panel">
       <h3>Samples</h3>
       <ul id="samples"></ul>
-      <div class="muted small" id="samples-empty">Pick Grey, White, Black or Skin, then click a point or click and drag to sample an area (scroll while dragging for softness). Drag a sample to move it. Several greys at different brightness let “Solve samples” fix casts that shift between shadows and highlights. ⇧-click a sample to remove it.</div>
+      <div class="muted small" id="samples-empty">Pick Grey, White, Black or Skin, then click a point or click and drag to sample an area. Drag a sample to move it. Several greys at different brightness let “Solve samples” fix casts that shift between shadows and highlights. ⇧-click a sample to remove it.</div>
     </div>
 
     <div class="panel">
@@ -110,27 +139,9 @@
       <div id="probe" class="muted small">Probe tool: click the image.</div>
     </div>
 
-    <div class="panel">
-      <h3>Scopes</h3>
-      <div class="scope-row">
-        <figure><canvas id="parade" width="300" height="140"></canvas><figcaption>RGB parade</figcaption></figure>
-      </div>
-      <div class="scope-row">
-        <figure><canvas id="casttone" width="190" height="140"></canvas><figcaption title="Only near-grey pixels, grouped by brightness. A flat line on the middle means greys are neutral at that brightness. Gaps: no greys there.">Greys by brightness (flat = neutral)</figcaption></figure>
-        <figure><canvas id="vector" width="140" height="140"></canvas><figcaption>Vectorscope</figcaption></figure>
-      </div>
-    </div>
   </aside>
 </main>
 
-<div id="variants" hidden>
-  <div class="vbar">
-    <span id="vinfo"></span>
-    <span class="grow"></span>
-    <button id="v-keep" title="Keep the centre and close (Esc)">Done</button>
-  </div>
-  <div id="vgrid"></div>
-</div>
 <script src="app.js"></script>
 </body>
 </html>

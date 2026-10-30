@@ -14,12 +14,13 @@ const S = {
   curve: "colour",
   zoom: 0.04,         // curve panel shows ±zoom (encoded units)
   width: 0.12,        // soft-edit width on the tone axis (push tools and curves)
-  soft: 0.5,          // softness of sample areas: how far in from the edge their weight starts fading
   probes: [],         // pinned probes: {at, res}
   probeSel: null,     // which probe the detail table shows
   push: null,         // active push gesture (colour or light)
   undo: [], redo: [],
-  variants: null,     // {state, cells}
+  levelCh: "rgb",     // which levels the Levels panel edits
+  levelView: [0, 1],  // visible part of the Levels histogram (zoom)
+  levelHist: null,    // {bins, hist: [r, g, b]} of the image before levels
   comparing: false,
   dragging: false,    // a slider/curve/push drag is in progress: render lighter previews
   view: { scale: 1, cx: 0.5, cy: 0.5 },  // zoom and the image point at the viewer's centre
@@ -170,8 +171,8 @@ async function render() {
     currentFull = full;
     readPreview();
     drawImage();
-    drawScopes();
     drawCurve();
+    scheduleLevelHist();
     if (!S.dragging && !dirty && gen === renderGen) { scheduleDetail(); refreshProbes(); }
   } catch (e) { status("render failed: " + e.message, 8000); }
   inflight = false;
@@ -351,10 +352,9 @@ function drawOverlay() {
   if (S.push) S.push.kind === "light" ? drawLightBar(ctx) : drawWheel(ctx);
 }
 
-// A sample area drawn like a soft brush: solid ring where it counts fully,
-// dashed ring where its weight fades out. A point sample is a small cross.
+// A sample area is a circle; a point sample is a small cross. Probes are dashed.
 function drawBrush(ctx, s, color, label, dashed = false) {
-  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0), inner = rad * (1 - (s.soft ?? 0.5));
+  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0);
   const outline = color === "#000" ? "#fff" : "#000";
   ctx.save();
   if (rad < 3) {
@@ -363,13 +363,8 @@ function drawBrush(ctx, s, color, label, dashed = false) {
       ctx.moveTo(p.x - 6, p.y); ctx.lineTo(p.x + 6, p.y); ctx.moveTo(p.x, p.y - 6); ctx.lineTo(p.x, p.y + 6); ctx.stroke();
     }
   } else {
-    if (dashed) ctx.setLineDash([3, 3]);
+    if (dashed) ctx.setLineDash([4, 4]);
     for (const [c, w] of [[outline, 3.5], [color, 1.5]]) {
-      ctx.strokeStyle = c; ctx.lineWidth = w;
-      if (inner > 1.5) { ctx.beginPath(); ctx.arc(p.x, p.y, inner, 0, 7); ctx.stroke(); }
-    }
-    ctx.setLineDash([4, 4]);
-    for (const [c, w] of [[outline, 3], [color, 1.2]]) {
       ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
     }
   }
@@ -377,8 +372,7 @@ function drawBrush(ctx, s, color, label, dashed = false) {
   ctx.restore();
 }
 
-// Colour wheel for the push tool. Right = magenta, up = yellow, left = green, down = blue,
-// the same directions as the vectorscope.
+// Colour wheel for the push tool. Right = magenta, up = yellow, left = green, down = blue.
 function drawWheel(ctx) {
   const { sx, sy, cx, cy } = S.push, R = 70;
   ctx.save();
@@ -444,8 +438,8 @@ overlay.addEventListener("mousedown", async (ev) => {
       if (hit >= 0 && ev.shiftKey) { S.samples.splice(hit, 1); drawOverlay(); renderSamples(); commit(); return; }
       if (hit >= 0) { S.sampleMove = { i: hit, sx: ev.clientX, sy: ev.clientY, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
     }
-    // a click takes one point; dragging grows a soft brush-like area from the click
-    S.brush = { kind: tool === "probe" ? null : tool, x: p.x, y: p.y, r: 0, soft: S.soft, sx: ev.clientX, sy: ev.clientY,
+    // a click takes one point; dragging grows a circle from the click
+    S.brush = { kind: tool === "probe" ? null : tool, x: p.x, y: p.y, r: 0, sx: ev.clientX, sy: ev.clientY,
                 label: tool === "probe" ? "" : String(S.samples.length + 1) };
     drawOverlay();
     return;
@@ -473,7 +467,7 @@ window.addEventListener("mousemove", (ev) => {
   if (S.brush) {
     const d = Math.hypot(ev.clientX - S.brush.sx, ev.clientY - S.brush.sy);
     S.brush.r = d < 4 ? 0 : d / radiusPx(1);
-    hint(S.brush.r ? `area ${Math.round(d)} px · softness ${Math.round(S.brush.soft * 100)}% (scroll to change)` : "");
+    hint(S.brush.r ? `area ${Math.round(d)} px` : "");
     drawOverlay(); return;
   }
   if (S.sampleMove) {
@@ -520,10 +514,10 @@ function applyPush(fine) {
 window.addEventListener("mouseup", () => {
   S.pan = null;
   if (S.brush) {
-    const { kind, x, y, r, soft } = S.brush;
+    const { kind, x, y, r } = S.brush;
     S.brush = null; hint("");
-    if (kind) { S.samples.push({ kind, x, y, r, soft }); renderSamples(); commit(); drawOverlay(); }
-    else doProbe({ x, y, r, soft });
+    if (kind) { S.samples.push({ kind, x, y, r }); renderSamples(); commit(); drawOverlay(); }
+    else doProbe({ x, y, r });
   }
   if (S.sampleMove) {
     if (S.sampleMove.moved) S.sampleMove.probe ? refreshProbes() : commit();
@@ -551,11 +545,6 @@ overlay.addEventListener("wheel", (ev) => {
   ev.preventDefault();
   const b = overlay.getBoundingClientRect();
   if (S.push) { setWidth(S.width * (ev.deltaY > 0 ? 1.06 : 0.94)); return; }
-  if (S.brush) {
-    S.brush.soft = S.soft = clamp(S.brush.soft + (ev.deltaY > 0 ? -0.04 : 0.04), 0, 1);
-    $("#soft").value = S.soft; drawOverlay();
-    hint(`softness ${Math.round(S.soft * 100)}%`); return;
-  }
   if (ev.ctrlKey) { zoomAt(ev.clientX - b.left, ev.clientY - b.top, Math.exp(-ev.deltaY * 0.01)); return; }
   if (S.view.scale > 1) {
     const r = fitRect();
@@ -675,10 +664,9 @@ async function refreshReport() {
 // ---------------------------------------------------------------- curves panel
 const curveCanvas = $("#curve");
 const CURVE_COLORS = { lightness: "#ddd", r: "#f66", g: "#6d6", b: "#69f", warmth: "#e8c040", tint: "#d070d0" };
-const LEVELS_H = 22;  // strip at the bottom of the curve panel holding the black/white point handles
 
 function curveGeom() {
-  const W = curveCanvas.width, H = curveCanvas.height - LEVELS_H, pad = 14;
+  const W = curveCanvas.width, H = curveCanvas.height, pad = 14;
   return { W, H, pad, x: (t) => pad + t * (W - 2 * pad), y: (v) => H / 2 - (v / S.zoom) * (H / 2 - pad),
            t: (px) => (px - pad) / (W - 2 * pad), v: (py) => -(py - H / 2) / (H / 2 - pad) * S.zoom };
 }
@@ -690,13 +678,6 @@ const CURVE_DIRECTIONS = {
   warmth: ["#ffd23c", "#3c78ff"], tint: ["#e040e0", "#40e040"], lightness: ["#ffffff", "#000000"],
   r: ["#ff4040", "#30e0e0"], g: ["#40e040", "#e040e0"], b: ["#4070ff", "#ffe040"],
 };
-
-// Which channels the black/white handles move in the current tab.
-const levelChannels = () => (["r", "g", "b"].includes(S.curve) ? ["rgb".indexOf(S.curve)] : [0, 1, 2]);
-function levelPos(which) {
-  const ch = levelChannels(), L = S.params.levels[which];
-  return ch.reduce((s, c) => s + L[c], 0) / ch.length;
-}
 
 function drawCurve() {
   if (!S.params) return;
@@ -792,16 +773,6 @@ function drawCurve() {
     ctx.beginPath(); ctx.arc(g.x(D.t), g.pad + 12, 9, 0, 7); ctx.fill(); ctx.stroke();
   }
 
-  // levels strip: tone ramp plus black and white point handles
-  const y0 = g.H + 4;
-  const ramp = ctx.createLinearGradient(g.x(0), 0, g.x(1), 0);
-  ramp.addColorStop(0, "#000"); ramp.addColorStop(1, "#fff");
-  ctx.fillStyle = ramp; ctx.fillRect(g.x(0), y0, g.x(1) - g.x(0), 5);
-  for (const [which, fill] of [["lo", "#000"], ["hi", "#fff"]]) {
-    const x = g.x(levelPos(which));
-    ctx.fillStyle = fill; ctx.strokeStyle = "#aaa"; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(x, y0 + 6); ctx.lineTo(x - 8, y0 + 18); ctx.lineTo(x + 8, y0 + 18); ctx.closePath(); ctx.fill(); ctx.stroke();
-  }
 }
 
 // Which curve and how wide an edit starting at canvas point (px, py) would be.
@@ -824,13 +795,7 @@ const canvasPoint = (ev) => {
 };
 
 curveCanvas.addEventListener("mousedown", (ev) => {
-  const p = canvasPoint(ev), g = curveGeom();
-  if (p.y > g.H) {  // levels strip
-    const which = Math.abs(p.x - g.x(levelPos("lo"))) < Math.abs(p.x - g.x(levelPos("hi"))) ? "lo" : "hi";
-    S.levelDrag = { which, x0: p.x, base: clone(S.params.levels) };
-    S.mask = { kind: "clip" }; startDrag(); drawOverlay();
-    return;
-  }
+  const p = canvasPoint(ev);
   const e = editAt(p.x, p.y);
   S.curveDrag = { ...e, y0: p.y, amount: 0, base: clone(S.params.curves) };
   startDrag(); drawCurve();
@@ -838,17 +803,8 @@ curveCanvas.addEventListener("mousedown", (ev) => {
 
 window.addEventListener("mousemove", (ev) => {
   const p = canvasPoint(ev), g = curveGeom();
-  if (S.levelDrag) {
-    const L = S.levelDrag, dt = (p.x - L.x0) / (g.W - 2 * g.pad) * (ev.altKey ? 0.2 : 1);
-    for (const c of levelChannels()) {
-      const v = L.base[L.which][c] + dt;
-      S.params.levels[L.which][c] = L.which === "lo" ? clamp(v, -0.2, S.params.levels.hi[c] - 0.05) : clamp(v, S.params.levels.lo[c] + 0.05, 1.2);
-    }
-    hint(`black point ${Math.round(levelPos("lo") * 255)} · white point ${Math.round(levelPos("hi") * 255)} · red/blue on the image = clipped · ⌥ finer`);
-    drawCurve(); render(); return;
-  }
   if (!S.curveDrag) {
-    if (ev.target === curveCanvas && p.y <= g.H) {
+    if (ev.target === curveCanvas) {
       S.hoverEdit = editAt(p.x, p.y); S.hoverName = S.hoverEdit.name; drawCurve();
     }
     return;
@@ -861,7 +817,6 @@ window.addEventListener("mousemove", (ev) => {
 });
 
 window.addEventListener("mouseup", () => {
-  if (S.levelDrag) { S.levelDrag = null; S.mask = null; hint(""); drawOverlay(); commit(); endDrag(); }
   if (S.curveDrag) { S.curveDrag = null; commit(); endDrag(); drawCurve(); }
 });
 curveCanvas.addEventListener("mouseleave", () => { S.hoverEdit = null; drawCurve(); });
@@ -884,147 +839,262 @@ function smoothCurves() {
 }
 $("#btn-smooth").onclick = smoothCurves;
 
-curveCanvas.addEventListener("dblclick", (ev) => {
-  const p = canvasPoint(ev), g = curveGeom();
-  if (p.y > g.H) {
-    for (const c of levelChannels()) { S.params.levels.lo[c] = 0; S.params.levels.hi[c] = 1; }
-  } else {
-    for (const n of curveNames()) S.params.curves[n] = Array(N_CTRL).fill(0);
-  }
+function resetCurves() {
+  for (const n of curveNames()) S.params.curves[n] = Array(N_CTRL).fill(0);
   drawCurve(); render(); commit();
+}
+curveCanvas.addEventListener("dblclick", resetCurves);
+$("#btn-curve-reset").onclick = resetCurves;
+
+// ---------------------------------------------------------------- levels panel (classic, like Pixelmator Pro)
+// Histogram of the image before levels, black/grey/white input handles under it,
+// output black/white below that. RGB moves all three channels; R, G, B one each.
+const levelsCanvas = $("#levels");
+const LV_HIST = 150, LV_IN = 24, LV_GAP = 14, LV_OUT = 24;
+
+function levelGeom() {
+  const W = levelsCanvas.width, pad = 12, [v0, v1] = S.levelView, span = W - 2 * pad;
+  return {
+    W, pad, span, inY: LV_HIST, outY: LV_HIST + LV_IN + LV_GAP,
+    x: (v) => pad + (v - v0) / (v1 - v0) * span, v: (px) => v0 + (px - pad) / span * (v1 - v0),
+    ox: (v) => pad + v * span,
+  };
+}
+
+const curLevel = () => S.params.levels[S.levelCh];
+const midPos = (L) => L.lo + (L.hi - L.lo) * 0.5 ** L.gamma;
+
+// One levels stage (mirrors pipeline.apply_level); y is clipped to 0..1 like a classic levels.
+function levelY(x, L) { return clamp((x - L.lo) / Math.max(L.hi - L.lo, 1e-3), 0, 1); }
+
+function scheduleLevelHist() {
+  const p = clone(S.params);
+  for (const k of ["levels", "curves", "saturation", "lighting"]) delete p[k];
+  const key = JSON.stringify(p);
+  if (key === S.levelHistKey) return;
+  clearTimeout(scheduleLevelHist.t);
+  scheduleLevelHist.t = setTimeout(async () => {
+    try {
+      const r = await api("histogram", { params: S.params, bins: 2048 });
+      S.levelHist = r; S.levelHistKey = key; drawLevels();
+    } catch (e) { console.error(e); }
+  }, S.dragging ? 250 : 60);
+}
+
+// Share of pixels pushed to pure black or white by the levels, for the shown channel(s).
+function levelClipping() {
+  const H = S.levelHist;
+  if (!H) return null;
+  const chans = S.levelCh === "rgb" ? [0, 1, 2] : ["rgb".indexOf(S.levelCh)], M = S.params.levels.rgb;
+  let lo = 0, hi = 0, n = 0;
+  for (const c of chans) {
+    const Lc = S.params.levels["rgb"[c]], h = H.hist[c];
+    let clo = 0, chi = 0, cn = 0;
+    for (let i = 0; i < H.bins; i++) {
+      if (!h[i]) continue;
+      const x = (i + 0.5) / H.bins, y = levelY(x, Lc), out = Lc.out_lo + (Lc.gamma === 1 ? y : y ** (1 / Lc.gamma)) * (Lc.out_hi - Lc.out_lo);
+      cn += h[i];
+      if (y <= 0 || levelY(out, M) <= 0) clo += h[i];
+      else if (y >= 1 || levelY(out, M) >= 1) chi += h[i];
+    }
+    lo = Math.max(lo, clo / cn); hi = Math.max(hi, chi / cn); n = cn;
+  }
+  return n ? { lo, hi } : null;
+}
+
+function drawLevels() {
+  if (!S.params) return;
+  const ctx = levelsCanvas.getContext("2d"), g = levelGeom(), L = curLevel();
+  ctx.clearRect(0, 0, levelsCanvas.width, levelsCanvas.height);
+
+  // histogram: one column per pixel, the average count of the bins it covers
+  const H = S.levelHist;
+  if (H) {
+    const chans = S.levelCh === "rgb" ? [0, 1, 2] : ["rgb".indexOf(S.levelCh)];
+    const colors = S.levelCh === "rgb" ? ["rgba(255,70,70,.75)", "rgba(70,230,70,.75)", "rgba(80,120,255,.75)"] : null;
+    const cols = [];
+    for (const c of chans) {
+      const h = H.hist[c], col = new Float32Array(g.span);
+      for (let px = 0; px < g.span; px++) {
+        const b0 = Math.floor(g.v(g.pad + px) * H.bins), b1 = Math.max(b0 + 1, Math.floor(g.v(g.pad + px + 1) * H.bins));
+        let sum = 0, cnt = 0;
+        for (let b = Math.max(0, b0); b < Math.min(H.bins, b1); b++) { sum += h[b]; cnt++; }
+        col[px] = cnt ? sum / cnt : 0;
+      }
+      cols.push(col);
+    }
+    // scale to the tall but not extreme columns, so a spike at pure black or white doesn't flatten everything
+    const all = cols.flatMap((c) => [...c]).filter((v) => v > 0).sort((a, b) => a - b);
+    const norm = (all[Math.floor(all.length * 0.985)] || 1) * 1.1;
+    ctx.globalCompositeOperation = "lighter";
+    cols.forEach((col, k) => {
+      ctx.fillStyle = colors ? colors[k] : { r: "#e05050", g: "#50c050", b: "#5080f0" }[S.levelCh];
+      ctx.beginPath(); ctx.moveTo(g.pad, LV_HIST);
+      for (let px = 0; px < g.span; px++) ctx.lineTo(g.pad + px + 0.5, LV_HIST - Math.min(1, col[px] / norm) * (LV_HIST - 8));
+      ctx.lineTo(g.pad + g.span, LV_HIST); ctx.closePath(); ctx.fill();
+    });
+    ctx.globalCompositeOperation = "source-over";
+  }
+
+  // veil over what the black and white points cut off
+  ctx.fillStyle = "rgba(0,0,0,.45)";
+  const xl = clamp(g.x(L.lo), g.pad, g.pad + g.span), xh = clamp(g.x(L.hi), g.pad, g.pad + g.span);
+  ctx.fillRect(g.pad, 0, xl - g.pad, LV_HIST); ctx.fillRect(xh, 0, g.pad + g.span - xh, LV_HIST);
+
+  // zoom: show the visible range
+  const [v0, v1] = S.levelView;
+  if (v1 - v0 < 0.999) {
+    ctx.fillStyle = "#999"; ctx.font = "16px sans-serif";
+    ctx.textAlign = "left"; ctx.fillText(Math.round(v0 * 255), g.pad + 2, 17);
+    ctx.textAlign = "right"; ctx.fillText(Math.round(v1 * 255), g.pad + g.span - 2, 17);
+    ctx.textAlign = "center"; ctx.fillText(`${(1 / (v1 - v0)).toFixed(1)}×`, g.W / 2, 17);
+  }
+
+  // input ramp and handles
+  const ramp = (x0, x1, y) => {
+    const gr = ctx.createLinearGradient(x0, 0, x1, 0);
+    gr.addColorStop(0, "#000"); gr.addColorStop(1, "#fff");
+    ctx.fillStyle = gr; ctx.fillRect(g.pad, y, g.span, 5);
+  };
+  ramp(g.x(0), g.x(1), g.inY + 3);
+  const tri = (x, y, fill) => {
+    ctx.fillStyle = fill; ctx.strokeStyle = "#aaa"; ctx.lineWidth = 1.5;
+    if (x < g.pad - 9 || x > g.pad + g.span + 9) {  // zoomed past it: a small arrow at the edge points to it
+      const e = x < g.pad ? 2 : g.W - 2, d = x < g.pad ? 1 : -1;
+      ctx.beginPath(); ctx.moveTo(e, y + 14); ctx.lineTo(e + 9 * d, y + 8); ctx.lineTo(e + 9 * d, y + 20); ctx.closePath(); ctx.fill(); ctx.stroke();
+      return;
+    }
+    ctx.beginPath(); ctx.moveTo(x, y + 8); ctx.lineTo(x - 8, y + 21); ctx.lineTo(x + 8, y + 21); ctx.closePath(); ctx.fill(); ctx.stroke();
+  };
+  tri(g.x(L.lo), g.inY, "#000"); tri(g.x(midPos(L)), g.inY, "#808080"); tri(g.x(L.hi), g.inY, "#fff");
+
+  // output ramp and handles (always the whole range)
+  ramp(g.ox(0), g.ox(1), g.outY + 3);
+  tri(g.ox(L.out_lo), g.outY, "#000"); tri(g.ox(L.out_hi), g.outY, "#fff");
+
+  // numbers and clipping
+  const set = (id, v) => { const el = $(id); if (document.activeElement !== el) el.value = v; };
+  set("#lv-lo", Math.round(L.lo * 255)); set("#lv-hi", Math.round(L.hi * 255)); set("#lv-gamma", L.gamma.toFixed(2));
+  set("#lv-out-lo", Math.round(L.out_lo * 255)); set("#lv-out-hi", Math.round(L.out_hi * 255));
+  const c = levelClipping(), pct = (f) => (f < 0.0005 ? "none" : f < 0.01 ? (f * 100).toFixed(2) + "%" : (f * 100).toFixed(1) + "%");
+  $("#lv-clip").textContent = c ? `Clipped to black: ${pct(c.lo)} · to white: ${pct(c.hi)}` : "";
+}
+
+function setLevelCh(ch) {
+  S.levelCh = ch;
+  $$("#level-tabs [data-level]").forEach((b) => b.classList.toggle("active", b.dataset.level === ch));
+  drawLevels();
+}
+$$("#level-tabs [data-level]").forEach((b) => (b.onclick = () => setLevelCh(b.dataset.level)));
+
+function setLevelView(v0, v1) {
+  const w = clamp(v1 - v0, 1 / 32, 1);
+  v0 = clamp(v0, 0, 1 - w);
+  S.levelView = [v0, v0 + w];
+  const sel = $("#level-zoom"), key = S.levelView.map((v) => +v.toFixed(4)).join(",");
+  sel.value = [...sel.options].some((o) => o.value === key) ? key : "zoomed";
+  drawLevels();
+}
+$("#level-zoom").onchange = (e) => { if (e.target.value !== "zoomed") { const [a, b] = e.target.value.split(",").map(Number); setLevelView(a, b); } };
+
+const levelPoint = (ev) => {
+  const b = levelsCanvas.getBoundingClientRect(), sc = levelsCanvas.width / b.width;
+  return { x: (ev.clientX - b.left) * sc, y: (ev.clientY - b.top) * sc, sc };
+};
+
+// Which handle a press at p grabs, if any.
+function levelHandleAt(p) {
+  const g = levelGeom(), L = curLevel(), near = (x) => Math.abs(p.x - x);
+  let opts = null;
+  if (p.y >= g.inY && p.y < g.outY - 4) opts = [["lo", g.x(L.lo)], ["mid", g.x(midPos(L))], ["hi", g.x(L.hi)]];
+  else if (p.y >= g.outY - 4) opts = [["out_lo", g.ox(L.out_lo)], ["out_hi", g.ox(L.out_hi)]];
+  if (!opts) return null;
+  const best = opts.reduce((a, b) => (near(b[1]) < near(a[1]) ? b : a));
+  return near(best[1]) < 16 ? best[0] : null;
+}
+
+levelsCanvas.addEventListener("mousedown", (ev) => {
+  const p = levelPoint(ev), which = levelHandleAt(p);
+  if (which) {
+    S.levelDrag = { which, x0: p.x, base: { ...curLevel() } };
+    if (ev.altKey && which !== "mid") { S.mask = { kind: "clip" }; drawOverlay(); }
+    startDrag();
+  } else if (p.y < LV_HIST) {
+    S.levelPan = { x0: p.x, view: [...S.levelView] };
+  }
 });
 
-// ---------------------------------------------------------------- scopes (from the preview pixels)
-function srgbToOklab(r, g, b) {
-  const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  r = lin(r); g = lin(g); b = lin(b);
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-  return [0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
-          1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
-          0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s];
+window.addEventListener("mousemove", (ev) => {
+  if (S.levelPan) {
+    const p = levelPoint(ev), g = levelGeom(), P = S.levelPan, w = P.view[1] - P.view[0];
+    const d = -(p.x - P.x0) / g.span * w;
+    setLevelView(P.view[0] + d, P.view[1] + d); return;
+  }
+  if (!S.levelDrag) {
+    if (ev.target === levelsCanvas) levelsCanvas.style.cursor = levelHandleAt(levelPoint(ev)) ? "ew-resize" : S.levelView[1] - S.levelView[0] < 0.999 ? "grab" : "default";
+    return;
+  }
+  const D = S.levelDrag, B = D.base, L = curLevel(), p = levelPoint(ev), g = levelGeom();
+  const dx = (p.x - D.x0) / g.span, inDv = dx * (S.levelView[1] - S.levelView[0]);
+  if (D.which === "lo") L.lo = clamp(B.lo + inDv, 0, L.hi - 2 / 255);
+  else if (D.which === "hi") L.hi = clamp(B.hi + inDv, L.lo + 2 / 255, 1);
+  else if (D.which === "mid") {
+    const m = clamp(midPos(B) + inDv, L.lo + 0.002, L.hi - 0.002);
+    L.gamma = clamp(Math.log((m - L.lo) / (L.hi - L.lo)) / Math.log(0.5), 0.1, 9.99);
+  } else if (D.which === "out_lo") L.out_lo = clamp(B.out_lo + dx, 0, L.out_hi - 2 / 255);
+  else L.out_hi = clamp(B.out_hi + dx, L.out_lo + 2 / 255, 1);
+  const wantMask = ev.altKey && D.which !== "mid";
+  if (wantMask !== !!S.mask) { S.mask = wantMask ? { kind: "clip" } : null; }
+  drawLevels(); render();
+});
+
+window.addEventListener("mouseup", () => {
+  S.levelPan = null;
+  if (S.levelDrag) { S.levelDrag = null; if (S.mask && S.mask.kind === "clip") { S.mask = null; drawOverlay(); } commit(); endDrag(); }
+});
+
+levelsCanvas.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  const p = levelPoint(ev), g = levelGeom(), [v0, v1] = S.levelView, at = clamp(g.v(p.x), 0, 1);
+  if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) && !ev.ctrlKey) {
+    const d = ev.deltaX / g.span * (v1 - v0) * p.sc; setLevelView(v0 + d, v1 + d); return;
+  }
+  const f = Math.exp(ev.deltaY * (ev.ctrlKey ? 0.01 : 0.003));
+  setLevelView(at - (at - v0) * f, at + (v1 - at) * f);
+}, { passive: false });
+levelsCanvas.addEventListener("gesturestart", (ev) => ev.preventDefault());
+
+levelsCanvas.addEventListener("dblclick", (ev) => {
+  const p = levelPoint(ev), which = levelHandleAt(p);
+  if (p.y < LV_HIST) { setLevelView(0, 1); return; }
+  if (!which) return;
+  const L = curLevel();
+  if (which.startsWith("out")) { L.out_lo = 0; L.out_hi = 1; } else if (which === "mid") L.gamma = 1; else { L.lo = 0; L.hi = 1; L.gamma = 1; }
+  drawLevels(); render(); commit();
+});
+
+for (const [id, key, scale] of [["#lv-lo", "lo", 255], ["#lv-hi", "hi", 255], ["#lv-gamma", "gamma", 1], ["#lv-out-lo", "out_lo", 255], ["#lv-out-hi", "out_hi", 255]]) {
+  $(id).addEventListener("change", (e) => {
+    const L = curLevel(), v = +e.target.value / scale;
+    if (!Number.isFinite(v)) return drawLevels();
+    if (key === "lo") L.lo = clamp(v, 0, L.hi - 2 / 255);
+    else if (key === "hi") L.hi = clamp(v, L.lo + 2 / 255, 1);
+    else if (key === "gamma") L.gamma = clamp(v, 0.1, 9.99);
+    else if (key === "out_lo") L.out_lo = clamp(v, 0, L.out_hi - 2 / 255);
+    else L.out_hi = clamp(v, L.out_lo + 2 / 255, 1);
+    e.target.blur(); drawLevels(); render(); commit();
+  });
 }
 
-function drawScopes() {
-  if (!previewPx) return;
-  // scopes use a 300 px wide copy for speed
-  const step = Math.max(1, Math.round(previewPx.w / 300));
-  const w = Math.floor(previewPx.w / step), h = Math.floor(previewPx.h / step), src = previewPx.data;
-  const px = new Uint8ClampedArray(w * h * 4);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = ((y * step) * previewPx.w + x * step) * 4, o = (y * w + x) * 4;
-    px[o] = src[i]; px[o + 1] = src[i + 1]; px[o + 2] = src[i + 2];
-  }
-
-  // RGB parade: each channel gets a third of the width; x = image column, y = value
-  const pc = $("#parade"), pctx = pc.getContext("2d"), PW = pc.width, PH = pc.height;
-  const acc = new Float32Array(PW * PH * 3);
-  const third = Math.floor(PW / 3);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = (y * w + x) * 4, col = Math.floor(x * third / w);
-    for (let c = 0; c < 3; c++) {
-      const row = PH - 1 - Math.round(px[i + c] / 255 * (PH - 1));
-      acc[(row * PW + c * third + col) * 3 + c] += 1;
-    }
-  }
-  const pim = pctx.createImageData(PW, PH), gain = 255 * 1.5 * third / (w * h) * PH;
-  for (let i = 0; i < PW * PH; i++) {
-    pim.data[i * 4] = Math.min(255, acc[i * 3] * gain);
-    pim.data[i * 4 + 1] = Math.min(255, acc[i * 3 + 1] * gain);
-    pim.data[i * 4 + 2] = Math.min(255, acc[i * 3 + 2] * gain);
-    pim.data[i * 4 + 3] = 255;
-  }
-  pctx.putImageData(pim, 0, 0);
-  pctx.strokeStyle = "#333";
-  for (const v of [0.25, 0.5, 0.75]) { pctx.beginPath(); pctx.moveTo(0, PH * v); pctx.lineTo(PW, PH * v); pctx.stroke(); }
-
-  // Cast vs tone (near-neutral pixels) and vectorscope
-  const BINS = 32, sa = new Float32Array(BINS), sb = new Float32Array(BINS), n = new Float32Array(BINS);
-  const vc = $("#vector"), vctx = vc.getContext("2d"), VW = vc.width;
-  const vim = vctx.createImageData(VW, VW), vacc = new Float32Array(VW * VW), VS = VW / 2 / 0.16;
-  for (let i = 0; i < px.length; i += 4) {
-    const [, a, b] = srgbToOklab(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255);
-    const vx = Math.round(VW / 2 + a * VS), vy = Math.round(VW / 2 - b * VS);
-    if (vx >= 0 && vx < VW && vy >= 0 && vy < VW) vacc[vy * VW + vx]++;
-    if (Math.hypot(a, b) < 0.04) {
-      const t = 0.2126 * px[i] / 255 + 0.7152 * px[i + 1] / 255 + 0.0722 * px[i + 2] / 255;
-      const k = Math.min(BINS - 1, Math.floor(t * BINS));
-      sa[k] += a; sb[k] += b; n[k]++;
-    }
-  }
-  const vg = 255 * 40 / (w * h) * VW;
-  for (let i = 0; i < VW * VW; i++) {
-    const v = Math.min(255, Math.sqrt(vacc[i] * vg) * 16);
-    vim.data[i * 4] = vim.data[i * 4 + 1] = vim.data[i * 4 + 2] = v; vim.data[i * 4 + 3] = 255;
-  }
-  vctx.putImageData(vim, 0, 0);
-  vctx.strokeStyle = "#444"; vctx.beginPath(); vctx.arc(VW / 2, VW / 2, VW / 2 - 1, 0, 7);
-  vctx.moveTo(0, VW / 2); vctx.lineTo(VW, VW / 2); vctx.moveTo(VW / 2, 0); vctx.lineTo(VW / 2, VW); vctx.stroke();
-  // skin tone line (hue from typical skin, same as the server)
-  vctx.strokeStyle = "#e9a37a"; vctx.setLineDash([3, 3]); vctx.beginPath(); vctx.moveTo(VW / 2, VW / 2);
-  vctx.lineTo(VW / 2 + Math.cos(SKIN_HUE) * VW / 2, VW / 2 - Math.sin(SKIN_HUE) * VW / 2); vctx.stroke(); vctx.setLineDash([]);
-  vctx.fillStyle = "#777"; vctx.font = "9px sans-serif";
-  vctx.fillText("Y", VW / 2 + 3, 10); vctx.fillText("M", VW - 10, VW / 2 - 3); vctx.fillText("G", 3, VW / 2 - 3); vctx.fillText("B", VW / 2 + 3, VW - 3);
-
-  const cc = $("#casttone"), cctx = cc.getContext("2d"), CW = cc.width, CH = cc.height, CS = CH / 2 / 0.03;
-  cctx.fillStyle = "#111"; cctx.fillRect(0, 0, CW, CH);
-  cctx.strokeStyle = "#444"; cctx.beginPath(); cctx.moveTo(0, CH / 2); cctx.lineTo(CW, CH / 2); cctx.stroke();
-  for (const [arr, color] of [[sb, CURVE_COLORS.warmth], [sa, CURVE_COLORS.tint]]) {
-    cctx.strokeStyle = color; cctx.lineWidth = 2; cctx.beginPath();
-    let started = false;
-    for (let k = 0; k < BINS; k++) {
-      if (n[k] < 15) { started = false; continue; }
-      const x = (k + 0.5) / BINS * CW, y = CH / 2 - (arr[k] / n[k]) * CS;
-      started ? cctx.lineTo(x, y) : cctx.moveTo(x, y); started = true;
-    }
-    cctx.stroke();
-  }
-  cctx.fillStyle = "#777"; cctx.font = "9px sans-serif";
-  cctx.fillText("shadows", 3, CH - 3); cctx.fillText("highlights", CW - 48, CH - 3);
-  cctx.fillStyle = CURVE_COLORS.warmth; cctx.fillText("yellow ↑ blue ↓", 3, 10);
-  cctx.fillStyle = CURVE_COLORS.tint; cctx.fillText("magenta ↑ green ↓", 3, 21);
-}
-
-const SKIN_HUE = (() => {
-  const skins = [[255, 219, 172], [224, 172, 140], [198, 134, 103], [160, 110, 80], [141, 85, 36], [105, 60, 40]];
-  let sx = 0, sy = 0;
-  for (const [r, g, b] of skins) { const [, a, bb] = srgbToOklab(r / 255, g / 255, b / 255); const h = Math.atan2(bb, a); sx += Math.cos(h); sy += Math.sin(h); }
-  return Math.atan2(sy, sx);
-})();
-
-// ---------------------------------------------------------------- variants (ring-around)
-let hoverCell = -1;
-
-async function openVariants(pick = null) {
-  $("#variants").hidden = false;
-  $("#vinfo").textContent = "rendering…";
-  const body = { params: S.params, state: S.variants?.state || null };
-  if (pick !== null) { body.pick = pick; body.cells = S.variants.cells.map(({ image, ...c }) => c); }
-  try {
-    const res = await api("variants", body);
-    S.variants = { state: res.state, cells: res.cells };
-    if (pick !== null) { S.params = res.params; commit(); syncControls(); render(); drawCurve(); }
-    const g = $("#vgrid"); g.innerHTML = ""; g.classList.remove("zoom");
-    res.cells.forEach((c, i) => {
-      const d = document.createElement("div");
-      d.className = "cell" + (i === 4 ? " center" : "");
-      d.innerHTML = `<img src="${c.image}"><span class="label">${c.label}</span><span class="num">${i + 1}</span>`;
-      d.onclick = () => openVariants(i);
-      d.onmouseenter = () => (hoverCell = i);
-      g.appendChild(d);
-    });
-    $("#vinfo").textContent = `generation ${res.state.generation} · step ${res.state.step.toFixed(2)} · click the best one, or press 1–9 · hold Space over a cell to see it large · centre = keep and look closer`;
-  } catch (e) { status("variants failed: " + e.message, 8000); }
-}
-
-function closeVariants() { $("#variants").hidden = true; S.variants = null; }
-
-function enlargeCell(on) {
-  const g = $("#vgrid"), cells = [...g.children];
-  cells.forEach((c, i) => c.classList.toggle("big", on && i === hoverCell));
-  g.classList.toggle("zoom", on && hoverCell >= 0);
-}
+// Click a panel title to fold it away; remembered per panel.
+$$("aside .panel").forEach((panel, i) => {
+  const key = "filmneg.fold." + (panel.id || i);
+  try { if (localStorage.getItem(key) === "1") panel.classList.add("collapsed"); } catch (e) { /* ignore */ }
+  panel.querySelector("h3").addEventListener("click", () => {
+    panel.classList.toggle("collapsed");
+    try { localStorage.setItem(key, panel.classList.contains("collapsed") ? "1" : "0"); } catch (e) { /* ignore */ }
+  });
+});
 
 // ---------------------------------------------------------------- straighten panel
 const ST = { base: null, inflight: false, again: false };
@@ -1073,6 +1143,7 @@ function syncControls() {
     el.nextElementSibling.textContent = (+S.params[k]).toFixed(2);
   }
   $("#lighting").value = S.params.lighting;
+  drawLevels();
 }
 
 for (const k of SLIDERS) {
@@ -1086,7 +1157,6 @@ for (const k of SLIDERS) {
 }
 $("#lighting").addEventListener("change", (e) => { S.params.lighting = e.target.value; commit(); });
 $("#width").addEventListener("input", (e) => setWidth(+e.target.value));
-$("#soft").addEventListener("input", (e) => { S.soft = +e.target.value; });
 
 function setTool(t) {
   S.tool = t;
@@ -1123,8 +1193,6 @@ $("#btn-solve").onclick = () => guard("Solve", async () => {
   S.params = r.params; S.report = r.report; syncControls(); render(); renderSamples(); commit();
 });
 $("#btn-straighten").onclick = () => ($("#straighten").hidden ? openStraighten() : closeStraighten(false));
-$("#btn-variants").onclick = () => openVariants();
-$("#v-keep").onclick = closeVariants;
 $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
 $("#btn-fit").onclick = fitView;
@@ -1154,12 +1222,6 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.metaKey || ev.ctrlKey) return;
-  if (!$("#variants").hidden) {
-    if (k === "escape") closeVariants();
-    else if (k === " ") { ev.preventDefault(); enlargeCell(true); }
-    else if (/^[1-9]$/.test(k)) openVariants(+k - 1);
-    return;
-  }
   if (k === "escape") { if (ST.base) closeStraighten(false); else setTool("probe"); return; }
   if (k === "\\") { compare(true); return; }
   if (k === "[") { setWidth(S.width * 0.85); return; }
@@ -1167,11 +1229,9 @@ window.addEventListener("keydown", (ev) => {
   if (k === "0") { fitView(); return; }
   const tools = { p: "probe", c: "push", l: "light", n: "neutral", w: "white", k: "black", s: "skin", r: "crop" };
   if (tools[k]) setTool(tools[k]);
-  if (k === "v") openVariants();
 });
 window.addEventListener("keyup", (ev) => {
   if (ev.key === "\\") compare(false);
-  if (ev.key === " ") enlargeCell(false);
 });
 window.addEventListener("resize", () => { sizeCanvases(); clampView(); drawImage(); });
 // keep the browser from zooming the whole page on pinch outside the image
@@ -1187,8 +1247,8 @@ async function load(name) {
   $("#lighting").innerHTML = d.lighting_options.map((o) => `<option>${o}</option>`).join("");
   location.hash = encodeURIComponent(d.name);
   document.title = d.name + " · filmneg";
-  S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null;
-  syncControls(); setCurve(S.curve); setTool("probe"); renderSamples(); refreshReport();
+  S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; S.levelHist = null; S.levelHistKey = null;
+  syncControls(); setCurve(S.curve); setLevelCh(S.levelCh); setTool("probe"); renderSamples(); refreshReport();
   status(`${d.name} · ${d.width}×${d.height} · ${d.profile || "no profile, assuming sRGB"}`, 6000);
   render();
 }

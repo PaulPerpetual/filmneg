@@ -6,8 +6,8 @@ a browser UI.
 
 The engine fixes what is physical (casts that change with brightness, the
 scanner's per-channel clipping) with as small and smooth a change as possible.
-The aesthetic decisions stay with you: a ring-around grid of variants, gentle
-colour pushes straight on the image, and curves that show the change magnified.
+The aesthetic decisions stay with you: gentle colour pushes straight on the
+image, classic levels, and curves that show the change magnified.
 
 ## Setup
 
@@ -47,9 +47,7 @@ for Pixelmator.
    removes the part of the cast that changes with brightness.
 4. Set **Light** if the picture should keep its light (golden hour, tungsten,
    shade), then solve again.
-5. Open **Variants** (V) and pick the version you like best. The centre is the
-   current one; opposite cells are opposite moves. Picking the centre makes the
-   steps finer. Repeat until nothing beats the centre.
+5. Set black and white points in **Levels** if the scan needs it.
 6. Fine-tune by hand with **Push** or the curves.
 
 ### Tools and keys
@@ -61,21 +59,33 @@ for Pixelmator.
 | L | Push light: same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider edits (also scroll while pushing, or the width slider) |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
-| N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (scroll while dragging for softness: a soft area weights its centre more, like a soft brush). Drag a sample to move it, ⇧-click to remove it |
+| N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it, ⇧-click to remove it |
 | R | Crop |
-| V | Variants grid |
 | \\ (hold) | Before: the scan as the scanner delivered it |
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo |
+
+Click a panel's title to fold it away.
+
+### Levels
+
+Classic levels, like Pixelmator Pro's: a histogram of the image before levels
+and curves, black / grey / white input triangles under it, and output black and
+white on the bar below. **RGB** moves all three channels, **R**, **G**, **B**
+one each (a channel's levels apply first, then RGB). The number fields take
+exact values. To fine-tune clipping, zoom into the histogram: pinch or scroll
+over it, or pick *Shadows* / *Highlights*; drag it to move around and
+double-click to see everything. A drag then moves the triangles in finer steps.
+Hold ⌥ while dragging a triangle to see clipped areas on the image (red =
+white, blue = black); the panel also says how much is clipped.
 
 ### Curves
 
 - **Colour** shows warmth (yellow/blue) and tint (magenta/green) as a function
   of brightness. Grab either curve and drag it up or down. This is the panel
   for "the shadows are too red".
-- The histogram of the current image sits behind the curves. The triangles
-  below are black and white points (levels); while you drag them, clipped
-  areas light up red (highlights) and blue (shadows) on the image.
-- **Smooth** relaxes the shown curve(s), like Rhino's Smooth. Click again for more.
+- The histogram of the current image sits behind the curves.
+- **Smooth** (under the curves) relaxes the shown curve(s), like Rhino's
+  Smooth. Click again for more. **Reset curve** or a double-click clears them.
 - **Light, R, G, B** are classic curves, but drawn as the *change* from
   neutral, magnified (±5 to ±40 levels), so small moves are visible.
 - Dragging never places points: the change falls off smoothly around where you
@@ -95,6 +105,7 @@ scan (encoded) -> linear light
   -> per-channel levels (black/white points, linear)
   -> log2 domain: per-channel slope + offset, contrast, exposure
   -> soft highlight shoulder -> encode
+  -> levels: per channel, then RGB (input black/grey/white, output black/white)
   -> curves: lightness, R/G/B, warmth/tint by tone
   -> saturation (Oklab)
 ```
@@ -108,18 +119,12 @@ your samples, with a penalty for moving far from where you are. With one
 sample it reduces to a white balance.
 
 **Skin.** Skin hue is quite consistent across people; lightness and chroma
-vary much more. Skin samples are therefore a hue target (the "skin line" on the
-vectorscope), not a colour target.
+vary much more. Skin samples are therefore a hue target, not a
+colour target.
 
 **Straighten.** Measures the average cast of near-neutral pixels per
 brightness band and bends the warmth/tint curves against it, smoothed so the
 correction stays a gentle curve.
-
-**Variants.** Four meaningful directions (exposure, contrast, saturation, or
-warmth/tint in shadows, mids or highlights), each pushed both ways around the
-current image. Directions you choose come up more often; the step shrinks when
-you keep the centre and grows when you keep going the same way. It's the
-darkroom ring-around, plus a little memory.
 
 **Speed.** The per-channel stages are baked into a 16-bit lookup table per
 channel, so a preview renders in well under 0.1 s. Chroma noise reduction (an
@@ -140,5 +145,5 @@ pytest
 ```
 
 Code map: `filmneg/pipeline.py` (render), `analysis.py` (auto crop/levels,
-solver, straighten, probe), `variants.py` (ring-around), `curves.py`
+solver, straighten, probe), `curves.py`
 (B-splines), `server.py` (local HTTP API), `web/` (UI, plain JS, no build step).

@@ -9,7 +9,8 @@ the image is rendered from the original every time:
       -> log2 domain: per-channel slope + offset (fixes casts that change
          with brightness, i.e. crossover), contrast, exposure
       -> soft highlight shoulder -> encode
-      -> output levels (black/white point handles in the curve panel)
+      -> levels, classic: input black/grey/white and output black/white,
+         per channel and then for all three together
       -> curves (lightness, per-channel, warmth/tint as a function of tone)
       -> saturation (Oklab)
 
@@ -28,6 +29,9 @@ PIVOT = np.log2(0.18)  # middle grey: slope and contrast rotate around it
 _EPS = 1e-5
 _KNEE = 0.8
 
+LEVEL_CHANNELS = ("rgb", "r", "g", "b")
+IDENTITY_LEVEL = {"lo": 0.0, "gamma": 1.0, "hi": 1.0, "out_lo": 0.0, "out_hi": 1.0}
+
 DEFAULTS = {
     "mode": "positive",            # "positive" (scanner already inverted) or "negative"
     "base": None,                  # film base, linear RGB, negative mode only
@@ -39,7 +43,8 @@ DEFAULTS = {
     "exposure": 0.0,               # stops
     "contrast": 1.0,
     "saturation": 1.0,
-    "levels": {"lo": [0.0, 0.0, 0.0], "hi": [1.0, 1.0, 1.0]},  # encoded, per channel
+    "levels": {ch: {"lo": 0.0, "gamma": 1.0, "hi": 1.0, "out_lo": 0.0, "out_hi": 1.0}
+               for ch in LEVEL_CHANNELS},  # encoded values, like Pixelmator's Levels
     "nr": 0.0,                     # chroma noise reduction strength 0..1
     "lighting": "neutral",
     "curves": {name: curves.zero_curve() for name in curves.CURVE_NAMES},
@@ -56,9 +61,30 @@ def normalize(params):
     for k, v in (params or {}).items():
         if k == "curves":
             out["curves"].update(v)
+        elif k == "levels":
+            out["levels"] = _normalize_levels(v)
         else:
             out[k] = v
     return out
+
+
+def _normalize_levels(v):
+    levels = {ch: dict(IDENTITY_LEVEL) for ch in LEVEL_CHANNELS}
+    if "lo" in v and isinstance(v["lo"], list):  # older sidecars: per-channel black/white lists
+        for i, ch in enumerate("rgb"):
+            levels[ch].update(lo=v["lo"][i], hi=v["hi"][i])
+        return levels
+    for ch in LEVEL_CHANNELS:
+        levels[ch].update(v.get(ch, {}))
+    return levels
+
+
+def apply_level(x, L):
+    """Classic levels: input black/white, a gamma (the grey slider), output black/white."""
+    y = np.clip((x - L["lo"]) / max(L["hi"] - L["lo"], 1e-3), 0.0, 1.0)
+    if L["gamma"] != 1.0:
+        y = y ** (1.0 / L["gamma"])
+    return L["out_lo"] + y * (L["out_hi"] - L["out_lo"])
 
 
 def _shoulder(lin):
@@ -78,18 +104,23 @@ def to_working_linear(enc, params, space: RGBSpace):
     return (lin - black) / np.maximum(white - black, _EPS)
 
 
-def _channel_stages(enc, params, space: RGBSpace):
-    """Every stage that treats R, G and B independently, on (..., 3) arrays."""
+def pre_levels(enc, params, space: RGBSpace):
+    """The image as the Levels panel sees it: after the base stages, before levels and curves."""
     lin = np.maximum(to_working_linear(enc, params, space), _EPS)
     log = np.log2(lin)
     slope = np.asarray(params["slope"], dtype=np.float32)
     offset = np.asarray(params["offset"], dtype=np.float32)
     log = slope * (log - PIVOT) + PIVOT + offset
     log = params["contrast"] * (log - PIVOT) + PIVOT + params["exposure"]
-    out = space.encode(_shoulder(np.exp2(log))).astype(np.float32)
-    lo = np.asarray(params["levels"]["lo"], dtype=np.float32)
-    hi = np.asarray(params["levels"]["hi"], dtype=np.float32)
-    out = (out - lo) / np.maximum(hi - lo, 1e-3)
+    return space.encode(_shoulder(np.exp2(log))).astype(np.float32)
+
+
+def _channel_stages(enc, params, space: RGBSpace):
+    """Every stage that treats R, G and B independently, on (..., 3) arrays."""
+    out = pre_levels(enc, params, space)
+    lv = params["levels"]
+    for i, ch in enumerate("rgb"):
+        out[..., i] = apply_level(apply_level(out[..., i], lv[ch]), lv["rgb"])
     c = params["curves"]
     for i, ch in enumerate("rgb"):
         x = out[..., i]

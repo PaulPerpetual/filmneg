@@ -3,7 +3,6 @@
 Run with `filmneg path/to/scan.tif` or `filmneg path/to/folder`.
 """
 import argparse
-import base64
 import json
 import threading
 import webbrowser
@@ -12,12 +11,11 @@ from pathlib import Path
 
 import numpy as np
 
-from . import analysis, imageio, pipeline, variants
+from . import analysis, imageio, pipeline
 
 WEB = Path(__file__).parent / "web"
 PREVIEW = 1600
 DRAG = 800      # lighter preview while a slider or curve is being dragged
-GRID = 900      # variant thumbnails
 THUMB = 520
 REGION = 2000   # zoomed-in detail is rendered from full resolution, up to this size
 SCAN_EXT = {".tif", ".tiff", ".jpg", ".jpeg", ".png"}
@@ -49,7 +47,6 @@ class Session:
         self.proxies = {
             "preview": imageio.downsample(self.scan.rgb, PREVIEW),
             "drag": imageio.downsample(self.scan.rgb, DRAG),
-            "grid": imageio.downsample(self.scan.rgb, GRID),
             "thumb": imageio.downsample(self.scan.rgb, THUMB),
         }
         side = sidecar_path(path)
@@ -111,9 +108,6 @@ class Session:
 
 
 def make_handler(session: Session):
-    def jpeg_b64(rgb):
-        return "data:image/jpeg;base64," + base64.b64encode(imageio.to_jpeg(rgb, session.scan.icc, 85)).decode()
-
     def api(route, body):
         p = pipeline.normalize(body.get("params")) if "params" in body else None
         s = session
@@ -150,15 +144,13 @@ def make_handler(session: Session):
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)
             return {"probes": [analysis.probe(src, out, at, p, s.scan.space) for at in body.get("at", [])]}
-        if route == "variants":
-            state = body.get("state") or variants.new_state()
-            if body.get("pick") is not None:
-                state = variants.pick(state, body["cells"], int(body["pick"]))
-                p = pipeline.normalize(body["cells"][int(body["pick"])]["params"])
-            cells = variants.generate(p, state)
-            for c in cells:
-                c["image"] = jpeg_b64(s.render(c["params"], "grid"))
-            return {"state": state, "cells": cells, "params": p}
+        if route == "histogram":
+            # what the Levels panel shows: the image before levels and curves
+            src = pipeline.crop(s.source("drag", p), p["crop"])
+            pre = np.clip(pipeline.pre_levels(src, p, s.scan.space), 0, 1)
+            bins = int(body.get("bins", 1024))
+            idx = np.minimum((pre * bins).astype(np.int32), bins - 1)
+            return {"bins": bins, "hist": [np.bincount(idx[..., i].ravel(), minlength=bins) for i in range(3)]}
         if route == "save":
             return {"path": s.save(body)}
         if route == "export":

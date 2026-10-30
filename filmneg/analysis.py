@@ -61,34 +61,26 @@ def auto_levels(rgb, params, space: RGBSpace, lo=0.05, hi=99.9):
 
 
 def sample_color(rgb, s):
-    """Average encoded RGB in a soft, brush-like circle (x, y, r as fractions).
+    """Average encoded RGB in a circle (x, y, r as fractions); r = 0 samples one point.
 
-    Weights are 1 inside r * (1 - soft) and fade smoothly (cosine) to 0 at r,
-    like a soft brush. Pixels far from the median (dust, scratches) are
-    dropped before averaging. r = 0 samples a single point.
+    Pixels far from the median (dust, scratches) are dropped before averaging.
     """
     h, w = rgb.shape[:2]
     cx, cy = s["x"] * w - 0.5, s["y"] * h - 0.5
     r = max(s.get("r", 0) * max(h, w), 1.0)
-    soft = float(np.clip(s.get("soft", 0.5), 0.0, 1.0))
     y0, y1 = int(max(np.floor(cy - r), 0)), int(min(np.ceil(cy + r) + 1, h))
     x0, x1 = int(max(np.floor(cx - r), 0)), int(min(np.ceil(cx + r) + 1, w))
-    patch = rgb[y0:y1, x0:x1].reshape(-1, 3)
     yy, xx = np.mgrid[y0:y1, x0:x1]
-    d = np.hypot(xx - cx, yy - cy).ravel() / r
-    inner = 1.0 - soft
-    wgt = np.where(d <= inner, 1.0, 0.5 + 0.5 * np.cos(np.pi * np.clip((d - inner) / max(soft, 1e-6), 0, 1)))
-    wgt[d > 1] = 0.0
-    if wgt.sum() <= 0:
-        return np.median(patch, axis=0)
-    keep = wgt > 0
-    pix, wgt = patch[keep], wgt[keep]
+    inside = (np.hypot(xx - cx, yy - cy) <= r).ravel()
+    pix = rgb[y0:y1, x0:x1].reshape(-1, 3)
+    if inside.any():
+        pix = pix[inside]
     med = np.median(pix, axis=0)
     mad = np.median(np.abs(pix - med), axis=0) + 1e-4
     ok = np.all(np.abs(pix - med) <= 4 * 1.4826 * mad, axis=1)
     if ok.sum() >= max(3, 0.5 * len(pix)):
-        pix, wgt = pix[ok], wgt[ok]
-    return (pix * wgt[:, None]).sum(axis=0) / wgt.sum()
+        pix = pix[ok]
+    return pix.mean(axis=0)
 
 
 def _oklab(enc, space):

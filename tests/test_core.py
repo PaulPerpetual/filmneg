@@ -1,6 +1,6 @@
 import numpy as np
 
-from filmneg import analysis, curves, imageio, pipeline, variants
+from filmneg import analysis, curves, imageio, pipeline
 from filmneg.color import ADOBE_RGB
 
 
@@ -92,19 +92,6 @@ def test_straighten_flattens_a_tone_dependent_cast():
     assert not np.any(p4["curves"]["warmth"])
 
 
-def test_variants_grid_has_opposites_and_centre():
-    p = pipeline.default_params()
-    state = variants.new_state()
-    cells = variants.generate(p, state, seed=3)
-    assert cells[4]["axis"] is None and len(cells) == 9
-    for a, b in [(1, 7), (3, 5), (0, 8), (2, 6)]:
-        assert cells[a]["axis"] == cells[b]["axis"] and cells[a]["sign"] == -cells[b]["sign"]
-    s2 = variants.pick(state, cells, 4)
-    assert s2["step"] < state["step"]
-    s3 = variants.pick(state, cells, 1)
-    assert s3["last"] == [cells[1]["axis"], 1]
-
-
 def test_tiff_roundtrip_keeps_profile(tmp_path):
     rgb = np.random.default_rng(2).random((20, 30, 3), dtype=np.float32)
     icc = b"\x00" * 128  # contents don't matter for the roundtrip
@@ -125,21 +112,30 @@ def test_auto_crop_finds_frame():
 
 def test_levels_set_black_and_white_points():
     p = pipeline.default_params()
-    p["levels"] = {"lo": [0.1, 0.1, 0.1], "hi": [0.6, 0.6, 0.6]}
+    p["levels"]["rgb"].update(lo=0.1, hi=0.6)
     rgb = np.array([[0.1, 0.35, 0.6]] * 3, np.float32).T.copy()  # three greys
     out = pipeline.render_pixels(rgb, p, ADOBE_RGB)
     assert out[0, 0] < 0.01 and out[2, 0] > 0.99
 
 
-def test_soft_sample_weights_the_centre_and_ignores_dust():
-    img = np.zeros((101, 101, 3), np.float32)
-    yy, xx = np.mgrid[0:101, 0:101]
-    ring = np.hypot(xx - 50, yy - 50) > 20
-    img[...] = 0.5
-    img[ring] = 0.7                      # brighter outside the core
-    img[50, 52] = 1.0                    # a dust speck near the centre
-    hard = analysis.sample_color(img, {"x": 0.5, "y": 0.5, "r": 0.3, "soft": 0.0})
-    soft = analysis.sample_color(img, {"x": 0.5, "y": 0.5, "r": 0.3, "soft": 1.0})
-    assert soft[0] < hard[0]             # a soft brush leans towards the centre
-    point = analysis.sample_color(img, {"x": 0.5, "y": 0.5, "r": 0})
-    assert abs(point[0] - 0.5) < 0.05    # a click samples one spot, not the speck
+def test_levels_gamma_output_and_channels():
+    x = np.float32(0.25)
+    assert abs(pipeline.apply_level(x, {**pipeline.IDENTITY_LEVEL, "gamma": 2.0}) - 0.5) < 1e-6
+    assert abs(pipeline.apply_level(np.float32(1), {**pipeline.IDENTITY_LEVEL, "out_hi": 0.9}) - 0.9) < 1e-6
+    p = pipeline.default_params()
+    p["levels"]["b"].update(hi=0.8)                # only blue gets brighter
+    out = pipeline.render_pixels(np.full((1, 3), 0.4, np.float32), p, ADOBE_RGB)
+    assert out[0, 2] > out[0, 1] + 0.05 and abs(out[0, 0] - out[0, 1]) < 1e-6
+
+
+def test_old_sidecar_levels_still_load():
+    p = pipeline.normalize({"levels": {"lo": [0.1, 0.0, 0.0], "hi": [1.0, 0.9, 1.0]}})
+    assert p["levels"]["r"]["lo"] == 0.1 and p["levels"]["g"]["hi"] == 0.9 and p["levels"]["rgb"]["gamma"] == 1.0
+
+
+def test_area_sample_ignores_dust():
+    img = np.full((101, 101, 3), 0.5, np.float32)
+    img[48:53, 48:53] = 1.0                        # a dust speck in the middle
+    area = analysis.sample_color(img, {"x": 0.5, "y": 0.5, "r": 0.3})
+    assert abs(area[0] - 0.5) < 0.01
+    assert analysis.sample_color(img, {"x": 0.2, "y": 0.2, "r": 0})[0] == 0.5
