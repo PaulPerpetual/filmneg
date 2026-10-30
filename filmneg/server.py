@@ -95,6 +95,10 @@ class Session:
         src = self.source("preview", params)
         return [analysis.sample_color(src, s) for s in samples]
 
+    def casts(self, colors, kinds, report, params):
+        out = pipeline.render_pixels(pipeline.crop(self.source("thumb", params), params["crop"]), params, self.scan.space)
+        return analysis.cast_report(out, colors, kinds, report, params, self.scan.space)
+
     def save(self, doc):
         side = sidecar_path(self.scan.path)
         keep = {k: doc[k] for k in ("params", "samples", "history") if k in doc}
@@ -127,11 +131,14 @@ def make_handler(session: Session):
             kinds = [x["kind"] for x in samples]
             if samples:
                 p = analysis.solve(colors, kinds, p, s.scan.space)
-            return {"params": p, "report": analysis.sample_report(colors, kinds, p, s.scan.space) if samples else []}
+            report = analysis.sample_report(colors, kinds, p, s.scan.space) if samples else []
+            return {"params": p, "report": report, "casts": s.casts(colors, kinds, report, p)}
         if route == "report":
             samples = body.get("samples", [])
             colors = s.sample_colors(samples, p)
-            return {"report": analysis.sample_report(colors, [x["kind"] for x in samples], p, s.scan.space) if samples else []}
+            kinds = [x["kind"] for x in samples]
+            report = analysis.sample_report(colors, kinds, p, s.scan.space) if samples else []
+            return {"report": report, "casts": s.casts(colors, kinds, report, p)}
         if route == "straighten":
             src = pipeline.crop(s.source("thumb", p), p["crop"])
             return {"params": analysis.straighten(

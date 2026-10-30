@@ -376,9 +376,58 @@ function drawOverlay() {
 
   if (S.showSamples) S.samples.forEach((s, i) => drawSample(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
   if (S.showProbes) S.probes.forEach((p, i) => drawMeasure(ctx, p.at, PROBE_COLORS[i % PROBE_COLORS.length], "P" + (i + 1)));
+  if (S.hl) drawHighlight(ctx);
   if (S.brush) S.brush.kind ? drawSample(ctx, S.brush, KIND_COLOR[S.brush.kind], S.brush.label) : drawMeasure(ctx, S.brush, "#fff", "");
 
   if (S.push) S.push.kind === "light" ? drawLightBar(ctx) : drawWheel(ctx);
+}
+
+// ---- highlighting and deleting marks on the image
+// S.hl = {type: "sample"|"probe", i}: the mark under the mouse, or whose row in
+// the sidebar the mouse is over. It gets a halo and a small × to delete it.
+function markOf(hl) {
+  const m = hl.type === "sample" ? S.samples[hl.i] : S.probes[hl.i]?.at;
+  if (!m) return null;
+  const p = toScreen(m.x, m.y), rad = radiusPx(m.r || 0);
+  const d = Math.max(rad, 10) * 0.72;
+  return { p, rad, del: { x: p.x - d - 10, y: p.y - d - 10 } };
+}
+
+function drawHighlight(ctx) {
+  const m = markOf(S.hl);
+  if (!m) return;
+  const r = Math.max(m.rad, 9) + 5;
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,210,60,.95)"; ctx.lineWidth = 3; ctx.shadowColor = "rgba(0,0,0,.8)"; ctx.shadowBlur = 6;
+  ctx.beginPath(); ctx.arc(m.p.x, m.p.y, r, 0, 7); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#d33"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(m.del.x, m.del.y, 8, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(m.del.x - 3, m.del.y - 3); ctx.lineTo(m.del.x + 3, m.del.y + 3);
+  ctx.moveTo(m.del.x + 3, m.del.y - 3); ctx.lineTo(m.del.x - 3, m.del.y + 3); ctx.stroke();
+  ctx.restore();
+}
+
+// Which visible mark is under screen point (x, y), if any.
+function markAt(x, y) {
+  const near = (m) => m && Math.hypot(m.p.x - x, m.p.y - y) < Math.max(m.rad, 9);
+  if (S.showProbes) for (let i = S.probes.length - 1; i >= 0; i--) if (near(markOf({ type: "probe", i }))) return { type: "probe", i };
+  if (S.showSamples) for (let i = S.samples.length - 1; i >= 0; i--) if (near(markOf({ type: "sample", i }))) return { type: "sample", i };
+  return null;
+}
+
+function setHighlight(hl) {
+  const same = (a, b) => (a && b ? a.type === b.type && a.i === b.i : a === b);
+  if (same(hl, S.hl)) return;
+  S.hl = hl;
+  $$("#samples li, #probe-list li").forEach((li) => li.classList.toggle("hl", !!hl && li.dataset.type === hl.type && +li.dataset.i === hl.i));
+  drawOverlay();
+}
+
+function deleteMark(hl) {
+  if (hl.type === "sample") { S.samples.splice(hl.i, 1); renderSamples(); commit(); }
+  else { S.probes.splice(hl.i, 1); S.probeSel = null; showProbe(); drawCurve(); }
+  S.hl = null; drawOverlay();
 }
 
 // Samples are round: a circle for an area, a dot for a point, with a numbered badge
@@ -476,6 +525,16 @@ overlay.addEventListener("mousedown", async (ev) => {
   if (!S.doc) return;
   const p = toScan(ev);
   const tool = S.tool;
+  if (S.hl) {  // the × next to a highlighted mark
+    const m = markOf(S.hl);
+    if (m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10) { deleteMark(S.hl); return; }
+    if (tool !== "crop" && S.hl && !ev.shiftKey) {  // grab a mark to move it, whatever the tool
+      const probe = S.hl.type === "probe", t = probe ? S.probes[S.hl.i].at : S.samples[S.hl.i];
+      if (probe) { S.probeSel = S.hl.i; showProbe(); }
+      S.sampleMove = { probe, i: S.hl.i, sx: ev.clientX, sy: ev.clientY, x: t.x, y: t.y, moved: false };
+      return;
+    }
+  }
 
   if (tool === "crop") {
     S.cropStart = p; S.cropDrag = [p.x, p.y, p.x, p.y]; return;
@@ -515,6 +574,14 @@ overlay.addEventListener("mousedown", async (ev) => {
     if (S.push) { S.push.tone = pr.tone; applyPush(ev.altKey); }
   }
 });
+
+overlay.addEventListener("mousemove", (ev) => {
+  if (S.brush || S.sampleMove || S.push || S.cropStart || S.pan || ev.buttons) return;
+  const m = S.hl && markOf(S.hl), onDel = m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10;
+  if (!onDel) setHighlight(markAt(ev.offsetX, ev.offsetY));
+  overlay.style.cursor = onDel ? "pointer" : S.hl ? "move" : S.tool === "push" ? "move" : S.tool === "light" ? "ns-resize" : "crosshair";
+});
+overlay.addEventListener("mouseleave", () => { if (!S.sampleMove) setHighlight(null); });
 
 window.addEventListener("mousemove", (ev) => {
   if (S.cropStart) {
@@ -665,15 +732,17 @@ function castWords(a, b) {
 
 function showProbe() {
   const box = $("#probe");
-  if (!S.probes.length) { box.innerHTML = "Measure tool: click a spot or drag an area. Each click pins a point (P1, P2, …); ⇧-click one to remove it, drag it to move it."; return; }
+  if (!S.probes.length) { box.innerHTML = "Measure tool: click a spot or drag an area. Each click pins a point (P1, P2, …); hover one for a red × to remove it (or press Delete), drag it to move it."; return; }
   const sel = clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1);
-  const rows = S.probes.map((q, i) => `<li data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot" style="background:${PROBE_COLORS[i % PROBE_COLORS.length]}"></span>
+  const rows = S.probes.map((q, i) => `<li data-type="probe" data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot" style="background:${PROBE_COLORS[i % PROBE_COLORS.length]}"></span>
     <span>P${i + 1}</span><span class="res">${(q.res.tone * 100).toFixed(0)}% · ${castWords(q.res.a, q.res.b).replace(/ \(.*\)/, "")}</span><button title="Remove">×</button></li>`).join("");
   box.innerHTML = `<ul id="probe-list">${rows}</ul><div id="probe-detail"></div><button id="probe-clear">Clear probes</button>`;
   box.querySelectorAll("li").forEach((li) => {
     const i = +li.dataset.i;
     li.onclick = () => { S.probeSel = i; showProbe(); };
-    li.querySelector("button").onclick = (e) => { e.stopPropagation(); S.probes.splice(i, 1); S.probeSel = null; showProbe(); drawOverlay(); drawCurve(); };
+    li.onmouseenter = () => setHighlight({ type: "probe", i });
+    li.onmouseleave = () => setHighlight(null);
+    li.querySelector("button").onclick = (e) => { e.stopPropagation(); deleteMark({ type: "probe", i }); };
   });
   $("#probe-clear").onclick = () => { S.probes = []; showProbe(); drawOverlay(); drawCurve(); };
   showProbeDetail(S.probes[sel].res, "P" + (sel + 1));
@@ -693,7 +762,15 @@ function showProbeDetail(p, name) {
 }
 
 // ---------------------------------------------------------------- samples
+function renderCasts() {
+  const C = S.casts, box = $("#casts");
+  if (!C) { box.innerHTML = ""; return; }
+  box.innerHTML = `<div class="cast-summary">${C.summary}</div>` + C.lines.map((l) =>
+    `<div class="cast-line${l.cast ? " has-cast" : ""}"><b>${l.band}</b> ${l.text}${l.src ? ` <span class="muted">(${l.src})</span>` : ""}</div>`).join("");
+}
+
 function renderSamples() {
+  renderCasts();
   const ul = $("#samples");
   ul.innerHTML = "";
   $("#samples-empty").hidden = S.samples.length > 0;
@@ -705,8 +782,11 @@ function renderSamples() {
       else { txt = `a ${fmt(r.da)} · b ${fmt(r.db)}  L ${(r.L * 100).toFixed(0)}`; bad = Math.hypot(r.da, r.db) > 4; }
     }
     const li = document.createElement("li");
+    li.dataset.type = "sample"; li.dataset.i = i;
+    li.onmouseenter = () => setHighlight({ type: "sample", i });
+    li.onmouseleave = () => setHighlight(null);
     li.innerHTML = `<span class="dot" style="background:${KIND_COLOR[s.kind]}"></span><span>${i + 1} ${s.kind}</span><span class="res ${bad ? "bad" : ""}">${txt}</span><button title="Remove">×</button>`;
-    li.querySelector("button").onclick = () => { S.samples.splice(i, 1); renderSamples(); drawOverlay(); commit(); };
+    li.querySelector("button").onclick = () => deleteMark({ type: "sample", i });
     ul.appendChild(li);
   });
 }
@@ -714,7 +794,7 @@ function renderSamples() {
 async function refreshReport() {
   clearTimeout(refreshReport.t);
   refreshReport.t = setTimeout(async () => {
-    try { S.report = (await api("report", { params: S.params, samples: S.samples })).report; renderSamples(); }
+    try { const r = await api("report", { params: S.params, samples: S.samples }); S.report = r.report; S.casts = r.casts; renderSamples(); }
     catch (e) { console.error(e); }
   }, 300);
 }
@@ -1311,7 +1391,7 @@ $("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api
 $("#btn-solve").onclick = () => guard("Solve", async () => {
   if (!S.samples.length) throw new Error("add some grey, white, black or skin samples first");
   const r = await api("solve", { params: S.params, samples: S.samples });
-  S.params = r.params; S.report = r.report; syncControls(); render(); renderSamples(); commit();
+  S.params = r.params; S.report = r.report; S.casts = r.casts; syncControls(); render(); renderSamples(); commit();
 });
 $("#btn-straighten").onclick = () => ($("#straighten").hidden ? openStraighten() : closeStraighten(false));
 $("#btn-undo").onclick = undo;
@@ -1343,6 +1423,7 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if (ev.metaKey || ev.ctrlKey) return;
+  if ((k === "backspace" || k === "delete") && S.hl) { ev.preventDefault(); deleteMark(S.hl); return; }
   if (k === "escape") { if (ST.base) closeStraighten(false); else setTool("probe"); return; }
   if (k === "\\") { compare(true); return; }
   if (k === "[") { setWidth(S.width * 0.85); return; }

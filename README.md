@@ -54,15 +54,21 @@ for Pixelmator.
 
 | Key | Tool |
 |---|---|
-| P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. ⇧-click removes one, dragging moves it |
+| P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. hover one and click its × (or press Delete) to remove it, drag to move it |
 | C | Shift colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. The parts of the image it leaves alone are veiled while you drag |
 | L | Shift brightness: same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
-| N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it, ⇧-click to remove it |
+| N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it; hover it and click its × (or press Delete) to remove it |
 | R | Crop |
 | \\ (hold) | Before: the scan as the scanner delivered it |
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo (a short note on the image says what was undone) |
+
+Hover a sample or measured point (on the image or in its list) to highlight
+it; its red × or the Delete key removes it, dragging moves it. Under the
+samples, **Colour casts left** says in words what cast remains in the
+shadows, midtones and highlights (from your grey samples where there are
+some, otherwise from grey-ish areas of the picture) and what would fix it.
 
 Click a panel's title to fold it away. The eye in the Samples and Measure
 panels hides those marks on the image. Samples are round with a numbered

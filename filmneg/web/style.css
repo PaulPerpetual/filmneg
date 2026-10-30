@@ -101,3 +101,10 @@ button.icon { display: inline-flex; align-items: center; gap: 5px; }
 #colour-curve { margin-left: 6px !important; }
 #curve-tabs { flex-wrap: wrap; }
 #colour-curve[hidden] { display: none; }
+#samples li.hl, #probe-list li.hl { background: #4a4430; }
+#samples li { border-radius: 4px; padding: 2px 4px; }
+.sub { margin: 10px 0 4px; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.cast-summary { margin-bottom: 4px; }
+.cast-line { color: var(--muted); }
+.cast-line b { color: var(--text); font-weight: 600; margin-right: 4px; }
+.cast-line.has-cast b { color: #f0b070; }

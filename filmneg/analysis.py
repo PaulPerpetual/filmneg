@@ -189,6 +189,70 @@ def cast_by_tone(rendered, space: RGBSpace, bins=None, max_chroma=0.04, min_coun
     return out
 
 
+BANDS = (("Shadows", 0.0, 0.33), ("Midtones", 0.33, 0.66), ("Highlights", 0.66, 1.01))  # encoded luma
+BANDS_L = ((0.0, 0.45), (0.45, 0.74), (0.74, 1.01))  # the same bands in Oklab L, for samples
+
+
+def _cast_words(a, b):
+    """A cast (Oklab a/b, in 1/1000) in words, or None if it is too small to see."""
+    c = np.hypot(a, b)
+    if c < 4:
+        return None
+    hue = np.degrees(np.arctan2(b, a)) % 360
+    names = ["magenta-red", "orange", "yellow", "yellow-green", "green", "cyan", "blue", "purple"]
+    name = names[int(((hue + 22.5) % 360) // 45)]
+    size = "slightly" if c < 10 else "noticeably" if c < 20 else "strongly"
+    return f"{size} {name}"
+
+
+def cast_report(rendered, colors, kinds, report, params, space: RGBSpace):
+    """Plain-language summary of the casts left in the image, by brightness band.
+
+    Grey/white/black samples in a band are trusted first; bands without one
+    fall back to the near-grey areas of the picture.
+    """
+    ta, tb = LIGHTING.get(params["lighting"], (0.0, 0.0))
+    px = rendered.reshape(-1, 3)
+    lab = _oklab(px, space)
+    t = luma(px)
+    grey = np.hypot(lab[:, 1] - ta, lab[:, 2] - tb) < 0.04
+    lines, casts = [], []
+    for (name, lo, hi), (llo, lhi) in zip(BANDS, BANDS_L):
+        own = [(r["da"], r["db"]) for k, r in zip(kinds, report)
+               if k != "skin" and llo <= r["L"] < lhi]
+        if own:
+            a, b = np.mean(own, axis=0)
+            src = f"from {len(own)} sample{'s' if len(own) > 1 else ''}"
+        else:
+            m = grey & (t >= lo) & (t < hi)
+            if m.sum() < 200:
+                lines.append({"band": name, "text": "no grey areas to judge by", "src": ""})
+                casts.append(None)
+                continue
+            a, b = (lab[m, 1].mean() - ta) * 1000, (lab[m, 2].mean() - tb) * 1000
+            src = "from grey-ish areas in the picture"
+        words = _cast_words(a, b)
+        casts.append((a, b))
+        lines.append({"band": name, "text": words or "neutral", "src": src, "cast": bool(words)})
+    known = [c for c in casts if c is not None]
+    if not known:
+        summary = "Not enough grey areas to judge. Add Grey samples."
+    elif not any(l.get("cast") for l in lines):
+        summary = "Greys look neutral in all tones."
+    else:
+        spread = max(np.hypot(x[0] - y[0], x[1] - y[1]) for x in known for y in known)
+        if spread < 6:
+            summary = "The same cast in all tones: one Grey sample and Solve samples (a white balance) fixes it."
+        else:
+            summary = ("The cast changes with brightness. Grey samples at several brightnesses and Solve samples, "
+                       "or Straighten casts, fix that.")
+    for i, (k, r) in enumerate(zip(kinds, report)):
+        if k == "skin" and abs(r["hue_off"]) > 8:
+            way = "too yellow" if r["hue_off"] > 0 else "too red/pink"
+            lines.append({"band": f"Skin {i + 1}", "text": f"a bit {way} ({abs(r['hue_off']):.0f}°)", "src": "", "cast": True})
+    return {"lines": lines, "summary": summary}
+
+
 def straighten(rgb, params, space: RGBSpace, strength=1.0, smoothness=1.0,
                 keep_overall=True, iterations=4):
     """Bend the warmth/tint curves so near-neutral areas are neutral at every tone.

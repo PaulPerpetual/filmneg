@@ -139,3 +139,14 @@ def test_area_sample_ignores_dust():
     area = analysis.sample_color(img, {"x": 0.5, "y": 0.5, "r": 0.3})
     assert abs(area[0] - 0.5) < 0.01
     assert analysis.sample_color(img, {"x": 0.2, "y": 0.2, "r": 0})[0] == 0.5
+
+
+def test_cast_report_names_a_warm_highlight_cast():
+    v = np.linspace(0.05, 0.95, 64, dtype=np.float32)
+    img = np.stack([v, v, v], axis=-1)[None].repeat(64, axis=0)
+    img[..., :, 2] -= np.where(v > 0.7, 0.06, 0.0)   # yellow highlights only
+    out = pipeline.render_pixels(img, pipeline.default_params(), ADOBE_RGB)
+    rep = analysis.cast_report(out, [], [], [], pipeline.default_params(), ADOBE_RGB)
+    bands = {l["band"]: l["text"] for l in rep["lines"]}
+    assert bands["Shadows"] == "neutral" and "yellow" in bands["Highlights"]
+    assert "changes with brightness" in rep["summary"]
