@@ -27,7 +27,6 @@ from .color import RGBSpace, luma
 
 PIVOT = np.log2(0.18)  # middle grey: slope and contrast rotate around it
 _EPS = 1e-5
-_KNEE = 0.8
 
 LEVEL_CHANNELS = ("rgb", "r", "g", "b")
 IDENTITY_LEVEL = {"lo": 0.0, "gamma": 1.0, "hi": 1.0, "out_lo": 0.0, "out_hi": 1.0}
@@ -35,13 +34,16 @@ IDENTITY_LEVEL = {"lo": 0.0, "gamma": 1.0, "hi": 1.0, "out_lo": 0.0, "out_hi": 1
 DEFAULTS = {
     "mode": "positive",            # "positive" (scanner already inverted) or "negative"
     "base": None,                  # film base, linear RGB, negative mode only
-    "crop": [0.0, 0.0, 1.0, 1.0],  # x0, y0, x1, y1 as fractions of the scan
+    "crop": [0.0, 0.0, 1.0, 1.0],  # x0, y0, x1, y1 as fractions of the (rotated) scan
+    "angle": 0.0,                  # straighten: degrees, counter-clockwise, applied before the crop
     "black": [0.0, 0.0, 0.0],      # linear levels per channel
     "white": [1.0, 1.0, 1.0],
     "slope": [1.0, 1.0, 1.0],      # per-channel contrast in log2 domain
     "offset": [0.0, 0.0, 0.0],     # per-channel shift in stops
     "exposure": 0.0,               # stops
     "contrast": 1.0,
+    "shoulder": 0.5,               # highlight roll-off, 0..1
+    "toe": 0.0,                    # shadow roll-off, 0..1
     "saturation": 1.0,
     "levels": {ch: {"lo": 0.0, "gamma": 1.0, "hi": 1.0, "out_lo": 0.0, "out_hi": 1.0}
                for ch in LEVEL_CHANNELS},  # encoded values, like Pixelmator's Levels
@@ -87,11 +89,24 @@ def apply_level(x, L):
     return L["out_lo"] + y * (L["out_hi"] - L["out_lo"])
 
 
-def _shoulder(lin):
-    """Identity below the knee, then rolls highlights off smoothly towards 1."""
-    span = 1.0 - _KNEE
-    rolled = _KNEE + span * (1.0 - np.exp(-(lin - _KNEE) / span))
-    return np.where(lin > _KNEE, rolled, lin)
+def _shoulder(lin, amount=0.5):
+    """Identity below the knee, then rolls highlights off smoothly towards 1.
+
+    amount 0..1: how early and gently highlights roll off (knee 0.95 .. 0.65).
+    """
+    knee = 0.95 - 0.3 * amount
+    span = 1.0 - knee
+    rolled = knee + span * (1.0 - np.exp(-(lin - knee) / span))
+    return np.where(lin > knee, rolled, lin)
+
+
+def _toe(lin, amount=0.0):
+    """Soft roll-off into black: deep shadows ease towards 0, mids barely move."""
+    if amount <= 0:
+        return lin
+    c2 = (0.03 * amount) ** 2
+    x = np.maximum(lin, 0.0)
+    return x * x * x / (x * x + c2)
 
 
 def to_working_linear(enc, params, space: RGBSpace):
@@ -112,7 +127,8 @@ def pre_levels(enc, params, space: RGBSpace):
     offset = np.asarray(params["offset"], dtype=np.float32)
     log = slope * (log - PIVOT) + PIVOT + offset
     log = params["contrast"] * (log - PIVOT) + PIVOT + params["exposure"]
-    return space.encode(_shoulder(np.exp2(log))).astype(np.float32)
+    lin = _toe(np.exp2(log), params["toe"])
+    return space.encode(_shoulder(lin, params["shoulder"])).astype(np.float32)
 
 
 def _channel_stages(enc, params, space: RGBSpace):
@@ -160,6 +176,14 @@ def render_pixels(enc, params, space: RGBSpace):
         out = space.encode(np.clip(space.oklab_to_lin(lab), 0, None)).astype(np.float32)
 
     return np.clip(out, 0.0, 1.0)
+
+
+def rotate(img, angle):
+    """Rotate about the centre, keeping the size (the uncovered corners are black)."""
+    if not angle:
+        return img
+    from scipy.ndimage import rotate as _rotate
+    return _rotate(img, angle, axes=(1, 0), reshape=False, order=1, mode="constant", cval=0.0).astype(np.float32)
 
 
 def crop(img, box):

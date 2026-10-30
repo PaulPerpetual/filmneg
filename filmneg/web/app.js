@@ -125,18 +125,19 @@ function commit() {
   S.lastCommitted = snapshot();
   scheduleSave();
   refreshReport();
+  renderVersions();
 }
 
 function restore(snap) {
   S.params = clone(snap.params);
   S.samples = clone(snap.samples);
   S.lastCommitted = snapshot();
-  syncControls(); render(); drawCurve(); drawOverlay(); refreshReport(); scheduleSave();
+  syncControls(); render(); drawCurve(); drawOverlay(); refreshReport(); scheduleSave(); renderVersions();
 }
 
 // What changed between two snapshots, in words, for the undo/redo flash.
 const PARAM_NAMES = {
-  exposure: "Exposure", contrast: "Contrast", saturation: "Saturation", nr: "Colour noise", lighting: "Light",
+  exposure: "Exposure", contrast: "Contrast", angle: "Rotation", shoulder: "Highlight roll-off", toe: "Shadow roll-off", saturation: "Saturation", nr: "Colour noise", lighting: "Light",
   crop: "Crop", levels: "Levels", black: "Auto levels", white: "Auto levels", slope: "Colour balance", offset: "Colour balance", mode: "Mode",
 };
 const CURVE_LABELS = { warmth: "Yellow/blue curve", tint: "Magenta/green curve", lightness: "Light curve", r: "Red curve", g: "Green curve", b: "Blue curve" };
@@ -155,7 +156,7 @@ function flash(kind, what) {
   const el = $("#flash");
   el.querySelector(".icon-undo").style.display = kind === "undo" ? "" : "none";
   el.querySelector(".icon-redo").style.display = kind === "redo" ? "" : "none";
-  el.querySelector("span").textContent = (kind === "undo" ? "Undo: " : "Redo: ") + what;
+  el.querySelector("span").textContent = ({ undo: "Undo: ", redo: "Redo: " }[kind] || "") + what;
   el.classList.remove("show"); void el.offsetWidth; el.classList.add("show");
 }
 
@@ -173,7 +174,7 @@ function redo() {
 function scheduleSave() {
   clearTimeout(scheduleSave.t);
   scheduleSave.t = setTimeout(() => {
-    api("save", { params: S.params, samples: S.samples, history: [] }).catch((e) => status("save failed: " + e.message));
+    api("save", { params: S.params, samples: S.samples, versions: S.versions || [], history: [] }).catch((e) => status("save failed: " + e.message));
   }, 800);
 }
 
@@ -368,6 +369,20 @@ function drawOverlay() {
     ctx.fillRect(b.x, a.y, r.x + r.w - b.x, b.y - a.y);
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1;
     ctx.strokeRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    // thirds, and a finer grid while rotating, to judge what is level
+    const n = S.rotating ? 12 : 3;
+    ctx.strokeStyle = S.rotating ? "rgba(255,255,255,.28)" : "rgba(255,255,255,.4)"; ctx.beginPath();
+    for (let i = 1; i < n; i++) {
+      const x = a.x + (b.x - a.x) * i / n, y = a.y + (b.y - a.y) * i / n;
+      ctx.moveTo(x, a.y); ctx.lineTo(x, b.y); ctx.moveTo(a.x, y); ctx.lineTo(b.x, y);
+    }
+    ctx.stroke();
+    if (S.levelLine) {
+      const L = S.levelLine;
+      for (const [c, w] of [["rgba(0,0,0,.8)", 4], ["#ffd23c", 2]]) {
+        ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(L.x0, L.y0); ctx.lineTo(L.x1, L.y1); ctx.stroke();
+      }
+    }
     return;
   }
 
@@ -542,6 +557,7 @@ overlay.addEventListener("mousedown", async (ev) => {
   }
 
   if (tool === "crop") {
+    if (S.leveling) { S.levelLine = { x0: ev.offsetX, y0: ev.offsetY, x1: ev.offsetX, y1: ev.offsetY }; return; }
     S.cropStart = p; S.cropDrag = [p.x, p.y, p.x, p.y]; return;
   }
   if (!p.inside) {
@@ -589,6 +605,13 @@ overlay.addEventListener("mousemove", (ev) => {
 overlay.addEventListener("mouseleave", () => { if (!S.sampleMove) setHighlight(null); });
 
 window.addEventListener("mousemove", (ev) => {
+  if (S.levelLine) {
+    const b = overlay.getBoundingClientRect();
+    S.levelLine.x1 = ev.clientX - b.left; S.levelLine.y1 = ev.clientY - b.top;
+    const L = S.levelLine, th = Math.atan2(-(L.y1 - L.y0), L.x1 - L.x0) * 180 / Math.PI;
+    hint(`rotate by ${fmt(-(th - Math.round(th / 90) * 90), 2)}° to make this line ${Math.abs(Math.round(th / 90)) % 2 ? "upright" : "level"}`);
+    drawOverlay(); return;
+  }
   if (S.cropStart) {
     const p = toScan(ev), a = S.cropStart;
     S.cropDrag = [clamp(Math.min(a.x, p.x), 0, 1), clamp(Math.min(a.y, p.y), 0, 1), clamp(Math.max(a.x, p.x), 0, 1), clamp(Math.max(a.y, p.y), 0, 1)];
@@ -652,6 +675,15 @@ window.addEventListener("mouseup", () => {
   if (S.sampleMove) {
     if (S.sampleMove.moved) S.sampleMove.probe ? refreshProbes() : commit();
     S.sampleMove = null;
+  }
+  if (S.levelLine) {
+    const L = S.levelLine; S.levelLine = null; hint("");
+    if (Math.hypot(L.x1 - L.x0, L.y1 - L.y0) > 20) {
+      const th = Math.atan2(-(L.y1 - L.y0), L.x1 - L.x0) * 180 / Math.PI;
+      setAngle(S.params.angle - (th - Math.round(th / 90) * 90));
+      commit();
+    }
+    setLeveling(false); drawOverlay();
   }
   if (S.cropStart) {
     const c = S.cropDrag;
@@ -1341,8 +1373,66 @@ $$("aside .panel").forEach((panel, i) => {
   });
 });
 
+// ---------------------------------------------------------------- copy / paste settings (roll workflow)
+// Crop, rotation and the per-frame automatic black/white points stay with each frame.
+const FRAME_ONLY = ["crop", "angle", "black", "white", "base", "mode"];
+const settingsOf = (p) => { const c = clone(p); for (const k of FRAME_ONLY) delete c[k]; return c; };
+
+function setClip(c) {
+  S.clip = c;
+  $("#btn-paste").disabled = $("#btn-paste-roll").disabled = !c;
+  try { localStorage.setItem("filmneg.clip", JSON.stringify(c)); } catch (e) { /* ignore */ }
+}
+try { const c = JSON.parse(localStorage.getItem("filmneg.clip") || "null"); if (c) setClip(c); } catch (e) { /* ignore */ }
+
+function copySettings() { setClip(settingsOf(S.params)); status("Settings copied"); }
+function pasteSettings() {
+  if (!S.clip) return;
+  S.params = { ...S.params, ...clone(S.clip) };
+  syncControls(); render(); drawCurve(); commit(); status("Settings pasted");
+}
+$("#btn-copy").onclick = copySettings;
+$("#btn-paste").onclick = pasteSettings;
+$("#btn-paste-roll").onclick = () => {
+  const others = S.doc.files.filter((f) => f !== S.doc.name);
+  if (!S.clip || !others.length) return;
+  if (!confirm(`Paste the copied settings onto the other ${others.length} frame(s) in this folder?\n\nTheir crop, rotation and automatic black/white points stay as they are. Their earlier adjustments are kept as a version called “Before paste”.`)) return;
+  guard("Paste to roll", async () => {
+    const r = await api("paste_roll", { settings: S.clip, names: others });
+    status(`Pasted onto ${r.count} frame(s)`, 5000);
+  });
+};
+
+// ---------------------------------------------------------------- versions (snapshots)
+function renderVersions() {
+  const ul = $("#versions"), now = JSON.stringify(S.params);
+  ul.innerHTML = "";
+  (S.versions || []).forEach((v, i) => {
+    const li = document.createElement("li");
+    li.className = JSON.stringify(v.params) === now ? "current" : "";
+    li.title = "Click to switch to this version (undo goes back)";
+    li.innerHTML = `<span class="name"></span><span class="when"></span><button title="Delete this version">×</button>`;
+    li.querySelector(".name").textContent = v.name;
+    li.querySelector(".when").textContent = new Date(v.time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    li.onclick = () => { S.params = clone(v.params); syncControls(); render(); drawCurve(); commit(); flash("version", "Switched to " + v.name); };
+    li.querySelector(".name").ondblclick = (e) => {
+      e.stopPropagation();
+      const n = prompt("Name this version", v.name);
+      if (n) { v.name = n; renderVersions(); scheduleSave(); }
+    };
+    li.querySelector("button").onclick = (e) => { e.stopPropagation(); S.versions.splice(i, 1); renderVersions(); scheduleSave(); };
+    ul.appendChild(li);
+  });
+}
+$("#btn-version").onclick = () => {
+  S.versions = S.versions || [];
+  S.versions.push({ name: "Version " + (S.versions.length + 1), time: Date.now(), params: clone(S.params) });
+  renderVersions(); scheduleSave();
+};
+
 // ---------------------------------------------------------------- controls
-const SLIDERS = ["exposure", "contrast", "saturation", "nr"];
+const SLIDERS = ["exposure", "contrast", "shoulder", "toe", "saturation", "nr"];
+const SLIDER_DEFAULTS = { exposure: 0, contrast: 1, shoulder: 0.5, toe: 0, saturation: 1, nr: 0 };
 
 function syncControls() {
   for (const k of SLIDERS) {
@@ -1375,9 +1465,39 @@ for (const k of SLIDERS) {
   });
   num.addEventListener("blur", () => { num.value = (+S.params[k]).toFixed(2); });
   el.addEventListener("change", () => { commit(); endDrag(); });
-  el.addEventListener("dblclick", () => { S.params[k] = k === "exposure" || k === "nr" ? 0 : 1; syncControls(); render(); commit(); });
+  el.addEventListener("dblclick", () => { S.params[k] = SLIDER_DEFAULTS[k]; syncControls(); render(); commit(); });
 }
 $("#lighting").addEventListener("change", (e) => { S.params.lighting = e.target.value; commit(); });
+
+// ---- crop bar: rotation, level by line, reset
+function setAngle(a) {
+  S.params.angle = clamp(Math.round(a * 100) / 100, -45, 45);
+  $("#angle").value = S.params.angle; $("#angle-num").value = S.params.angle.toFixed(2);
+  render();
+}
+function setLeveling(on) {
+  S.leveling = on;
+  $("#crop-level").classList.toggle("active", on);
+  overlay.style.cursor = on ? "crosshair" : "crosshair";
+  hint(on ? "draw a line along something that should be level or upright" : "drag the new crop");
+}
+$("#angle").addEventListener("input", (e) => { if (!S.dragging) startDrag(); S.rotating = true; setAngle(+e.target.value); });
+$("#angle").addEventListener("change", () => { S.rotating = false; commit(); endDrag(); drawOverlay(); });
+$("#angle").addEventListener("dblclick", () => { setAngle(0); commit(); });
+$("#angle-num").addEventListener("focus", (e) => e.target.select());
+$("#angle-num").addEventListener("keydown", (ev) => {
+  const step = { ArrowUp: 0.1, ArrowDown: -0.1, ArrowRight: 0.01, ArrowLeft: -0.01 }[ev.key];
+  if (step) { ev.preventDefault(); setAngle(S.params.angle + step * (ev.shiftKey ? 10 : 1)); clearTimeout(setAngle.t); setAngle.t = setTimeout(commit, 500); }
+  else if (ev.key === "Enter") { const v = parseFloat(ev.target.value.replace(",", ".").replace("−", "-")); if (Number.isFinite(v)) { setAngle(v); commit(); } ev.target.blur(); }
+});
+$("#angle-num").addEventListener("blur", (e) => (e.target.value = (+S.params.angle).toFixed(2)));
+$("#crop-level").onclick = () => setLeveling(!S.leveling);
+$("#crop-reset").onclick = () => guard("Reset crop", async () => {
+  S.params.angle = 0;
+  S.params.crop = (await api("autocrop", { params: S.params })).crop;
+  setAngle(0); commit(); drawOverlay();
+});
+$("#crop-done").onclick = () => setTool("probe");
 
 function setTool(t) {
   S.tool = t;
@@ -1386,6 +1506,8 @@ function setTool(t) {
   $$("#tools [data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));
   overlay.style.cursor = t === "push" ? "move" : t === "light" ? "ns-resize" : "crosshair";
   if (t === "crop") fitView();
+  $("#cropbar").hidden = t !== "crop";
+  if (t === "crop") { setAngle(S.params.angle || 0); setLeveling(false); }
   if (t === "crop" || currentFull) render(); else drawOverlay();
   hint({
     push: "click a spot, then drag towards a colour; further = stronger. [ ] = width",
@@ -1450,7 +1572,7 @@ $("#btn-reset").onclick = () => guard("Reset", async () => {
   S.params = r.params; syncControls(); render(); drawCurve(); commit();
 });
 $("#btn-export").onclick = () => guard("Export", async () => {
-  const r = await api("export", { params: S.params, samples: S.samples, history: [] });
+  const r = await api("export", { params: S.params, samples: S.samples, versions: S.versions || [], history: [] });
   status("Exported " + r.path, 8000);
 });
 $("#file").onchange = (e) => load(e.target.value);
@@ -1464,6 +1586,8 @@ window.addEventListener("keydown", (ev) => {
   const k = ev.key.toLowerCase();
   if ((ev.metaKey || ev.ctrlKey) && k === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
   if ((ev.metaKey || ev.ctrlKey) && k === "y") { ev.preventDefault(); redo(); return; }
+  if ((ev.metaKey || ev.ctrlKey) && ev.shiftKey && k === "c") { ev.preventDefault(); copySettings(); return; }
+  if ((ev.metaKey || ev.ctrlKey) && ev.shiftKey && k === "v") { ev.preventDefault(); pasteSettings(); return; }
   if ((ev.metaKey || ev.ctrlKey) && (k === "=" || k === "+" || k === "-" || k === "0")) {
     ev.preventDefault();
     if (k === "0") fitView(); else zoomAt(imgCanvas.clientWidth / 2, imgCanvas.clientHeight / 2, k === "-" ? 1 / 1.5 : 1.5);
@@ -1490,14 +1614,14 @@ document.addEventListener("gesturestart", (ev) => ev.preventDefault());
 // ---------------------------------------------------------------- start
 async function load(name) {
   const d = await api("load", { name });
-  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.undo = []; S.redo = []; S.probes = [];
+  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.versions = d.versions || []; S.undo = []; S.redo = []; S.probes = [];
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
   $("#lighting").innerHTML = d.lighting_options.map((o) => `<option>${o}</option>`).join("");
   location.hash = encodeURIComponent(d.name);
   document.title = d.name + " · filmneg";
   S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; S.levelHist = null; S.levelHistKey = null;
-  syncControls(); setCurve(S.curve); setLevelCh(S.levelCh); setTool("probe"); renderSamples(); refreshReport();
+  syncControls(); setCurve(S.curve); setLevelCh(S.levelCh); renderVersions(); setTool("probe"); renderSamples(); refreshReport();
   status(`${d.name} · ${d.width}×${d.height} · ${d.profile || "no profile, assuming sRGB"}`, 6000);
   render();
 }

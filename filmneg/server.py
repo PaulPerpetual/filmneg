@@ -54,6 +54,11 @@ class Session:
         if side.exists():
             doc = json.loads(side.read_text())
             doc["params"] = pipeline.normalize(doc.get("params"))
+            if doc.pop("auto_pending", False):  # settings were pasted before this frame was ever opened
+                params = doc["params"]
+                params["crop"] = analysis.auto_crop(self.proxies["preview"])
+                params["black"], params["white"] = analysis.auto_levels(self.proxies["preview"], params, self.scan.space)
+                side.write_text(json.dumps(doc, indent=1))
         else:
             params = pipeline.default_params()
             params["crop"] = analysis.auto_crop(self.proxies["preview"])
@@ -66,13 +71,19 @@ class Session:
                    lighting_options=list(analysis.LIGHTING))
         return doc
 
-    def source(self, size, params):
-        """The input at a given size, chroma-denoised if asked, cached per strength."""
-        nr = round(float(params.get("nr", 0)), 3)
-        key = (size, nr)
+    def source(self, size, params, nr=True):
+        """The input at a given size, rotated and chroma-denoised as asked.
+
+        Cached per size; only the latest strength and angle are kept per size.
+        """
+        strength = round(float(params.get("nr", 0)), 3) if nr else 0.0
+        angle = round(float(params.get("angle", 0)), 2)
+        key = (size, strength, angle)
         if key not in self._nr_cache:
+            for k in [k for k in self._nr_cache if k[0] == size and (k[2] != angle or len(self._nr_cache) > 8)]:
+                del self._nr_cache[k]
             base = self.scan.rgb if size == "full" else self.proxies[size]
-            self._nr_cache[key] = pipeline.chroma_denoise(base, nr, self.scan.space)
+            self._nr_cache[key] = pipeline.chroma_denoise(pipeline.rotate(base, angle), strength, self.scan.space)
         return self._nr_cache[key]
 
     def render(self, params, size="preview", cropped=True, original=False, region=None):
@@ -80,8 +91,7 @@ class Session:
         params = pipeline.normalize(params)
         if region:
             size = "full"
-        src = self.source(size, params) if not original else (
-            self.scan.rgb if size == "full" else self.proxies[size])
+        src = self.source(size, params, nr=not original)
         if cropped:
             src = pipeline.crop(src, params["crop"])
         if region:
@@ -101,7 +111,7 @@ class Session:
 
     def save(self, doc):
         side = sidecar_path(self.scan.path)
-        keep = {k: doc[k] for k in ("params", "samples", "history") if k in doc}
+        keep = {k: doc[k] for k in ("params", "samples", "versions", "history") if k in doc}
         side.write_text(json.dumps(keep, indent=1))
         return str(side)
 
@@ -119,11 +129,13 @@ def make_handler(session: Session):
         if route == "load":
             return s.load(body.get("name") or s.default)
         if route == "auto":
-            p["crop"] = analysis.auto_crop(s.proxies["preview"])
-            p["black"], p["white"] = analysis.auto_levels(s.proxies["preview"], p, s.scan.space)
+            p["crop"] = analysis.auto_crop(pipeline.rotate(s.proxies["preview"], p["angle"]))
+            p["black"], p["white"] = analysis.auto_levels(pipeline.rotate(s.proxies["preview"], p["angle"]), p, s.scan.space)
             return {"params": p}
+        if route == "autocrop":
+            return {"crop": analysis.auto_crop(pipeline.rotate(s.proxies["preview"], p["angle"]))}
         if route == "levels":
-            p["black"], p["white"] = analysis.auto_levels(s.proxies["preview"], p, s.scan.space)
+            p["black"], p["white"] = analysis.auto_levels(pipeline.rotate(s.proxies["preview"], p["angle"]), p, s.scan.space)
             return {"params": p}
         if route == "solve":
             samples = body.get("samples", [])
@@ -154,6 +166,24 @@ def make_handler(session: Session):
             bins = int(body.get("bins", 1024))
             idx = np.minimum((pre * bins).astype(np.int32), bins - 1)
             return {"bins": bins, "hist": [np.bincount(idx[..., i].ravel(), minlength=bins) for i in range(3)]}
+        if route == "paste_roll":
+            # write the copied settings into the other frames' sidecars; frame-specific
+            # values stay, and what was there before is kept as a version
+            import time
+            count = 0
+            for name in body.get("names", []):
+                path = s.folder() / name
+                if name not in s.files() or path == s.scan.path:
+                    continue
+                side = sidecar_path(path)
+                doc = json.loads(side.read_text()) if side.exists() else {"params": {}, "auto_pending": True}
+                old = pipeline.normalize(doc.get("params"))
+                if side.exists():
+                    doc.setdefault("versions", []).append({"name": "Before paste", "time": int(time.time() * 1000), "params": old})
+                doc["params"] = {**old, **body["settings"]}
+                side.write_text(json.dumps(doc, indent=1))
+                count += 1
+            return {"count": count}
         if route == "save":
             return {"path": s.save(body)}
         if route == "export":

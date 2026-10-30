@@ -126,3 +126,20 @@ def test_cast_report_names_a_warm_highlight_cast():
     bands = {l["band"]: l["text"] for l in rep["lines"]}
     assert bands["Shadows"] == "neutral" and "yellow" in bands["Highlights"]
     assert "changes with brightness" in rep["summary"]
+
+
+def test_roll_off_sliders():
+    p = pipeline.default_params()
+    x = np.array([[0.02] * 3, [0.46] * 3, [0.97] * 3], np.float32)
+    base = pipeline.render_pixels(x, p, ADOBE_RGB)
+    soft = pipeline.render_pixels(x, {**p, "shoulder": 1.0, "toe": 1.0}, ADOBE_RGB)
+    assert soft[2, 0] < base[2, 0] - 0.01      # highlights roll off earlier
+    assert soft[0, 0] < base[0, 0] - 0.01      # deep shadows ease towards black
+    assert abs(soft[1, 0] - base[1, 0]) < 0.02  # mid grey barely moves
+
+
+def test_rotate_keeps_size_and_centre():
+    img = np.zeros((41, 61, 3), np.float32)
+    img[20, :, :] = 1.0                            # a horizontal line through the centre
+    out = pipeline.rotate(img, 10)
+    assert out.shape == img.shape and out[20, 30, 0] > 0.5 and out[20, 5, 0] < 0.5

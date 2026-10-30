@@ -56,7 +56,7 @@ for Pixelmator.
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
 | N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it; hover it and click its × (or press Delete) to remove it |
-| R | Crop |
+| R | Crop. The bar on top rotates (angle slider, or type it), *Level by line* straightens along a line you draw (a horizon, a wall edge), *Reset* goes back to the automatic crop |
 | right-click | Background colour around the picture (white, mid grey, dark), fit |
 | \\ (hold) | Before: the scan as the scanner delivered it |
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo (a short note on the image says what was undone) |
@@ -70,6 +70,18 @@ some, otherwise from grey-ish areas of the picture) and what would fix it.
 The numbers next to the Base sliders are fields: click one, then ↑/↓ steps
 by 0.1 and ←/→ by 0.01 (⇧ for ten times that), or type a value and press
 Enter. Double-click a slider to reset it.
+
+**Highlights** and **Shadows** in Base set how gently the brightest parts
+roll off into white and the darkest into black.
+
+**Roll workflow.** *Copy settings* (⇧⌘C) takes this frame's adjustments,
+*Paste* (⇧⌘V) puts them on another frame, *Paste to roll…* on every other
+frame in the folder. Crop, rotation and each frame's automatic black/white
+points are not copied. A frame that already had edits keeps them as a version
+called "Before paste".
+
+**Versions.** *Save current as version* keeps the adjustments; click a version
+to switch to it (undo goes back), double-click its name to rename it.
 
 Click a panel's title to fold it away. The eye in the Samples and Measure
 panels hides those marks on the image. Samples are round with a numbered
