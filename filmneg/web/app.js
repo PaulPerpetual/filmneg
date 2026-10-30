@@ -1605,12 +1605,12 @@ function drawLevels() {
   // histogram: one column per pixel, the average count of the bins it covers
   const H = S.levelHist;
   if (H) {
-    const chans = S.levelCh === "rgb" ? [0, 1, 2] : ["rgb".indexOf(S.levelCh)];
-    // muted channel colours that add up to a neutral grey where all three overlap, as in Lightroom
-    const colors = S.levelCh === "rgb" ? ["rgba(181,82,79,.55)", "rgba(90,154,90,.55)", "rgba(79,111,181,.55)"] : null;
+    // RGB: one plain grey histogram of all three channels together; R, G, B: that channel
+    const rgbAll = S.levelCh === "rgb";
+    const hists = rgbAll ? [H.hist[0].map((v, i) => (v + H.hist[1][i] + H.hist[2][i]) / 3)] : [H.hist["rgb".indexOf(S.levelCh)]];
     const cols = [];
-    for (const c of chans) {
-      const h = H.hist[c], col = new Float32Array(g.span);
+    for (const h of hists) {
+      const col = new Float32Array(g.span);
       for (let px = 0; px < g.span; px++) {
         const b0 = Math.floor(g.v(g.pad + px) * H.bins), b1 = Math.max(b0 + 1, Math.floor(g.v(g.pad + px + 1) * H.bins));
         let sum = 0, cnt = 0;
@@ -1624,7 +1624,7 @@ function drawLevels() {
     const norm = (all[Math.floor(all.length * 0.985)] || 1) * 1.1;
     ctx.globalCompositeOperation = "lighter";
     cols.forEach((col, k) => {
-      ctx.fillStyle = colors ? colors[k] : { r: "rgba(201,98,94,.8)", g: "rgba(104,170,104,.8)", b: "rgba(96,128,200,.8)" }[S.levelCh];
+      ctx.fillStyle = rgbAll ? "rgba(190,190,190,.75)" : { r: "rgba(201,98,94,.8)", g: "rgba(104,170,104,.8)", b: "rgba(96,128,200,.8)" }[S.levelCh];
       ctx.beginPath(); ctx.moveTo(g.pad, LV_HIST);
       for (let px = 0; px < g.span; px++) ctx.lineTo(g.pad + px + 0.5, LV_HIST - Math.min(1, col[px] / norm) * (LV_HIST - 8));
       ctx.lineTo(g.pad + g.span, LV_HIST); ctx.closePath(); ctx.fill();
