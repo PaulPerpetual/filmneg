@@ -41,9 +41,10 @@ for Pixelmator.
    any, and **Skin** if there are people. Then **Solve samples**. Each sample
    shows how far it still is from neutral, so you can remove one that wasn't
    really grey.
-3. **Straighten casts** bends the warmth/tint curves so near-neutral areas
-   stay neutral from shadows to highlights. Watch the *cast vs. tone* scope
-   flatten.
+3. **Straighten casts…** bends the warmth/tint curves so near-neutral areas
+   stay neutral from shadows to highlights, with a live preview. Strength and
+   smoothness are sliders, and "keep overall colour" (on by default) only
+   removes the part of the cast that changes with brightness.
 4. Set **Light** if the picture should keep its light (golden hour, tungsten,
    shade), then solve again.
 5. Open **Variants** (V) and pick the version you like best. The centre is the
@@ -56,23 +57,30 @@ for Pixelmator.
 | Key | Tool |
 |---|---|
 | P | Probe: shows the area's values, its cast, and where it sits on the curves |
-| C | Push: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. Scroll to change how wide a brightness range it affects, hold ⌥ for finer |
+| C | Push colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. The parts of the image it leaves alone are veiled while you drag |
+| L | Push light: same, but drag up to brighten or down to darken that brightness |
+| [ / ] | Narrower / wider edits (also scroll while pushing, or the width slider) |
+| pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
 | N / W / K / S | Add grey / white / black / skin sample (⇧-click a sample to remove it) |
 | R | Crop |
 | V | Variants grid |
 | \\ (hold) | Before: the scan as the scanner delivered it |
-| ⌘Z / ⇧⌘Z | Undo / redo |
+| ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo |
 
 ### Curves
 
 - **Colour** shows warmth (yellow/blue) and tint (magenta/green) as a function
-  of brightness. Drag up/down for warmth, left/right for tint, at the
-  brightness where you click. This is the panel for "the shadows are too red".
+  of brightness. Grab either curve and drag it up or down. This is the panel
+  for "the shadows are too red".
+- The histogram of the current image sits behind the curves. The triangles
+  below are black and white points (levels); while you drag them, clipped
+  areas light up red (highlights) and blue (shadows) on the image.
+- **Smooth** relaxes the shown curve(s), like Rhino's Smooth. Click again for more.
 - **Light, R, G, B** are classic curves, but drawn as the *change* from
   neutral, magnified (±5 to ±40 levels), so small moves are visible.
 - Dragging never places points: the change falls off smoothly around where you
-  grab. Grab near the middle line to pull a narrow range of tones, near the top
-  or bottom edge for a broad one (scroll scales it). The background shows which
+  grab. Grab right on a curve to use the width setting, further away from it
+  for a broader pull (scroll changes the width). The background shows which
   colour each direction moves the image towards, and while you drag in the
   Colour panel a swatch shows the exact colour of the push. Curves are B-splines whose control points sit
   off the curve, like NURBS in Rhino, so they can't kink. The faint hairlines

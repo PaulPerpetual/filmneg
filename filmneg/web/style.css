@@ -45,7 +45,7 @@ main { flex: 1; display: flex; min-height: 0; }
 #hint { position: absolute; left: 12px; bottom: 10px; background: rgba(0,0,0,.6); color: #eee; padding: 3px 8px; border-radius: 4px; pointer-events: none; font-size: 12px; }
 #hint:empty { display: none; }
 
-#variants { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; z-index: 5; }
+#variants { position: fixed; inset: 0; background: var(--bg); display: flex; flex-direction: column; z-index: 20; }
 #variants[hidden] { display: none; }
 .vbar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
 .vbar .grow { flex: 1; }
@@ -53,7 +53,10 @@ main { flex: 1; display: flex; min-height: 0; }
 #vgrid .cell { position: relative; cursor: pointer; display: flex; align-items: center; justify-content: center; min-height: 0; border: 2px solid transparent; border-radius: 3px; }
 #vgrid .cell:hover { border-color: #fff; }
 #vgrid .cell.center { border-color: rgba(255,255,255,.35); }
-#vgrid img { max-width: 100%; max-height: 100%; object-fit: contain; display: block; }
+#vgrid img { width: 100%; height: 100%; object-fit: contain; display: block; }
+#vgrid.zoom .cell:not(.big) { display: none; }
+#vgrid.zoom .cell.big { grid-column: 1 / -1; grid-row: 1 / -1; }
+#vgrid .num { position: absolute; right: 6px; top: 6px; background: rgba(0,0,0,.55); color: #ddd; font-size: 11px; padding: 1px 6px; border-radius: 3px; }
 #vgrid .label { position: absolute; left: 6px; bottom: 6px; background: rgba(0,0,0,.65); color: #eee; font-size: 11px; padding: 2px 6px; border-radius: 3px; }
 
 aside { width: 400px; overflow-y: auto; border-left: 1px solid var(--line); }
@@ -80,3 +83,12 @@ aside { width: 400px; overflow-y: auto; border-left: 1px solid var(--line); }
 .scope-row figure { margin: 0 0 6px; }
 .scope-row canvas { background: #111; border-radius: 3px; display: block; max-width: 100%; }
 figcaption { color: var(--muted); font-size: 11px; }
+
+button.icon { display: inline-flex; align-items: center; gap: 5px; }
+#busy { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; min-width: 96px; }
+#busy i { width: 9px; height: 9px; border-radius: 50%; background: #5c5; display: inline-block; }
+#busy.busy i { background: #e9b030; animation: pulse .8s ease-in-out infinite alternate; }
+@keyframes pulse { from { opacity: .35; } to { opacity: 1; } }
+.check { display: flex; gap: 6px; align-items: flex-start; color: var(--muted); margin: 6px 0; }
+.row { display: flex; gap: 6px; margin-top: 6px; }
+#straighten { background: #3a3a3a; }

@@ -74,10 +74,22 @@ def test_straighten_flattens_a_tone_dependent_cast():
     img = np.concatenate([t + 0.04 * (1 - t), t, t - 0.06 * (1 - t)], axis=-1)  # warm shadows
     p = pipeline.default_params()
     before = analysis.cast_by_tone(pipeline.render_pixels(img, p, ADOBE_RGB), ADOBE_RGB, max_chroma=0.08)
-    p2 = analysis.straighten(img, p, ADOBE_RGB)
+    p2 = analysis.straighten(img, p, ADOBE_RGB, keep_overall=False)
     after = analysis.cast_by_tone(pipeline.render_pixels(img, p2, ADOBE_RGB), ADOBE_RGB, max_chroma=0.08)
     err = lambda bands: np.mean([np.hypot(a, b) for a, b, c in bands if c])
     assert err(after) < 0.5 * err(before)
+
+    # keep_overall: the cast becomes even across tones but its average stays
+    p3 = analysis.straighten(img, p, ADOBE_RGB, keep_overall=True)
+    kept = analysis.cast_by_tone(pipeline.render_pixels(img, p3, ADOBE_RGB), ADOBE_RGB, max_chroma=0.08)
+    spread = lambda bands: np.std([b for a, b, c in bands if c])
+    mean_b = lambda bands: np.mean([b for a, b, c in bands if c])
+    assert spread(kept) < 0.6 * spread(before)
+    assert mean_b(kept) > 0.5 * mean_b(before)
+
+    # strength 0 changes nothing
+    p4 = analysis.straighten(img, p, ADOBE_RGB, strength=0.0)
+    assert not np.any(p4["curves"]["warmth"])
 
 
 def test_variants_grid_has_opposites_and_centre():
@@ -109,3 +121,11 @@ def test_auto_crop_finds_frame():
     img[14:86, 20:104] = 0.5                       # the picture
     x0, y0, x1, y1 = analysis.auto_crop(img)
     assert 0.16 < x0 < 0.22 and 0.13 < y0 < 0.2 and 0.84 < x1 < 0.87 and 0.82 < y1 < 0.86
+
+
+def test_levels_set_black_and_white_points():
+    p = pipeline.default_params()
+    p["levels"] = {"lo": [0.1, 0.1, 0.1], "hi": [0.6, 0.6, 0.6]}
+    rgb = np.array([[0.1, 0.35, 0.6]] * 3, np.float32).T.copy()  # three greys
+    out = pipeline.render_pixels(rgb, p, ADOBE_RGB)
+    assert out[0, 0] < 0.01 and out[2, 0] > 0.99

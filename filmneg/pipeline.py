@@ -9,6 +9,7 @@ the image is rendered from the original every time:
       -> log2 domain: per-channel slope + offset (fixes casts that change
          with brightness, i.e. crossover), contrast, exposure
       -> soft highlight shoulder -> encode
+      -> output levels (black/white point handles in the curve panel)
       -> curves (lightness, per-channel, warmth/tint as a function of tone)
       -> saturation (Oklab)
 
@@ -38,6 +39,7 @@ DEFAULTS = {
     "exposure": 0.0,               # stops
     "contrast": 1.0,
     "saturation": 1.0,
+    "levels": {"lo": [0.0, 0.0, 0.0], "hi": [1.0, 1.0, 1.0]},  # encoded, per channel
     "nr": 0.0,                     # chroma noise reduction strength 0..1
     "lighting": "neutral",
     "curves": {name: curves.zero_curve() for name in curves.CURVE_NAMES},
@@ -85,6 +87,9 @@ def _channel_stages(enc, params, space: RGBSpace):
     log = slope * (log - PIVOT) + PIVOT + offset
     log = params["contrast"] * (log - PIVOT) + PIVOT + params["exposure"]
     out = space.encode(_shoulder(np.exp2(log))).astype(np.float32)
+    lo = np.asarray(params["levels"]["lo"], dtype=np.float32)
+    hi = np.asarray(params["levels"]["hi"], dtype=np.float32)
+    out = (out - lo) / np.maximum(hi - lo, 1e-3)
     c = params["curves"]
     for i, ch in enumerate("rgb"):
         x = out[..., i]

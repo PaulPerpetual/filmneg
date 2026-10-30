@@ -16,7 +16,10 @@ from . import analysis, imageio, pipeline, variants
 
 WEB = Path(__file__).parent / "web"
 PREVIEW = 1600
+DRAG = 800      # lighter preview while a slider or curve is being dragged
+GRID = 900      # variant thumbnails
 THUMB = 520
+REGION = 2000   # zoomed-in detail is rendered from full resolution, up to this size
 SCAN_EXT = {".tif", ".tiff", ".jpg", ".jpeg", ".png"}
 
 
@@ -45,6 +48,8 @@ class Session:
         self._nr_cache = {}
         self.proxies = {
             "preview": imageio.downsample(self.scan.rgb, PREVIEW),
+            "drag": imageio.downsample(self.scan.rgb, DRAG),
+            "grid": imageio.downsample(self.scan.rgb, GRID),
             "thumb": imageio.downsample(self.scan.rgb, THUMB),
         }
         side = sidecar_path(path)
@@ -72,12 +77,17 @@ class Session:
             self._nr_cache[key] = pipeline.chroma_denoise(base, nr, self.scan.space)
         return self._nr_cache[key]
 
-    def render(self, params, size="preview", cropped=True, original=False):
+    def render(self, params, size="preview", cropped=True, original=False, region=None):
+        """region (fractions of the cropped image) renders that part from full resolution."""
         params = pipeline.normalize(params)
+        if region:
+            size = "full"
         src = self.source(size, params) if not original else (
             self.scan.rgb if size == "full" else self.proxies[size])
         if cropped:
             src = pipeline.crop(src, params["crop"])
+        if region:
+            src = imageio.downsample(pipeline.crop(src, region), REGION)
         if original:
             return src
         return pipeline.render_pixels(src, params, self.scan.space)
@@ -129,7 +139,9 @@ def make_handler(session: Session):
             return {"report": analysis.sample_report(colors, [x["kind"] for x in samples], p, s.scan.space) if samples else []}
         if route == "straighten":
             src = pipeline.crop(s.source("thumb", p), p["crop"])
-            return {"params": analysis.straighten(src, p, s.scan.space, float(body.get("strength", 1.0)))}
+            return {"params": analysis.straighten(
+                src, p, s.scan.space, float(body.get("strength", 1.0)),
+                float(body.get("smoothness", 1.0)), bool(body.get("keep_overall", True)))}
         if route == "probe":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)
@@ -141,7 +153,7 @@ def make_handler(session: Session):
                 p = pipeline.normalize(body["cells"][int(body["pick"])]["params"])
             cells = variants.generate(p, state)
             for c in cells:
-                c["image"] = jpeg_b64(s.render(c["params"], "thumb"))
+                c["image"] = jpeg_b64(s.render(c["params"], "grid"))
             return {"state": state, "cells": cells, "params": p}
         if route == "save":
             return {"path": s.save(body)}
@@ -178,7 +190,7 @@ def make_handler(session: Session):
                 with session.lock:
                     if route == "render":
                         rgb = session.render(body.get("params"), body.get("size", "preview"),
-                                             original=bool(body.get("original")))
+                                             original=bool(body.get("original")), region=body.get("region"))
                         return self._send(200, imageio.to_jpeg(rgb, session.scan.icc, 90), "image/jpeg")
                     result = api(route, body)
                 self._send(200, json.dumps(result, default=_jsonable).encode(), "application/json")

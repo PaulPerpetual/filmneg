@@ -13,23 +13,48 @@ const S = {
   tool: "probe",
   curve: "colour",
   zoom: 0.04,         // curve panel shows ±zoom (encoded units)
-  falloff: 0.12,      // push tool: soft-edit width on the tone axis
-  widthScale: 1,      // curves: scroll multiplies the width you get from where you grab
+  width: 0.12,        // soft-edit width on the tone axis (push tools and curves)
   probe: null,        // last probe result + position
-  push: null,         // active colour push gesture
+  push: null,         // active push gesture (colour or light)
   undo: [], redo: [],
   variants: null,     // {state, cells}
   comparing: false,
+  dragging: false,    // a slider/curve/push drag is in progress: render lighter previews
+  view: { scale: 1, cx: 0.5, cy: 0.5 },  // zoom and the image point at the viewer's centre
+  hist: null,         // histograms of the latest preview, for the curve panel
+  mask: null,         // {kind: "push"|"clip", ...} overlay showing affected or clipped areas
 };
 
-// ---------------------------------------------------------------- server
+// ---------------------------------------------------------------- server and busy indicator
+let busyCount = 0;
+function busy(delta) {
+  busyCount = Math.max(0, busyCount + delta);
+  const el = $("#busy"), on = busyCount > 0 || S.dragging;
+  el.className = on ? "busy" : "idle";
+  el.querySelector("span").textContent = on ? "Working…" : "Up to date";
+}
+
 async function api(route, body = {}) {
-  const res = await fetch("/api/" + route, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || res.statusText);
-  return data;
+  busy(1);
+  try {
+    const res = await fetch("/api/" + route, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+  } finally { busy(-1); }
+}
+
+async function fetchImage(body) {
+  busy(1);
+  try {
+    const res = await fetch("/api/render", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error((await res.json()).error);
+    return await createImageBitmap(await res.blob(), { colorSpaceConversion: "default" });
+  } finally { busy(-1); }
 }
 
 function status(msg, ms = 2500) {
@@ -76,6 +101,14 @@ function bump(center, amount, sigma) {
 
 const addTo = (ctrl, delta) => ctrl.map((v, i) => v + delta[i]);
 const clone = (o) => JSON.parse(JSON.stringify(o));
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function setWidth(w) {
+  S.width = clamp(w, 0.03, 1.0);
+  $("#width").value = S.width;
+  if (S.push) applyPush(false);
+  drawCurve(); drawOverlay();
+}
 
 // ---------------------------------------------------------------- history
 function snapshot() { return clone({ params: S.params, samples: S.samples }); }
@@ -106,11 +139,17 @@ function scheduleSave() {
   }, 800);
 }
 
+function startDrag() { S.dragging = true; busy(0); }
+function endDrag() { if (S.dragging) { S.dragging = false; busy(0); render(); } }
+
 // ---------------------------------------------------------------- rendering
 const imgCanvas = $("#image"), overlay = $("#overlay");
-let current = null;    // ImageBitmap of the latest render
+let current = null;      // ImageBitmap of the latest render
 let currentFull = false; // whether it shows the uncropped scan (crop tool)
 let inflight = false, dirty = false;
+let renderGen = 0;       // bumps whenever the edit changes; stale detail renders are dropped
+let detail = null;       // {bmp, region, gen}: sharp full-resolution render of the zoomed-in area
+let previewPx = null;    // {w, h, data}: small copy of the preview pixels for masks and histograms
 
 function viewParams() {
   const p = clone(S.params);
@@ -119,31 +158,91 @@ function viewParams() {
 }
 
 async function render() {
+  renderGen++;
   if (inflight) { dirty = true; return; }
   inflight = true; dirty = false;
+  const gen = renderGen;
   try {
     const full = S.tool === "crop";
-    const res = await fetch("/api/render", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ params: viewParams(), original: S.comparing }),
-    });
-    if (!res.ok) throw new Error((await res.json()).error);
-    current = await createImageBitmap(await res.blob(), { colorSpaceConversion: "default" });
+    current = await fetchImage({ params: viewParams(), original: S.comparing, size: S.dragging ? "drag" : "preview" });
     currentFull = full;
+    readPreview();
     drawImage();
     drawScopes();
+    drawCurve();
+    if (!S.dragging && !dirty && gen === renderGen) scheduleDetail();
   } catch (e) { status("render failed: " + e.message, 8000); }
   inflight = false;
   if (dirty) render();
 }
 
+// Zoomed in: fetch the visible part from full resolution so it stays sharp.
+function scheduleDetail() {
+  clearTimeout(scheduleDetail.t);
+  scheduleDetail.t = setTimeout(async () => {
+    if (!current || S.view.scale < 1.3 || S.dragging || S.comparing) return;
+    const W = imgCanvas.clientWidth, H = imgCanvas.clientHeight, r = fitRect();
+    const region = [clamp(-r.x / r.w, 0, 1), clamp(-r.y / r.h, 0, 1), clamp((W - r.x) / r.w, 0, 1), clamp((H - r.y) / r.h, 0, 1)];
+    const gen = renderGen;
+    try {
+      const bmp = await fetchImage({ params: viewParams(), region });
+      if (gen === renderGen) { detail = { bmp, region, gen }; drawImage(); }
+    } catch (e) { console.error(e); }
+  }, 180);
+}
+
+function readPreview() {
+  const w = Math.min(600, current.width), h = Math.max(1, Math.round(current.height * w / current.width));
+  const c = readPreview.c || (readPreview.c = document.createElement("canvas"));
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(current, 0, 0, w, h);
+  previewPx = { w, h, data: ctx.getImageData(0, 0, w, h).data };
+  // histograms for the curve panel: luma and the three channels
+  const B = 128, hist = { lightness: new Float32Array(B), r: new Float32Array(B), g: new Float32Array(B), b: new Float32Array(B) };
+  const d = previewPx.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const t = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+    hist.lightness[Math.min(B - 1, t * B / 256 | 0)]++;
+    hist.r[d[i] * B >> 8]++; hist.g[d[i + 1] * B >> 8]++; hist.b[d[i + 2] * B >> 8]++;
+  }
+  S.hist = hist;
+  S.maskCache = null;
+}
+
+function baseFit() {
+  const W = imgCanvas.clientWidth, H = imgCanvas.clientHeight;
+  return Math.min(W / current.width, H / current.height) * 0.96;
+}
+
 function fitRect() {
   const W = imgCanvas.clientWidth, H = imgCanvas.clientHeight;
   if (!current) return { x: 0, y: 0, w: W, h: H };
-  const s = Math.min(W / current.width, H / current.height) * 0.96;
+  const s = baseFit() * S.view.scale;
   const w = current.width * s, h = current.height * s;
-  return { x: (W - w) / 2, y: (H - h) / 2, w, h };
+  return { x: W / 2 - S.view.cx * w, y: H / 2 - S.view.cy * h, w, h };
 }
+
+function clampView() {
+  if (!current) return;
+  const W = imgCanvas.clientWidth, H = imgCanvas.clientHeight, s = baseFit() * S.view.scale;
+  const w = current.width * s, h = current.height * s;
+  S.view.cx = w <= W ? 0.5 : clamp(S.view.cx, W / 2 / w, 1 - W / 2 / w);
+  S.view.cy = h <= H ? 0.5 : clamp(S.view.cy, H / 2 / h, 1 - H / 2 / h);
+}
+
+function zoomAt(mx, my, factor) {
+  if (!current) return;
+  const r = fitRect(), u = (mx - r.x) / r.w, v = (my - r.y) / r.h;
+  S.view.scale = clamp(S.view.scale * factor, 1, 24);
+  const s = baseFit() * S.view.scale, w = current.width * s, h = current.height * s;
+  const W = imgCanvas.clientWidth, H = imgCanvas.clientHeight;
+  S.view.cx = (W / 2 - (mx - u * w)) / w;
+  S.view.cy = (H / 2 - (my - v * h)) / h;
+  clampView(); detail = null; drawImage(); scheduleDetail();
+}
+
+function fitView() { S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; drawImage(); }
 
 function sizeCanvases() {
   const dpr = window.devicePixelRatio || 1;
@@ -158,7 +257,12 @@ function drawImage() {
   ctx.clearRect(0, 0, imgCanvas.clientWidth, imgCanvas.clientHeight);
   if (!current) return;
   const r = fitRect();
+  ctx.imageSmoothingQuality = "high";
   ctx.drawImage(current, r.x, r.y, r.w, r.h);
+  if (detail && detail.gen === renderGen && S.view.scale >= 1.3 && !S.comparing) {
+    const [u0, v0, u1, v1] = detail.region;
+    ctx.drawImage(detail.bmp, r.x + u0 * r.w, r.y + v0 * r.h, (u1 - u0) * r.w, (v1 - v0) * r.h);
+  }
   drawOverlay();
 }
 
@@ -168,7 +272,7 @@ function shownBox() { return currentFull ? [0, 0, 1, 1] : S.params.crop; }
 function toScan(ev) {
   const b = overlay.getBoundingClientRect(), r = fitRect(), c = shownBox();
   const u = (ev.clientX - b.left - r.x) / r.w, v = (ev.clientY - b.top - r.y) / r.h;
-  return { x: c[0] + u * (c[2] - c[0]), y: c[1] + v * (c[3] - c[1]), inside: u >= 0 && u <= 1 && v >= 0 && v <= 1 };
+  return { x: c[0] + u * (c[2] - c[0]), y: c[1] + v * (c[3] - c[1]), u, v, inside: u >= 0 && u <= 1 && v >= 0 && v <= 1 };
 }
 
 function toScreen(x, y) {
@@ -181,8 +285,41 @@ function radiusPx(rFrac) {
   return rFrac * Math.max(W, H) * r.w / ((c[2] - c[0]) * W);
 }
 
+// Browser-side tone (luma, 0..1) of the preview at image fractions u, v.
+function previewTone(u, v) {
+  if (!previewPx) return null;
+  const x = clamp(Math.floor(u * previewPx.w), 0, previewPx.w - 1), y = clamp(Math.floor(v * previewPx.h), 0, previewPx.h - 1);
+  const i = (y * previewPx.w + x) * 4, d = previewPx.data;
+  return (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255;
+}
+
 // ---------------------------------------------------------------- overlay
 const KIND_COLOR = { neutral: "#9ad", white: "#fff", black: "#000", skin: "#e9a37a" };
+
+// A canvas the size of previewPx: dims what a push leaves alone, or marks clipped pixels.
+function maskCanvas() {
+  if (!S.mask || !previewPx) return null;
+  const key = JSON.stringify(S.mask) + previewPx.w;
+  if (S.maskCache && S.maskCache.key === key) return S.maskCache.canvas;
+  const { w, h, data } = previewPx;
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d"), im = ctx.createImageData(w, h), o = im.data;
+  for (let i = 0; i < data.length; i += 4) {
+    if (S.mask.kind === "push") {
+      const t = (0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255;
+      const wgt = Math.exp(-0.5 * ((t - S.mask.tone) / S.mask.width) ** 2);
+      o[i] = o[i + 1] = o[i + 2] = 110; o[i + 3] = (1 - wgt) * 190;  // grey veil over what stays untouched
+    } else {
+      const hi = data[i] >= 254 || data[i + 1] >= 254 || data[i + 2] >= 254;
+      const lo = data[i] <= 1 || data[i + 1] <= 1 || data[i + 2] <= 1;
+      if (hi) { o[i] = 255; o[i + 1] = 40; o[i + 2] = 40; o[i + 3] = 220; }
+      else if (lo) { o[i] = 40; o[i + 1] = 110; o[i + 2] = 255; o[i + 3] = 220; }
+    }
+  }
+  ctx.putImageData(im, 0, 0);
+  S.maskCache = { key, canvas: c };
+  return c;
+}
 
 function drawOverlay() {
   const ctx = overlay.getContext("2d");
@@ -202,6 +339,9 @@ function drawOverlay() {
     return;
   }
 
+  const m = maskCanvas();
+  if (m) { const r = fitRect(); ctx.imageSmoothingEnabled = false; ctx.drawImage(m, r.x, r.y, r.w, r.h); ctx.imageSmoothingEnabled = true; }
+
   S.samples.forEach((s, i) => {
     const p = toScreen(s.x, s.y), rad = Math.max(radiusPx(s.r), 3);
     ctx.lineWidth = 2;
@@ -219,11 +359,11 @@ function drawOverlay() {
     ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke(); ctx.setLineDash([]);
   }
 
-  if (S.push) drawWheel(ctx);
+  if (S.push) S.push.kind === "light" ? drawLightBar(ctx) : drawWheel(ctx);
 }
 
 // Colour wheel for the push tool. Right = magenta, up = yellow, left = green, down = blue,
-// the same directions as the Colour curve panel and the vectorscope.
+// the same directions as the vectorscope.
 function drawWheel(ctx) {
   const { sx, sy, cx, cy } = S.push, R = 70;
   ctx.save();
@@ -244,15 +384,25 @@ function drawWheel(ctx) {
   ctx.restore();
 }
 
+function drawLightBar(ctx) {
+  const { sx, sy, cy } = S.push, H = 70;
+  ctx.save();
+  const g = ctx.createLinearGradient(0, sy - H, 0, sy + H);
+  g.addColorStop(0, "#fff"); g.addColorStop(1, "#000");
+  ctx.fillStyle = g; ctx.strokeStyle = "rgba(255,255,255,.7)";
+  ctx.fillRect(sx - 5, sy - H, 10, 2 * H); ctx.strokeRect(sx - 5, sy - H, 10, 2 * H);
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(sx + 12, sy); ctx.lineTo(sx + 12, cy); ctx.stroke();
+  ctx.beginPath(); ctx.arc(sx + 12, cy, 4, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------- image interaction
 const PUSH_GAIN = 0.03;     // curve delta at 150 px drag
 const PUSH_CURVE = 1.6;     // >1: very gentle near the centre, stronger further out
 
-function pushAmount(dx, dy, fine) {
-  const d = Math.hypot(dx, dy);
-  if (d < 2) return [0, 0];
-  const a = PUSH_GAIN * Math.pow(d / 150, PUSH_CURVE) * (fine ? 0.25 : 1);
-  return [a * dx / d, a * -dy / d]; // [tint (right = magenta), warmth (up = yellow)]
+function pushStrength(d, fine) {
+  return d < 2 ? 0 : PUSH_GAIN * Math.pow(d / 150, PUSH_CURVE) * (fine ? 0.25 : 1);
 }
 
 overlay.addEventListener("mousedown", async (ev) => {
@@ -263,7 +413,10 @@ overlay.addEventListener("mousedown", async (ev) => {
   if (tool === "crop") {
     S.cropStart = p; S.cropDrag = [p.x, p.y, p.x, p.y]; return;
   }
-  if (!p.inside) return;
+  if (!p.inside) {
+    if (S.view.scale > 1) S.pan = { x: ev.clientX, y: ev.clientY, cx: S.view.cx, cy: S.view.cy };
+    return;
+  }
 
   if (["neutral", "white", "black", "skin"].includes(tool)) {
     const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - ev.offsetX, toScreen(s.x, s.y).y - ev.offsetY) < Math.max(radiusPx(s.r), 6));
@@ -275,21 +428,30 @@ overlay.addEventListener("mousedown", async (ev) => {
 
   if (tool === "probe") { await doProbe(p); return; }
 
-  if (tool === "push") {
+  if (tool === "push" || tool === "light") {
     const at = { x: p.x, y: p.y, r: 0.006 };
-    S.push = { sx: ev.offsetX, sy: ev.offsetY, cx: ev.offsetX, cy: ev.offsetY, tone: null,
-               base: clone(S.params.curves), sigma: S.falloff };
-    drawOverlay();
+    S.push = { kind: tool === "light" ? "light" : "colour", sx: ev.offsetX, sy: ev.offsetY, cx: ev.offsetX, cy: ev.offsetY,
+               tone: null, base: clone(S.params.curves) };
+    const bt = previewTone(p.u, p.v);
+    if (bt != null) S.mask = { kind: "push", tone: bt, width: S.width };
+    startDrag(); drawOverlay();
+    if (tool === "light") setCurve("lightness"); else setCurve("colour");
     const pr = await api("probe", { params: S.params, at });
-    if (S.push) { S.push.tone = pr.tone; S.probe = { ...pr, at }; drawCurve(); }
+    if (S.push) { S.push.tone = pr.tone; S.probe = { ...pr, at }; applyPush(ev.altKey); }
   }
 });
 
 window.addEventListener("mousemove", (ev) => {
   if (S.cropStart) {
-    const p = toScan(ev), a = S.cropStart, cl = (v) => Math.min(Math.max(v, 0), 1);
-    S.cropDrag = [cl(Math.min(a.x, p.x)), cl(Math.min(a.y, p.y)), cl(Math.max(a.x, p.x)), cl(Math.max(a.y, p.y))];
+    const p = toScan(ev), a = S.cropStart;
+    S.cropDrag = [clamp(Math.min(a.x, p.x), 0, 1), clamp(Math.min(a.y, p.y), 0, 1), clamp(Math.max(a.x, p.x), 0, 1), clamp(Math.max(a.y, p.y), 0, 1)];
     drawOverlay(); return;
+  }
+  if (S.pan) {
+    const r = fitRect();
+    S.view.cx = S.pan.cx - (ev.clientX - S.pan.x) / r.w;
+    S.view.cy = S.pan.cy - (ev.clientY - S.pan.y) / r.h;
+    clampView(); drawImage(); return;
   }
   if (S.push) {
     const b = overlay.getBoundingClientRect();
@@ -301,16 +463,25 @@ window.addEventListener("mousemove", (ev) => {
 
 function applyPush(fine) {
   const P = S.push;
-  if (P.tone == null) return;
-  const [tint, warm] = pushAmount(P.cx - P.sx, P.cy - P.sy, fine);
-  S.params.curves.warmth = addTo(P.base.warmth, bump(P.tone, warm, P.sigma));
-  S.params.curves.tint = addTo(P.base.tint, bump(P.tone, tint, P.sigma));
-  const deg = Math.round(Math.atan2(-(P.cy - P.sy), P.cx - P.sx) * 180 / Math.PI);
-  hint(`push at tone ${(P.tone * 100).toFixed(0)}%: warmth ${fmt(warm * 255)}, tint ${fmt(tint * 255)} (scroll: width ${P.sigma.toFixed(2)}, ⌥ finer)`);
+  if (!P || P.tone == null) return;
+  if (S.mask && S.mask.kind === "push") S.mask.width = S.width;
+  const dx = P.cx - P.sx, dy = P.cy - P.sy;
+  if (P.kind === "light") {
+    const a = pushStrength(Math.abs(dy), fine) * (dy < 0 ? 1 : -1);
+    S.params.curves.lightness = addTo(P.base.lightness, bump(P.tone, a, S.width));
+    hint(`light at tone ${(P.tone * 100).toFixed(0)}%: ${fmt(a * 255)} · width ${S.width.toFixed(2)} ([ ] or scroll) · ⌥ finer · dimmed = not affected`);
+  } else {
+    const d = Math.hypot(dx, dy), a = pushStrength(d, fine);
+    const tint = d ? a * dx / d : 0, warm = d ? a * -dy / d : 0;
+    S.params.curves.warmth = addTo(P.base.warmth, bump(P.tone, warm, S.width));
+    S.params.curves.tint = addTo(P.base.tint, bump(P.tone, tint, S.width));
+    hint(`colour at tone ${(P.tone * 100).toFixed(0)}%: warmth ${fmt(warm * 255)}, tint ${fmt(tint * 255)} · width ${S.width.toFixed(2)} ([ ] or scroll) · ⌥ finer · dimmed = not affected`);
+  }
   render(); drawCurve();
 }
 
 window.addEventListener("mouseup", () => {
+  S.pan = null;
   if (S.cropStart) {
     const c = S.cropDrag;
     S.cropStart = null; S.cropDrag = null;
@@ -321,18 +492,40 @@ window.addEventListener("mouseup", () => {
   }
   if (S.push) {
     const changed = S.push.cx !== S.push.sx || S.push.cy !== S.push.sy;
-    S.push = null; hint(""); drawOverlay();
+    S.push = null; S.mask = null; hint(""); drawOverlay();
     if (changed) commit();
+    endDrag();
   }
 });
 
+// Trackpad: pinch zooms (the browser reports it as ctrl+wheel), two-finger scroll pans.
+// During a push, scrolling changes the width instead.
 overlay.addEventListener("wheel", (ev) => {
-  if (!S.push) return;
   ev.preventDefault();
-  S.push.sigma = Math.min(0.4, Math.max(0.04, S.push.sigma * (ev.deltaY > 0 ? 1.1 : 0.9)));
-  S.falloff = S.push.sigma;
-  applyPush(ev.altKey);
+  const b = overlay.getBoundingClientRect();
+  if (S.push) { setWidth(S.width * (ev.deltaY > 0 ? 1.06 : 0.94)); return; }
+  if (ev.ctrlKey) { zoomAt(ev.clientX - b.left, ev.clientY - b.top, Math.exp(-ev.deltaY * 0.01)); return; }
+  if (S.view.scale > 1) {
+    const r = fitRect();
+    S.view.cx += ev.deltaX / r.w; S.view.cy += ev.deltaY / r.h;
+    clampView(); drawImage(); scheduleDetail();
+  }
 }, { passive: false });
+
+// Safari reports pinches as gesture events.
+let gestureBase = 1;
+overlay.addEventListener("gesturestart", (ev) => { ev.preventDefault(); gestureBase = S.view.scale; });
+overlay.addEventListener("gesturechange", (ev) => {
+  ev.preventDefault();
+  const b = overlay.getBoundingClientRect();
+  zoomAt(ev.clientX - b.left, ev.clientY - b.top, (gestureBase * ev.scale) / S.view.scale);
+});
+overlay.addEventListener("gestureend", (ev) => ev.preventDefault());
+overlay.addEventListener("dblclick", (ev) => {
+  if (S.tool !== "probe") return;
+  const b = overlay.getBoundingClientRect();
+  if (S.view.scale > 1) fitView(); else zoomAt(ev.clientX - b.left, ev.clientY - b.top, 3);
+});
 
 async function doProbe(p) {
   const at = { x: p.x, y: p.y, r: +$("#radius").value };
@@ -392,63 +585,52 @@ async function refreshReport() {
 // ---------------------------------------------------------------- curves panel
 const curveCanvas = $("#curve");
 const CURVE_COLORS = { lightness: "#ddd", r: "#f66", g: "#6d6", b: "#69f", warmth: "#e8c040", tint: "#d070d0" };
+const LEVELS_H = 22;  // strip at the bottom of the curve panel holding the black/white point handles
 
 function curveGeom() {
-  const W = curveCanvas.width, H = curveCanvas.height, pad = 14;
+  const W = curveCanvas.width, H = curveCanvas.height - LEVELS_H, pad = 14;
   return { W, H, pad, x: (t) => pad + t * (W - 2 * pad), y: (v) => H / 2 - (v / S.zoom) * (H / 2 - pad),
            t: (px) => (px - pad) / (W - 2 * pad), v: (py) => -(py - H / 2) / (H / 2 - pad) * S.zoom };
 }
 
-// Soft-edit width from where you grab: near the middle line it pulls a narrow
-// range of tones, towards the top or bottom edge it pulls a broad one.
-function widthAt(py) {
-  const g = curveGeom(), d = Math.min(1, Math.abs(py - g.H / 2) / (g.H / 2 - g.pad));
-  return Math.min(0.5, Math.max(0.03, S.widthScale * (0.035 + 0.3 * d)));
-}
+const curveNames = () => (S.curve === "colour" ? ["warmth", "tint"] : [S.curve]);
 
-// What colour the image moves towards when a curve goes up (first) or down.
+// What colour the image moves towards when each curve goes up (first) or down.
 const CURVE_DIRECTIONS = {
-  colour: ["#ffd23c", "#3c78ff"], lightness: ["#ffffff", "#000000"],
+  warmth: ["#ffd23c", "#3c78ff"], tint: ["#e040e0", "#40e040"], lightness: ["#ffffff", "#000000"],
   r: ["#ff4040", "#30e0e0"], g: ["#40e040", "#e040e0"], b: ["#4070ff", "#ffe040"],
 };
 
-// Same wheel as the push tool: right = magenta, up = yellow, left = green, down = blue.
-function pushColour(tint, warm) {
-  const ang = Math.atan2(warm, tint), hue = ((ang * 180 / Math.PI) + 360) % 360;
-  // map wheel angle to a display hue: 0 magenta(300), 90 yellow(55), 180 green(120), 270 blue(225)
-  const stops = [[0, 310], [45, 375], [90, 412], [135, 445], [180, 480], [225, 545], [270, 585], [315, 630], [360, 670]];
-  let h = 310;
-  for (let i = 1; i < stops.length; i++) if (hue <= stops[i][0]) {
-    const [a0, h0] = stops[i - 1], [a1, h1] = stops[i];
-    h = h0 + (h1 - h0) * (hue - a0) / (a1 - a0); break;
-  }
-  return `hsl(${h % 360}, 85%, 55%)`;
+// Which channels the black/white handles move in the current tab.
+const levelChannels = () => (["r", "g", "b"].includes(S.curve) ? ["rgb".indexOf(S.curve)] : [0, 1, 2]);
+function levelPos(which) {
+  const ch = levelChannels(), L = S.params.levels[which];
+  return ch.reduce((s, c) => s + L[c], 0) / ch.length;
 }
 
 function drawCurve() {
   if (!S.params) return;
   const ctx = curveCanvas.getContext("2d"), g = curveGeom();
-  ctx.clearRect(0, 0, g.W, g.H);
+  ctx.clearRect(0, 0, curveCanvas.width, curveCanvas.height);
 
   // background: the colour the image moves towards above and below the line
-  const [up, down] = CURVE_DIRECTIONS[S.curve];
+  const dirName = S.curveDrag ? S.curveDrag.name : (S.curve === "colour" ? (S.hoverName || "warmth") : S.curve);
+  const [up, down] = CURVE_DIRECTIONS[dirName];
   const bg = ctx.createLinearGradient(0, 0, 0, g.H);
   bg.addColorStop(0, up); bg.addColorStop(0.5, "rgba(0,0,0,0)"); bg.addColorStop(1, down);
-  ctx.globalAlpha = 0.16; ctx.fillStyle = bg; ctx.fillRect(0, 0, g.W, g.H);
-  if (S.curve === "colour") {
-    // tint is the horizontal drag: faint magenta on the right edge, green on the left
-    const side = ctx.createLinearGradient(0, 0, g.W, 0);
-    side.addColorStop(0, "#40e040"); side.addColorStop(0.12, "rgba(0,0,0,0)");
-    side.addColorStop(0.88, "rgba(0,0,0,0)"); side.addColorStop(1, "#e040e0");
-    ctx.fillStyle = side; ctx.fillRect(0, 0, g.W, g.H);
-  }
-  ctx.globalAlpha = 1;
-  // tone ramp along the bottom, so you see which tones you're touching
-  const ramp = ctx.createLinearGradient(g.x(0), 0, g.x(1), 0);
-  ramp.addColorStop(0, "#000"); ramp.addColorStop(1, "#fff");
-  ctx.fillStyle = ramp; ctx.fillRect(g.x(0), g.H - 4, g.x(1) - g.x(0), 4);
+  ctx.globalAlpha = 0.16; ctx.fillStyle = bg; ctx.fillRect(0, 0, g.W, g.H); ctx.globalAlpha = 1;
 
-  // zone bands (II..VIII) and grid
+  // histogram of the current preview behind everything
+  if (S.hist) {
+    const h = S.hist[S.curve === "colour" ? "lightness" : S.curve], B = h.length;
+    let max = 0; for (let i = 2; i < B - 2; i++) max = Math.max(max, h[i]);
+    ctx.fillStyle = S.curve === "colour" || S.curve === "lightness" ? "rgba(255,255,255,.10)" : CURVE_COLORS[S.curve] + "2a";
+    ctx.beginPath(); ctx.moveTo(g.x(0), g.H);
+    for (let i = 0; i < B; i++) ctx.lineTo(g.x((i + 0.5) / B), g.H - Math.min(1, Math.sqrt(h[i] / (max || 1))) * (g.H - g.pad));
+    ctx.lineTo(g.x(1), g.H); ctx.closePath(); ctx.fill();
+  }
+
+  // zones and grid
   ctx.font = "13px sans-serif"; ctx.textAlign = "center";
   for (let i = 0; i <= 10; i++) {
     const x = g.x(i / 10);
@@ -460,27 +642,26 @@ function drawCurve() {
   }
   ctx.strokeStyle = "#666"; ctx.beginPath(); ctx.moveTo(0, g.y(0)); ctx.lineTo(g.W, g.y(0)); ctx.stroke();
   ctx.fillStyle = "#666"; ctx.textAlign = "left";
-  ctx.fillText(`+${Math.round(S.zoom * 255)}`, 2, 10); ctx.fillText(`−${Math.round(S.zoom * 255)}`, 2, g.H - 14);
+  ctx.fillText(`+${Math.round(S.zoom * 255)}`, 2, 12); ctx.fillText(`−${Math.round(S.zoom * 255)}`, 2, g.H - 16);
 
-  // falloff preview under the cursor
-  const shownWidth = S.curveDrag ? S.curveDrag.width : S.hoverY != null ? widthAt(S.hoverY) : null;
-  const shownT = S.curveDrag ? S.curveDrag.t : S.hoverT;
-  if (shownT != null && shownWidth != null) {
-    ctx.fillStyle = "rgba(255,255,255,.06)";
+  // falloff preview: where a drag from here would act, and how wide
+  const shown = S.curveDrag || S.hoverEdit;
+  if (shown) {
+    ctx.fillStyle = "rgba(255,255,255,.07)";
     for (let px = 0; px < g.W; px += 2) {
-      const w = Math.exp(-0.5 * ((g.t(px) - shownT) / shownWidth) ** 2);
+      const w = Math.exp(-0.5 * ((g.t(px) - shown.t) / shown.width) ** 2);
       ctx.fillRect(px, g.H / 2 - w * (g.H / 2 - g.pad), 2, 2 * w * (g.H / 2 - g.pad));
     }
   }
 
-  const names = S.curve === "colour" ? ["warmth", "tint"] : [S.curve];
   if (S.curve === "colour") {
-    ctx.fillStyle = "#888"; ctx.textAlign = "right";
+    ctx.textAlign = "right";
     ctx.fillStyle = CURVE_COLORS.warmth; ctx.fillText("warmth: yellow ↑ blue ↓", g.W - 6, 16);
     ctx.fillStyle = CURVE_COLORS.tint; ctx.fillText("tint: magenta ↑ green ↓", g.W - 6, 32);
   }
-  for (const name of names) {
+  for (const name of curveNames()) {
     const ctrl = S.params.curves[name];
+    const active = !shown || shown.name === name;
     const pts = [];
     for (let i = 0; i <= 200; i++) pts.push([i / 200, splineAt(ctrl, i / 200)]);
     // curvature comb: second difference drawn as hairlines from the curve
@@ -491,83 +672,134 @@ function drawCurve() {
       ctx.moveTo(x, y); ctx.lineTo(x, y + k * 0.01 / S.zoom * 4);
     }
     ctx.stroke();
-    ctx.strokeStyle = CURVE_COLORS[name]; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.strokeStyle = CURVE_COLORS[name]; ctx.lineWidth = active ? 2.5 : 1.2; ctx.globalAlpha = active ? 1 : 0.55;
+    ctx.beginPath();
     pts.forEach(([t, v], i) => (i ? ctx.lineTo(g.x(t), g.y(v)) : ctx.moveTo(g.x(t), g.y(v))));
-    ctx.stroke();
-    // control points (off the curve, like NURBS hulls)
+    ctx.stroke(); ctx.globalAlpha = 1;
     ctx.fillStyle = CURVE_COLORS[name] + "99";
     ctrl.forEach((v, i) => { ctx.beginPath(); ctx.arc(g.x(CTRL_POS[i]), g.y(v), 2, 0, 7); ctx.fill(); });
   }
 
   // where the probed / pushed area sits on the curve(s)
   if (S.probe) {
-    const marks = S.curve === "colour" || S.curve === "lightness"
-      ? (S.curve === "lightness" ? [["r", S.probe.output[0]], ["g", S.probe.output[1]], ["b", S.probe.output[2]]] : [["lightness", S.probe.tone]])
-      : [[S.curve, S.probe.output["rgb".indexOf(S.curve)]]];
+    const marks = S.curve === "lightness" ? [["r", S.probe.output[0]], ["g", S.probe.output[1]], ["b", S.probe.output[2]]]
+      : S.curve === "colour" ? [["lightness", S.probe.tone]] : [[S.curve, S.probe.output["rgb".indexOf(S.curve)]]];
     for (const [c, t] of marks) {
       ctx.strokeStyle = c === "lightness" ? "#fff" : CURVE_COLORS[c]; ctx.setLineDash([4, 3]); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(g.x(t), 0); ctx.lineTo(g.x(t), g.H); ctx.stroke(); ctx.setLineDash([]);
     }
-    if (S.curve === "colour") {
-      // small cast arrow at the probed tone: x = tint (a), y = warmth (b)
-      const x = g.x(S.probe.tone), y = g.y(0), k = (g.H / 2 - g.pad) / 0.03;
-      const cl = (v) => Math.max(-0.03, Math.min(0.03, v));
-      ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x, y);
-      ctx.lineTo(x + cl(S.probe.a) * k, y - cl(S.probe.b) * k); ctx.stroke();
-    }
   }
 
-  // while dragging in the Colour panel: a swatch of the colour you're pushing towards
-  if (S.curveDrag && S.curve === "colour" && S.curveDrag.push) {
-    const [tint, warm] = S.curveDrag.push, x = g.x(S.curveDrag.t);
-    if (Math.hypot(tint, warm) > 1e-5) {
-      ctx.fillStyle = pushColour(tint, warm); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(x, g.pad + 12, 9, 0, 7); ctx.fill(); ctx.stroke();
-    }
+  // while dragging: a swatch of the colour you're pushing towards
+  if (S.curveDrag && S.curveDrag.amount) {
+    const D = S.curveDrag, [u, d] = CURVE_DIRECTIONS[D.name];
+    ctx.fillStyle = D.amount > 0 ? u : d; ctx.strokeStyle = "#888"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(g.x(D.t), g.pad + 12, 9, 0, 7); ctx.fill(); ctx.stroke();
+  }
+
+  // levels strip: tone ramp plus black and white point handles
+  const y0 = g.H + 4;
+  const ramp = ctx.createLinearGradient(g.x(0), 0, g.x(1), 0);
+  ramp.addColorStop(0, "#000"); ramp.addColorStop(1, "#fff");
+  ctx.fillStyle = ramp; ctx.fillRect(g.x(0), y0, g.x(1) - g.x(0), 5);
+  for (const [which, fill] of [["lo", "#000"], ["hi", "#fff"]]) {
+    const x = g.x(levelPos(which));
+    ctx.fillStyle = fill; ctx.strokeStyle = "#aaa"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x, y0 + 6); ctx.lineTo(x - 8, y0 + 18); ctx.lineTo(x + 8, y0 + 18); ctx.closePath(); ctx.fill(); ctx.stroke();
   }
 }
 
+// Which curve and how wide an edit starting at canvas point (px, py) would be.
+// On a curve: the width setting. Further from it: broader, so a far grab moves a wide range of tones.
+function editAt(px, py) {
+  const g = curveGeom(), t = clamp(g.t(px), 0, 1);
+  let best = null;
+  for (const name of curveNames()) {
+    const d = Math.abs(py - g.y(splineAt(S.params.curves[name], t)));
+    if (!best || d < best.d) best = { name, d };
+  }
+  const near = 12 * curveCanvas.width / curveCanvas.clientWidth;
+  const far = Math.max(0, best.d - near) / (g.H / 2 - g.pad);
+  return { name: best.name, t, width: clamp(S.width * (1 + 3 * far), 0.03, 1.5) };
+}
+
+const canvasPoint = (ev) => {
+  const b = curveCanvas.getBoundingClientRect(), sc = curveCanvas.width / b.width;
+  return { x: (ev.clientX - b.left) * sc, y: (ev.clientY - b.top) * sc, sc };
+};
+
 curveCanvas.addEventListener("mousedown", (ev) => {
-  const g = curveGeom(), sc = curveCanvas.width / curveCanvas.clientWidth;
-  S.curveDrag = { t: g.t(ev.offsetX * sc), x0: ev.offsetX, y0: ev.offsetY, width: widthAt(ev.offsetY * sc),
-                  base: clone(S.params.curves) };
+  const p = canvasPoint(ev), g = curveGeom();
+  if (p.y > g.H) {  // levels strip
+    const which = Math.abs(p.x - g.x(levelPos("lo"))) < Math.abs(p.x - g.x(levelPos("hi"))) ? "lo" : "hi";
+    S.levelDrag = { which, x0: p.x, base: clone(S.params.levels) };
+    S.mask = { kind: "clip" }; startDrag(); drawOverlay();
+    return;
+  }
+  const e = editAt(p.x, p.y);
+  S.curveDrag = { ...e, y0: p.y, amount: 0, base: clone(S.params.curves) };
+  startDrag(); drawCurve();
 });
 
 window.addEventListener("mousemove", (ev) => {
-  const g = curveGeom(), sc = curveCanvas.width / curveCanvas.clientWidth;
+  const p = canvasPoint(ev), g = curveGeom();
+  if (S.levelDrag) {
+    const L = S.levelDrag, dt = (p.x - L.x0) / (g.W - 2 * g.pad) * (ev.altKey ? 0.2 : 1);
+    for (const c of levelChannels()) {
+      const v = L.base[L.which][c] + dt;
+      S.params.levels[L.which][c] = L.which === "lo" ? clamp(v, -0.2, S.params.levels.hi[c] - 0.05) : clamp(v, S.params.levels.lo[c] + 0.05, 1.2);
+    }
+    hint(`black point ${Math.round(levelPos("lo") * 255)} · white point ${Math.round(levelPos("hi") * 255)} · red/blue on the image = clipped · ⌥ finer`);
+    drawCurve(); render(); return;
+  }
   if (!S.curveDrag) {
-    if (ev.target === curveCanvas) { S.hoverT = g.t(ev.offsetX * sc); S.hoverY = ev.offsetY * sc; drawCurve(); }
+    if (ev.target === curveCanvas && p.y <= g.H) {
+      S.hoverEdit = editAt(p.x, p.y); S.hoverName = S.hoverEdit.name; drawCurve();
+    }
     return;
   }
-  const D = S.curveDrag, b = curveCanvas.getBoundingClientRect();
+  const D = S.curveDrag;
   const gain = ev.altKey ? 0.2 : ev.shiftKey ? 3 : 1;
-  const perPx = (S.zoom * 2) / (g.H - 2 * g.pad) * sc * 0.5 * gain;
-  const dy = -(ev.clientY - b.top - D.y0) * perPx, dx = (ev.clientX - b.left - D.x0) * perPx;
-  if (S.curve === "colour") {
-    S.params.curves.warmth = addTo(D.base.warmth, bump(D.t, dy, D.width));
-    S.params.curves.tint = addTo(D.base.tint, bump(D.t, dx, D.width));
-    D.push = [dx, dy];
-  } else {
-    S.params.curves[S.curve] = addTo(D.base[S.curve], bump(D.t, dy, D.width));
-  }
+  D.amount = -(p.y - D.y0) * (S.zoom * 2) / (g.H - 2 * g.pad) * 0.5 * gain;
+  S.params.curves[D.name] = addTo(D.base[D.name], bump(D.t, D.amount, D.width));
   drawCurve(); render();
 });
 
-window.addEventListener("mouseup", () => { if (S.curveDrag) { S.curveDrag = null; commit(); } });
-curveCanvas.addEventListener("mouseleave", () => { S.hoverT = null; S.hoverY = null; drawCurve(); });
+window.addEventListener("mouseup", () => {
+  if (S.levelDrag) { S.levelDrag = null; S.mask = null; hint(""); drawOverlay(); commit(); endDrag(); }
+  if (S.curveDrag) { S.curveDrag = null; commit(); endDrag(); drawCurve(); }
+});
+curveCanvas.addEventListener("mouseleave", () => { S.hoverEdit = null; drawCurve(); });
 curveCanvas.addEventListener("wheel", (ev) => {
   ev.preventDefault();
-  S.widthScale = Math.min(3, Math.max(0.3, S.widthScale * (ev.deltaY > 0 ? 1.1 : 0.9)));
-  drawCurve();
+  setWidth(S.width * (ev.deltaY > 0 ? 1.06 : 0.94));
+  if (S.hoverEdit) { const p = canvasPoint(ev); S.hoverEdit = editAt(p.x, p.y); drawCurve(); }
 }, { passive: false });
-curveCanvas.addEventListener("dblclick", () => {
-  for (const n of S.curve === "colour" ? ["warmth", "tint"] : [S.curve]) S.params.curves[n] = Array(N_CTRL).fill(0);
+// Smooth the shown curve(s), like Rhino's Smooth: each control value moves part of
+// the way towards the average of its neighbours. Repeat for more.
+function smoothCurves() {
+  for (const n of curveNames()) {
+    const c = S.params.curves[n];
+    S.params.curves[n] = c.map((v, i) => {
+      const l = c[Math.max(0, i - 1)], r = c[Math.min(c.length - 1, i + 1)];
+      return v + 0.5 * ((l + r) / 2 - v);
+    });
+  }
+  drawCurve(); render(); commit();
+}
+$("#btn-smooth").onclick = smoothCurves;
+
+curveCanvas.addEventListener("dblclick", (ev) => {
+  const p = canvasPoint(ev), g = curveGeom();
+  if (p.y > g.H) {
+    for (const c of levelChannels()) { S.params.levels.lo[c] = 0; S.params.levels.hi[c] = 1; }
+  } else {
+    for (const n of curveNames()) S.params.curves[n] = Array(N_CTRL).fill(0);
+  }
   drawCurve(); render(); commit();
 });
 
 // ---------------------------------------------------------------- scopes (from the preview pixels)
-const scratch = document.createElement("canvas");
-
 function srgbToOklab(r, g, b) {
   const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
   r = lin(r); g = lin(g); b = lin(b);
@@ -580,12 +812,15 @@ function srgbToOklab(r, g, b) {
 }
 
 function drawScopes() {
-  if (!current) return;
-  const w = 300, h = Math.max(1, Math.round(current.height * w / current.width));
-  scratch.width = w; scratch.height = h;
-  const sctx = scratch.getContext("2d", { willReadFrequently: true });
-  sctx.drawImage(current, 0, 0, w, h);
-  const px = sctx.getImageData(0, 0, w, h).data;
+  if (!previewPx) return;
+  // scopes use a 300 px wide copy for speed
+  const step = Math.max(1, Math.round(previewPx.w / 300));
+  const w = Math.floor(previewPx.w / step), h = Math.floor(previewPx.h / step), src = previewPx.data;
+  const px = new Uint8ClampedArray(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = ((y * step) * previewPx.w + x * step) * 4, o = (y * w + x) * 4;
+    px[o] = src[i]; px[o + 1] = src[i + 1]; px[o + 2] = src[i + 2];
+  }
 
   // RGB parade: each channel gets a third of the width; x = image column, y = value
   const pc = $("#parade"), pctx = pc.getContext("2d"), PW = pc.width, PH = pc.height;
@@ -614,7 +849,7 @@ function drawScopes() {
   const vc = $("#vector"), vctx = vc.getContext("2d"), VW = vc.width;
   const vim = vctx.createImageData(VW, VW), vacc = new Float32Array(VW * VW), VS = VW / 2 / 0.16;
   for (let i = 0; i < px.length; i += 4) {
-    const [L, a, b] = srgbToOklab(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255);
+    const [, a, b] = srgbToOklab(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255);
     const vx = Math.round(VW / 2 + a * VS), vy = Math.round(VW / 2 - b * VS);
     if (vx >= 0 && vx < VW && vy >= 0 && vy < VW) vacc[vy * VW + vx]++;
     if (Math.hypot(a, b) < 0.04) {
@@ -663,6 +898,8 @@ const SKIN_HUE = (() => {
 })();
 
 // ---------------------------------------------------------------- variants (ring-around)
+let hoverCell = -1;
+
 async function openVariants(pick = null) {
   $("#variants").hidden = false;
   $("#vinfo").textContent = "rendering…";
@@ -672,19 +909,64 @@ async function openVariants(pick = null) {
     const res = await api("variants", body);
     S.variants = { state: res.state, cells: res.cells };
     if (pick !== null) { S.params = res.params; commit(); syncControls(); render(); drawCurve(); }
-    const g = $("#vgrid"); g.innerHTML = "";
+    const g = $("#vgrid"); g.innerHTML = ""; g.classList.remove("zoom");
     res.cells.forEach((c, i) => {
       const d = document.createElement("div");
       d.className = "cell" + (i === 4 ? " center" : "");
-      d.innerHTML = `<img src="${c.image}"><span class="label">${c.label}</span>`;
+      d.innerHTML = `<img src="${c.image}"><span class="label">${c.label}</span><span class="num">${i + 1}</span>`;
       d.onclick = () => openVariants(i);
+      d.onmouseenter = () => (hoverCell = i);
       g.appendChild(d);
     });
-    $("#vinfo").textContent = `generation ${res.state.generation} · step ${res.state.step.toFixed(2)} · click the one you like best (centre = keep, look closer)`;
+    $("#vinfo").textContent = `generation ${res.state.generation} · step ${res.state.step.toFixed(2)} · click the best one, or press 1–9 · hold Space over a cell to see it large · centre = keep and look closer`;
   } catch (e) { status("variants failed: " + e.message, 8000); }
 }
 
 function closeVariants() { $("#variants").hidden = true; S.variants = null; }
+
+function enlargeCell(on) {
+  const g = $("#vgrid"), cells = [...g.children];
+  cells.forEach((c, i) => c.classList.toggle("big", on && i === hoverCell));
+  g.classList.toggle("zoom", on && hoverCell >= 0);
+}
+
+// ---------------------------------------------------------------- straighten panel
+const ST = { base: null, inflight: false, again: false };
+
+function openStraighten() {
+  ST.base = clone(S.params);
+  $("#straighten").hidden = false;
+  for (const id of ["st-strength", "st-smooth"]) $("#" + id).nextElementSibling.textContent = (+$("#" + id).value).toFixed(2);
+  setCurve("colour");
+  previewStraighten();
+}
+
+async function previewStraighten() {
+  if (ST.inflight) { ST.again = true; return; }
+  ST.inflight = true; ST.again = false;
+  try {
+    const r = await api("straighten", {
+      params: ST.base, strength: +$("#st-strength").value, smoothness: +$("#st-smooth").value, keep_overall: $("#st-keep").checked,
+    });
+    if (ST.base) { S.params = r.params; render(); drawCurve(); }
+  } catch (e) { status("straighten failed: " + e.message, 8000); }
+  ST.inflight = false;
+  if (ST.again) previewStraighten();
+}
+
+function closeStraighten(apply) {
+  if (!ST.base) return;
+  if (!apply) { S.params = ST.base; render(); drawCurve(); } else commit();
+  ST.base = null;
+  $("#straighten").hidden = true;
+}
+
+for (const id of ["st-strength", "st-smooth"]) {
+  $("#" + id).addEventListener("input", (e) => { e.target.nextElementSibling.textContent = (+e.target.value).toFixed(2); previewStraighten(); });
+}
+$("#st-keep").addEventListener("change", previewStraighten);
+$("#st-apply").onclick = () => closeStraighten(true);
+$("#st-cancel").onclick = () => closeStraighten(false);
 
 // ---------------------------------------------------------------- controls
 const SLIDERS = ["exposure", "contrast", "saturation", "nr"];
@@ -700,19 +982,26 @@ function syncControls() {
 for (const k of SLIDERS) {
   const el = $("#" + k);
   el.addEventListener("input", () => {
+    if (!S.dragging && k !== "nr") startDrag();
     S.params[k] = +el.value; el.nextElementSibling.textContent = (+el.value).toFixed(2); render();
   });
-  el.addEventListener("change", commit);
+  el.addEventListener("change", () => { commit(); endDrag(); });
   el.addEventListener("dblclick", () => { S.params[k] = k === "exposure" || k === "nr" ? 0 : 1; syncControls(); render(); commit(); });
 }
 $("#lighting").addEventListener("change", (e) => { S.params.lighting = e.target.value; commit(); });
+$("#width").addEventListener("input", (e) => setWidth(+e.target.value));
 
 function setTool(t) {
   S.tool = t;
   $$("#tools [data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));
-  overlay.style.cursor = t === "push" ? "move" : "crosshair";
+  overlay.style.cursor = t === "push" ? "move" : t === "light" ? "ns-resize" : "crosshair";
+  if (t === "crop") fitView();
   if (t === "crop" || currentFull) render(); else drawOverlay();
-  hint({ push: "click a spot, then drag towards a colour; further = stronger", crop: "drag the new crop" }[t] || "");
+  hint({
+    push: "click a spot, then drag towards a colour; further = stronger. [ ] or scroll while dragging = width",
+    light: "click a spot, then drag up to brighten or down to darken that brightness. [ ] or scroll while dragging = width",
+    crop: "drag the new crop",
+  }[t] || "");
 }
 $$("#tools [data-tool]").forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
 $$("[data-surround]").forEach((b) => (b.onclick = () => {
@@ -724,8 +1013,7 @@ try { const s = localStorage.getItem("filmneg.surround"); if (s) document.docume
 function setCurve(c) {
   S.curve = c;
   $$("#curve-tabs [data-curve]").forEach((b) => b.classList.toggle("active", b.dataset.curve === c));
-  curveCanvas.style.cursor = c === "colour" ? "move" : "ns-resize";
-  $("#curve-help").textContent = c === "colour" ? "drag ↑↓ warmth, ←→ tint" : "";
+  $("#curve-help").textContent = c === "colour" ? "grab either curve" : "";
   drawCurve();
 }
 $$("#curve-tabs [data-curve]").forEach((b) => (b.onclick = () => setCurve(b.dataset.curve)));
@@ -737,13 +1025,12 @@ $("#btn-solve").onclick = () => guard("Solve", async () => {
   const r = await api("solve", { params: S.params, samples: S.samples });
   S.params = r.params; S.report = r.report; syncControls(); render(); renderSamples(); commit();
 });
-$("#btn-straighten").onclick = () => guard("Straighten", async () => {
-  S.params = (await api("straighten", { params: S.params })).params; render(); drawCurve(); commit(); setCurve("colour");
-});
+$("#btn-straighten").onclick = () => ($("#straighten").hidden ? openStraighten() : closeStraighten(false));
 $("#btn-variants").onclick = () => openVariants();
 $("#v-keep").onclick = closeVariants;
 $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
+$("#btn-fit").onclick = fitView;
 $("#btn-reset").onclick = () => guard("Reset", async () => {
   const keep = { crop: S.params.crop, mode: S.params.mode, lighting: S.params.lighting };
   const r = await api("levels", { params: { ...keep } });
@@ -763,15 +1050,36 @@ window.addEventListener("keydown", (ev) => {
   if (ev.target.tagName === "INPUT" || ev.target.tagName === "SELECT") return;
   const k = ev.key.toLowerCase();
   if ((ev.metaKey || ev.ctrlKey) && k === "z") { ev.preventDefault(); ev.shiftKey ? redo() : undo(); return; }
+  if ((ev.metaKey || ev.ctrlKey) && k === "y") { ev.preventDefault(); redo(); return; }
+  if ((ev.metaKey || ev.ctrlKey) && (k === "=" || k === "+" || k === "-" || k === "0")) {
+    ev.preventDefault();
+    if (k === "0") fitView(); else zoomAt(imgCanvas.clientWidth / 2, imgCanvas.clientHeight / 2, k === "-" ? 1 / 1.5 : 1.5);
+    return;
+  }
   if (ev.metaKey || ev.ctrlKey) return;
-  if (k === "escape") { if (!$("#variants").hidden) closeVariants(); else setTool("probe"); return; }
+  if (!$("#variants").hidden) {
+    if (k === "escape") closeVariants();
+    else if (k === " ") { ev.preventDefault(); enlargeCell(true); }
+    else if (/^[1-9]$/.test(k)) openVariants(+k - 1);
+    return;
+  }
+  if (k === "escape") { if (ST.base) closeStraighten(false); else setTool("probe"); return; }
   if (k === "\\") { compare(true); return; }
-  const tools = { p: "probe", c: "push", n: "neutral", w: "white", k: "black", s: "skin", r: "crop" };
+  if (k === "[") { setWidth(S.width * 0.85); return; }
+  if (k === "]") { setWidth(S.width / 0.85); return; }
+  if (k === "0") { fitView(); return; }
+  const tools = { p: "probe", c: "push", l: "light", n: "neutral", w: "white", k: "black", s: "skin", r: "crop" };
   if (tools[k]) setTool(tools[k]);
-  if (k === "v") $("#variants").hidden ? openVariants() : closeVariants();
+  if (k === "v") openVariants();
 });
-window.addEventListener("keyup", (ev) => { if (ev.key === "\\") compare(false); });
-window.addEventListener("resize", () => { sizeCanvases(); drawImage(); });
+window.addEventListener("keyup", (ev) => {
+  if (ev.key === "\\") compare(false);
+  if (ev.key === " ") enlargeCell(false);
+});
+window.addEventListener("resize", () => { sizeCanvases(); clampView(); drawImage(); });
+// keep the browser from zooming the whole page on pinch outside the image
+window.addEventListener("wheel", (ev) => { if (ev.ctrlKey) ev.preventDefault(); }, { passive: false });
+document.addEventListener("gesturestart", (ev) => ev.preventDefault());
 
 // ---------------------------------------------------------------- start
 async function load(name) {
@@ -782,6 +1090,7 @@ async function load(name) {
   $("#lighting").innerHTML = d.lighting_options.map((o) => `<option>${o}</option>`).join("");
   location.hash = encodeURIComponent(d.name);
   document.title = d.name + " · filmneg";
+  S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null;
   syncControls(); setCurve(S.curve); setTool("probe"); renderSamples(); refreshReport();
   status(`${d.name} · ${d.width}×${d.height} · ${d.profile || "no profile, assuming sRGB"}`, 6000);
   render();

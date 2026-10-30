@@ -179,12 +179,17 @@ def cast_by_tone(rendered, space: RGBSpace, bins=None, max_chroma=0.04, min_coun
     return out
 
 
-def straighten(rgb, params, space: RGBSpace, strength=1.0, iterations=4):
+def straighten(rgb, params, space: RGBSpace, strength=1.0, smoothness=1.0,
+                keep_overall=True, iterations=4):
     """Bend the warmth/tint curves so near-neutral areas are neutral at every tone.
 
     Measures the cast per tone band, converts it to curve units with a
     measured 2x2 response, then applies a smoothed, damped correction. Only
     bands with enough near-neutral pixels are trusted.
+
+    keep_overall only removes the part of the cast that *changes* with tone
+    (crossover) and leaves the image's overall colour alone. strength scales
+    the correction (0..1), smoothness how gently it may bend.
     """
     p = {**params, "curves": {k: list(v) for k, v in params["curves"].items()}}
     ta, tb = LIGHTING.get(params["lighting"], (0.0, 0.0))
@@ -202,7 +207,7 @@ def straighten(rgb, params, space: RGBSpace, strength=1.0, iterations=4):
 
     # Second-difference smoothing keeps the correction a gentle curve.
     d2 = np.diff(np.eye(n), 2, axis=0)
-    smooth = np.linalg.inv(np.eye(n) + 8.0 * d2.T @ d2)
+    smooth = np.linalg.inv(np.eye(n) + 8.0 * smoothness * d2.T @ d2)
 
     for _ in range(iterations):
         out = render_pixels(rgb, p, space)
@@ -212,6 +217,9 @@ def straighten(rgb, params, space: RGBSpace, strength=1.0, iterations=4):
             if cnt:
                 dw[i], dm[i] = inv @ np.array([a - ta, b - tb])
         conf = np.array([min(c / 2000, 1.0) for *_, c in bands])
+        if keep_overall and conf.sum() > 0:
+            dw[conf > 0] -= np.average(dw, weights=conf)
+            dm[conf > 0] -= np.average(dm, weights=conf)
         for name, d in (("warmth", dw), ("tint", dm)):
             p["curves"][name] = list(np.asarray(p["curves"][name]) - smooth @ (0.6 * strength * conf * d))
     p["curves"] = {k: [float(x) for x in v] for k, v in p["curves"].items()}
