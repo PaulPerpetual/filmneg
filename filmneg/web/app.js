@@ -1327,7 +1327,7 @@ const SLIDERS = ["exposure", "contrast", "saturation", "nr"];
 function syncControls() {
   for (const k of SLIDERS) {
     const el = $("#" + k); el.value = S.params[k];
-    el.nextElementSibling.textContent = (+S.params[k]).toFixed(2);
+    el.nextElementSibling.value = (+S.params[k]).toFixed(2);
   }
   $("#lighting").value = S.params.lighting;
   drawLevels();
@@ -1337,8 +1337,23 @@ for (const k of SLIDERS) {
   const el = $("#" + k);
   el.addEventListener("input", () => {
     if (!S.dragging && k !== "nr") startDrag();
-    S.params[k] = +el.value; el.nextElementSibling.textContent = (+el.value).toFixed(2); render();
+    S.params[k] = +el.value; el.nextElementSibling.value = (+el.value).toFixed(2); render();
   });
+  // the number next to the slider: arrow keys nudge it, typing sets it
+  const num = el.nextElementSibling;
+  const setValue = (v) => {
+    v = clamp(Math.round(v * 100) / 100, +el.min, +el.max);
+    S.params[k] = v; el.value = v; num.value = v.toFixed(2); render();
+    clearTimeout(num.t); num.t = setTimeout(commit, 500);
+  };
+  num.addEventListener("focus", () => num.select());
+  num.addEventListener("keydown", (ev) => {
+    const step = { ArrowUp: 0.1, ArrowDown: -0.1, ArrowRight: 0.01, ArrowLeft: -0.01 }[ev.key];
+    if (step) { ev.preventDefault(); setValue(S.params[k] + step * (ev.shiftKey ? 10 : 1)); }
+    else if (ev.key === "Enter") { const v = parseFloat(num.value.replace(",", ".").replace("−", "-")); if (Number.isFinite(v)) setValue(v); num.blur(); }
+    else if (ev.key === "Escape") { num.value = (+S.params[k]).toFixed(2); num.blur(); }
+  });
+  num.addEventListener("blur", () => { num.value = (+S.params[k]).toFixed(2); });
   el.addEventListener("change", () => { commit(); endDrag(); });
   el.addEventListener("dblclick", () => { S.params[k] = k === "exposure" || k === "nr" ? 0 : 1; syncControls(); render(); commit(); });
 }

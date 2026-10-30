@@ -108,3 +108,7 @@ button.icon { display: inline-flex; align-items: center; gap: 5px; }
 .cast-line { color: var(--muted); }
 .cast-line b { color: var(--text); font-weight: 600; margin-right: 4px; }
 .cast-line.has-cast b { color: #f0b070; }
+.slider .num { width: 46px; text-align: right; background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 1px 3px;
+  color: var(--muted); font-variant-numeric: tabular-nums; }
+.slider .num:hover { border-color: var(--line); }
+.slider .num:focus { outline: none; border-color: #888; color: var(--text); background: #262626; }

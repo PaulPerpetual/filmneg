@@ -70,6 +70,10 @@ samples, **Colour casts left** says in words what cast remains in the
 shadows, midtones and highlights (from your grey samples where there are
 some, otherwise from grey-ish areas of the picture) and what would fix it.
 
+The numbers next to the Base sliders are fields: click one, then ↑/↓ steps
+by 0.1 and ←/→ by 0.01 (⇧ for ten times that), or type a value and press
+Enter. Double-click a slider to reset it.
+
 Click a panel's title to fold it away. The eye in the Samples and Measure
 panels hides those marks on the image. Samples are round with a numbered
 badge; measured points are square (a crosshair, or corner brackets for an
