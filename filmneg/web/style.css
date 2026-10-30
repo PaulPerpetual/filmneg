@@ -56,7 +56,7 @@ aside { width: 400px; overflow-y: auto; border-left: 1px solid var(--line); }
 .level-nums span + input { margin-left: 2px; }
 .level-nums span:not(:first-child) { margin-left: 6px; }
 .panel h3 { cursor: pointer; user-select: none; }
-.panel.collapsed > :not(h3) { display: none; }
+.panel.collapsed > :not(h3) { display: none !important; }  /* beats panel-specific rules like #levels-panel … */
 .panel.collapsed h3 { margin: 0; }
 canvas.curve { width: 100%; height: auto; background: #262626; border-radius: 4px; cursor: ns-resize; display: block; }
 .muted { color: var(--muted); }

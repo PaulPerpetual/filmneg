@@ -1597,6 +1597,13 @@ function blur1d(a, sigma) {
   return out;
 }
 
+// Channel colours as in Pixelmator Pro: the macOS system red, green and blue
+const LEVEL_COLORS = {
+  r: { fill: "rgba(255,69,58,.72)", bar: "#ff453a" },
+  g: { fill: "rgba(48,209,88,.68)", bar: "#30d158" },
+  b: { fill: "rgba(10,132,255,.75)", bar: "#0a84ff" },
+};
+
 function drawLevels() {
   if (!S.params) return;
   const ctx = levelsCanvas.getContext("2d"), g = levelGeom(), L = curLevel();
@@ -1624,7 +1631,7 @@ function drawLevels() {
     const norm = (all[Math.floor(all.length * 0.985)] || 1) * 1.1;
     ctx.globalCompositeOperation = "lighter";
     cols.forEach((col, k) => {
-      ctx.fillStyle = rgbAll ? "rgba(190,190,190,.75)" : { r: "rgba(201,98,94,.8)", g: "rgba(104,170,104,.8)", b: "rgba(96,128,200,.8)" }[S.levelCh];
+      ctx.fillStyle = rgbAll ? "rgba(190,190,190,.75)" : LEVEL_COLORS[S.levelCh].fill;
       ctx.beginPath(); ctx.moveTo(g.pad, LV_HIST);
       for (let px = 0; px < g.span; px++) ctx.lineTo(g.pad + px + 0.5, LV_HIST - Math.min(1, col[px] / norm) * (LV_HIST - 8));
       ctx.lineTo(g.pad + g.span, LV_HIST); ctx.closePath(); ctx.fill();
@@ -1649,7 +1656,7 @@ function drawLevels() {
   // input ramp and handles
   const ramp = (x0, x1, y) => {
     const gr = ctx.createLinearGradient(x0, 0, x1, 0);
-    gr.addColorStop(0, "#000"); gr.addColorStop(1, "#fff");
+    gr.addColorStop(0, "#000"); gr.addColorStop(1, S.levelCh === "rgb" ? "#fff" : LEVEL_COLORS[S.levelCh].bar);
     ctx.fillStyle = gr; ctx.fillRect(g.pad, y, g.span, 5);
   };
   ramp(g.x(0), g.x(1), g.inY + 3);
