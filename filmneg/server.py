@@ -166,7 +166,8 @@ def make_handler(session: Session):
             name = self.path.split("?")[0].lstrip("/") or "index.html"
             f = (WEB / name).resolve()
             if WEB.resolve() not in f.parents or not f.is_file():
-                return self._send(404, b"not found", "text/plain")
+                msg = f"not found: {name} (looking in {WEB}, exists: {WEB.is_dir()})"
+                return self._send(404, msg.encode(), "text/plain; charset=utf-8")
             ctype = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}.get(f.suffix, "application/octet-stream")
             self._send(200, f.read_bytes(), ctype + "; charset=utf-8")
 
@@ -204,6 +205,8 @@ def main(argv=None):
     ap.add_argument("--no-browser", action="store_true")
     args = ap.parse_args(argv)
 
+    if not (WEB / "index.html").is_file():
+        raise SystemExit(f"The web UI files are missing from {WEB}. Reinstall with: pip install -e .")
     root = Path(args.path).expanduser().resolve()
     session = Session(root)
     first = root.name if root.is_file() else (session.files() or [None])[0]
