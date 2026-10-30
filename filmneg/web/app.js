@@ -12,7 +12,8 @@ const S = {
   report: [],
   tool: "probe",
   curve: "colour",
-  zoom: 0.04,         // curve panel shows ±zoom (encoded units)
+  zoom: 0.04,         // magnified curve view shows ±zoom (encoded units)
+  curveView: "classic", // "classic" (diagonal, Light and R/G/B) or "zoom" (the change, magnified)
   width: 0.12,        // soft-edit width on the tone axis (push tools and curves)
   probes: [],         // pinned probes: {at, res}
   colourCurve: "warmth", // which colour curve the Colour tab edits
@@ -880,10 +881,15 @@ const CURVE_COLORS = { lightness: "#ddd", r: "#f66", g: "#6d6", b: "#69f", warmt
 
 function curveGeom() {
   const W = curveCanvas.width, H = curveCanvas.height, pad = 14;
-  return { W, H, pad, x: (t) => pad + t * (W - 2 * pad), y: (v) => H / 2 - (v / S.zoom) * (H / 2 - pad),
-           t: (px) => (px - pad) / (W - 2 * pad), v: (py) => -(py - H / 2) / (H / 2 - pad) * S.zoom };
+  const classic = isClassic(), z = classic ? 0.04 : S.zoom;
+  return { W, H, pad, classic, x: (t) => pad + t * (W - 2 * pad), t: (px) => (px - pad) / (W - 2 * pad),
+           // classic: output over input with the diagonal; otherwise the change alone, magnified
+           y: classic ? (o) => H - pad - o * (H - 2 * pad) : (v) => H / 2 - (v / z) * (H / 2 - pad),
+           base: classic ? (t) => t : () => 0 };
 }
 
+// The classic view (output over input, with the diagonal) for Light and R/G/B.
+const isClassic = () => S.curveView === "classic" && S.curve !== "colour";
 const curveNames = () => (S.curve === "colour" ? ["warmth", "tint"] : [S.curve]);  // drawn
 const editNames = () => (S.curve === "colour" ? [S.colourCurve] : [S.curve]);       // editable
 
@@ -903,13 +909,13 @@ function drawCurve() {
   const [up, down] = CURVE_DIRECTIONS[dirName];
   const bg = ctx.createLinearGradient(0, 0, 0, g.H);
   bg.addColorStop(0, up); bg.addColorStop(0.5, "rgba(0,0,0,0)"); bg.addColorStop(1, down);
-  ctx.globalAlpha = 0.16; ctx.fillStyle = bg; ctx.fillRect(0, 0, g.W, g.H); ctx.globalAlpha = 1;
+  ctx.globalAlpha = 0.06; ctx.fillStyle = bg; ctx.fillRect(0, 0, g.W, g.H); ctx.globalAlpha = 1;
 
   // histogram of the current preview behind everything
   if (S.hist) {
     const h = S.hist[S.curve === "colour" ? "lightness" : S.curve], B = h.length;
     let max = 0; for (let i = 2; i < B - 2; i++) max = Math.max(max, h[i]);
-    ctx.fillStyle = S.curve === "colour" || S.curve === "lightness" ? "rgba(255,255,255,.10)" : CURVE_COLORS[S.curve] + "2a";
+    ctx.fillStyle = "rgba(255,255,255,.09)";
     ctx.beginPath(); ctx.moveTo(g.x(0), g.H);
     for (let i = 0; i < B; i++) ctx.lineTo(g.x((i + 0.5) / B), g.H - Math.min(1, Math.sqrt(h[i] / (max || 1))) * (g.H - g.pad));
     ctx.lineTo(g.x(1), g.H); ctx.closePath(); ctx.fill();
@@ -922,12 +928,18 @@ function drawCurve() {
     ctx.strokeStyle = i % 5 ? "#2f2f2f" : "#3a3a3a"; ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, g.H); ctx.stroke();
     if (i > 0 && i < 10) { ctx.fillStyle = "#555"; ctx.fillText(["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX"][i], x, g.H - 3); }
   }
-  for (const v of [-0.75, -0.5, -0.25, 0.25, 0.5, 0.75]) {
-    ctx.strokeStyle = "#2f2f2f"; ctx.beginPath(); ctx.moveTo(0, g.y(v * S.zoom)); ctx.lineTo(g.W, g.y(v * S.zoom)); ctx.stroke();
+  if (g.classic) {
+    for (const v of [0.25, 0.5, 0.75]) { ctx.strokeStyle = "#2f2f2f"; ctx.beginPath(); ctx.moveTo(0, g.y(v)); ctx.lineTo(g.W, g.y(v)); ctx.stroke(); }
+    ctx.strokeStyle = "#555"; ctx.beginPath(); ctx.moveTo(g.x(0), g.y(0)); ctx.lineTo(g.x(1), g.y(1)); ctx.stroke();
+  } else {
+    const z = S.zoom;
+    for (const v of [-0.75, -0.5, -0.25, 0.25, 0.5, 0.75]) {
+      ctx.strokeStyle = "#2f2f2f"; ctx.beginPath(); ctx.moveTo(0, g.y(v * z)); ctx.lineTo(g.W, g.y(v * z)); ctx.stroke();
+    }
+    ctx.strokeStyle = "#666"; ctx.beginPath(); ctx.moveTo(0, g.y(0)); ctx.lineTo(g.W, g.y(0)); ctx.stroke();
+    ctx.fillStyle = "#666"; ctx.textAlign = "left";
+    ctx.fillText(`+${Math.round(z * 255)}`, 2, 12); ctx.fillText(`−${Math.round(z * 255)}`, 2, g.H - 16);
   }
-  ctx.strokeStyle = "#666"; ctx.beginPath(); ctx.moveTo(0, g.y(0)); ctx.lineTo(g.W, g.y(0)); ctx.stroke();
-  ctx.fillStyle = "#666"; ctx.textAlign = "left";
-  ctx.fillText(`+${Math.round(S.zoom * 255)}`, 2, 12); ctx.fillText(`−${Math.round(S.zoom * 255)}`, 2, g.H - 16);
 
   // falloff preview: where a drag from here would act, and how wide
   const shown = S.curveDrag || S.hoverEdit;
@@ -951,7 +963,7 @@ function drawCurve() {
     for (let i = 0; i <= 200; i++) pts.push([i / 200, splineAt(ctrl, i / 200)]);
     // curvature comb: second difference drawn as hairlines from the curve
     ctx.strokeStyle = CURVE_COLORS[name] + "55"; ctx.lineWidth = 1; ctx.beginPath();
-    for (let i = 1; i < pts.length - 1; i += 2) {
+    for (let i = 1; i < pts.length - 1 && !g.classic; i += 2) {
       const k = (pts[i - 1][1] - 2 * pts[i][1] + pts[i + 1][1]) * 200 * 200;
       const x = g.x(pts[i][0]), y = g.y(pts[i][1]);
       ctx.moveTo(x, y); ctx.lineTo(x, y + k * 0.01 / S.zoom * 4);
@@ -959,10 +971,10 @@ function drawCurve() {
     ctx.stroke();
     ctx.strokeStyle = CURVE_COLORS[name]; ctx.lineWidth = active ? 2.5 : 1.2; ctx.globalAlpha = active ? 1 : 0.55;
     ctx.beginPath();
-    pts.forEach(([t, v], i) => (i ? ctx.lineTo(g.x(t), g.y(v)) : ctx.moveTo(g.x(t), g.y(v))));
+    pts.forEach(([t, v], i) => (i ? ctx.lineTo(g.x(t), g.y(g.base(t) + v)) : ctx.moveTo(g.x(t), g.y(g.base(t) + v))));
     ctx.stroke(); ctx.globalAlpha = 1;
     ctx.fillStyle = CURVE_COLORS[name] + "99";
-    ctrl.forEach((v, i) => { ctx.beginPath(); ctx.arc(g.x(CTRL_POS[i]), g.y(v), 2, 0, 7); ctx.fill(); });
+    if (!g.classic) ctrl.forEach((v, i) => { ctx.beginPath(); ctx.arc(g.x(CTRL_POS[i]), g.y(v), 2, 0, 7); ctx.fill(); });
   }
 
   // where each probe sits on the curve(s): its tone, or its channel value in R/G/B
@@ -995,7 +1007,7 @@ function editAt(px, py) {
   const g = curveGeom(), t = clamp(g.t(px), 0, 1);
   let best = null;
   for (const name of editNames()) {
-    const d = Math.abs(py - g.y(splineAt(S.params.curves[name], t)));
+    const d = Math.abs(py - g.y(g.base(t) + splineAt(S.params.curves[name], t)));
     if (!best || d < best.d) best = { name, d };
   }
   const near = 12 * curveCanvas.width / curveCanvas.clientWidth;
@@ -1026,7 +1038,7 @@ window.addEventListener("mousemove", (ev) => {
   }
   const D = S.curveDrag;
   const gain = ev.altKey ? 0.2 : ev.shiftKey ? 3 : 1;
-  D.amount = -(p.y - D.y0) * (S.zoom * 2) / (g.H - 2 * g.pad) * 0.5 * gain;
+  D.amount = -(p.y - D.y0) * (g.classic ? 1 : S.zoom) / (g.H - 2 * g.pad) * gain;
   S.params.curves[D.name] = addTo(D.base[D.name], bump(D.t, D.amount, D.width));
   drawCurve(); render();
 });
@@ -1674,7 +1686,12 @@ function setCurve(c) {
 }
 $("#colour-curve").onchange = (e) => { S.colourCurve = e.target.value; drawCurve(); };
 $$("#curve-tabs [data-curve]").forEach((b) => (b.onclick = () => setCurve(b.dataset.curve)));
-$("#zoom").onchange = (e) => { S.zoom = +e.target.value; drawCurve(); };
+$("#zoom").onchange = (e) => {
+  if (e.target.value === "classic") S.curveView = "classic"; else { S.curveView = "zoom"; S.zoom = +e.target.value; }
+  try { localStorage.setItem("filmneg.curveView", e.target.value); } catch (err) { /* ignore */ }
+  drawCurve();
+};
+try { const v = localStorage.getItem("filmneg.curveView"); if (v) { $("#zoom").value = v; $("#zoom").onchange({ target: $("#zoom") }); } } catch (err) { /* ignore */ }
 
 $("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api("levels", { params: S.params })).params; syncControls(); render(); commit(); });
 $("#btn-solve").onclick = () => guard("Solve", async () => {

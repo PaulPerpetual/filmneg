@@ -112,8 +112,10 @@ clipped.
 - The histogram of the current image sits behind the curves.
 - **Smooth** (under the curves) relaxes the shown curve(s), like Rhino's
   Smooth. Click again for more. **Reset curve** or a double-click clears them.
-- **Light, R, G, B** are classic curves, but drawn as the *change* from
-  neutral, magnified (±5 to ±40 levels), so small moves are visible.
+- **Light, R, G, B** show the classic view by default: output over input
+  with the diagonal, as in Photoshop or Lightroom. Pick ±5 … ±40 in the menu
+  to see only the *change*, magnified, when you need to judge small moves.
+  The Colour tab always shows the change (there is no diagonal for a cast).
 - Dragging never places points: the change falls off smoothly around where you
   grab. Press right on the curve for a narrow change, further away from it
   for a broader one; the shaded bell shows what will move. The background shows which
