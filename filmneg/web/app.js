@@ -852,6 +852,7 @@ function applyPush(fine) {
   } else {
     const d = Math.hypot(dx, dy), a = pushStrength(d, fine);
     const tint = d ? a * dx / d : 0, warm = d ? a * -dy / d : 0;
+    P.tint = tint; P.warm = warm;  // for the bell in Colour by tone
     S.params.curves.warmth = addTo(P.base.warmth, bump(P.tone, warm, S.width));
     S.params.curves.tint = addTo(P.base.tint, bump(P.tone, tint, S.width));
     hint(`colour at tone ${(P.tone * 100).toFixed(0)}%: warmth ${fmt(warm * 255)}, tint ${fmt(tint * 255)} · width ${S.width.toFixed(2)} ([ ]) · ⌥ finer`);
@@ -1341,7 +1342,12 @@ function drawCurvePanel(P) {
 
   // falloff preview: where a drag from here would act and how wide, as a bell
   // that follows the curve itself
-  const shown = (S.curveDrag && S.curveDrag.panel === P) ? S.curveDrag : P.hover;
+  let shown = (S.curveDrag && S.curveDrag.panel === P) ? S.curveDrag : P.hover;
+  if (S.push && S.push.tone != null && (P === COLOUR) === (S.push.kind === "colour")) {
+    // a shift on the image: its bell, along the curve it bends
+    const name = P === COLOUR ? (Math.abs(S.push.tint || 0) > Math.abs(S.push.warm || 0) ? "tint" : "warmth") : "lightness";
+    shown = { name, t: S.push.tone, width: S.width };
+  }
   if (shown) {
     const ctrl = S.params.curves[shown.name], amp = (g.H / 2 - g.pad) * 0.45;
     ctx.fillStyle = "rgba(255,255,255,.08)";
@@ -2085,7 +2091,7 @@ function setTool(t) {
   S.tool = t;
   if (["neutral", "white", "black", "skin"].includes(t)) setShown("samples", true);
   if (t === "probe" && S.probes.length) setShown("probes", true);
-  $$("#tools [data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));
+  $$("[data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));
   overlay.style.cursor = t === "push" ? "move" : t === "light" ? "ns-resize" : "crosshair";
   if (t === "crop") fitView();
   document.body.classList.toggle("cropping", t === "crop");
@@ -2116,7 +2122,7 @@ $$("[data-eye]").forEach((b) => b.addEventListener("click", (ev) => {
   ev.stopPropagation();  // the title click would fold the panel
   setShown(b.dataset.eye, b.classList.contains("off"));
 }));
-$$("#tools [data-tool]").forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
+$$("[data-tool]").forEach((b) => (b.onclick = () => setTool(S.tool === b.dataset.tool && b.classList.contains("target") ? "probe" : b.dataset.tool)));
 // Right-click on the image: background colour around it, fit.
 function setSurround(c) {
   document.documentElement.style.setProperty("--surround", c);

@@ -55,8 +55,8 @@ for Pixelmator.
 | Key | Tool |
 |---|---|
 | P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. hover one and click its × (or press Delete) to remove it, drag to move it |
-| C | Shift colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. On the press, a light shade shows what it leaves alone; it lifts as soon as you drag so the colours read true |
-| L | Shift brightness: same, but drag up to brighten or down to darken that brightness |
+| C | Shift colour (the target button in Colour by tone): click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. Its bell shows in the Colour by tone panel while you drag |
+| L | Shift brightness (the target button in Curves): same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
 | N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it; hover it and click its × (or press Delete) to remove it |

@@ -40,12 +40,6 @@
       <button data-tool="probe" class="icon" title="Measure (P): click a spot or drag an area to see its colour and brightness. Measurements stay pinned and show up on the curves">
         <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.2 4.3 13.6 2.9a2.1 2.1 0 0 1 3 3l-1.4 1.4" /><path d="M10.6 3.8l5.6 5.6" /><path d="M14.6 7.8 7 15.4c-.5.5-1.1.8-1.8.9L3.2 17l.6-2c.1-.7.4-1.3.9-1.8l7.6-7.6" /><path d="M5.2 12.7h5" /></svg>
         Measure</button>
-      <button data-tool="push" class="icon" title="Shift colour (C): click a spot, then drag towards a colour. Only tones as bright as that spot change, gently">
-        <svg viewBox="0 0 20 20" width="16" height="16"><path d="M10 2.5a7.5 7.5 0 0 1 7.5 7.5H10z" fill="#ffd23c"/><path d="M17.5 10A7.5 7.5 0 0 1 10 17.5V10z" fill="#e040e0"/><path d="M10 17.5A7.5 7.5 0 0 1 2.5 10H10z" fill="#3c78ff"/><path d="M2.5 10A7.5 7.5 0 0 1 10 2.5V10z" fill="#40e040"/><circle cx="10" cy="10" r="2.6" fill="#3b3b3b"/></svg>
-        Shift colour</button>
-      <button data-tool="light" class="icon" title="Shift brightness (L): click a spot, then drag up to brighten or down to darken tones as bright as that spot">
-        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="10" r="3"/><path d="M8 3v1.5M8 15.5V17M2 10h1.5M12.5 10H14M3.8 5.8l1 1M11.2 13.2l1 1M3.8 14.2l1-1M11.2 6.8l1-1"/><path d="M17 4v12M15.3 5.7 17 4l1.7 1.7M15.3 14.3 17 16l1.7-1.7" stroke-linejoin="round"/></svg>
-        Shift brightness</button>
       <span class="sep"></span>
       <button data-tool="neutral" class="k-neutral" title="Add a neutral grey area (N)">Grey</button>
       <button data-tool="white" class="k-white" title="Add a white area (W)">White</button>
@@ -159,6 +153,7 @@
     <div class="panel">
       <h3>Curves <button class="switch" data-power="curves" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
       <div class="tabs" id="curve-tabs">
+        <button data-tool="light" class="icon target" title="Shift brightness on the image (L): click a spot, then drag up to brighten or down to darken tones as bright as that spot"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="1.6" fill="currentColor"/><path d="M10 1.5v3M10 15.5v3M1.5 10h3M15.5 10h3"/></svg></button>
         <button data-curve="lightness">Light</button>
         <button data-curve="r">R</button>
         <button data-curve="g">G</button>
@@ -182,6 +177,7 @@
     <div class="panel">
       <h3>Colour by tone <button class="switch" data-power="colour" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
       <div class="tabs" id="colour-tabs">
+        <button data-tool="push" class="icon target" title="Shift colour on the image (C): click a spot, then drag towards a colour. Only tones as bright as that spot change"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="1.6" fill="currentColor"/><path d="M10 1.5v3M10 15.5v3M1.5 10h3M15.5 10h3"/></svg></button>
         <button data-curve="warmth" title="Yellow up, blue down">Yellow/Blue</button>
         <button data-curve="tint" title="Magenta up, green down">Magenta/Green</button>
         <select id="colour-zoom" title="How much the view is magnified">
