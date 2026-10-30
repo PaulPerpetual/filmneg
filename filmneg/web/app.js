@@ -16,6 +16,8 @@ const S = {
   width: 0.12,        // soft-edit width on the tone axis (push tools and curves)
   probes: [],         // pinned probes: {at, res}
   probeSel: null,     // which probe the detail table shows
+  showSamples: true,  // eye toggles in the Samples and Measure panels
+  showProbes: true,
   push: null,         // active push gesture (colour or light)
   undo: [], redo: [],
   levelCh: "rgb",     // which levels the Levels panel edits
@@ -339,30 +341,59 @@ function drawOverlay() {
   const m = maskCanvas();
   if (m) { const r = fitRect(); ctx.imageSmoothingQuality = "high"; ctx.drawImage(m, r.x, r.y, r.w, r.h); }
 
-  S.samples.forEach((s, i) => drawBrush(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
-  if (S.brush) drawBrush(ctx, S.brush, S.brush.kind ? KIND_COLOR[S.brush.kind] : "#fff", S.brush.label);
-  if (S.tool === "probe" || S.tool === "push" || S.tool === "light") S.probes.forEach((p, i) => drawBrush(ctx, p.at, PROBE_COLORS[i % PROBE_COLORS.length], "P" + (i + 1), true));
+  if (S.showSamples) S.samples.forEach((s, i) => drawSample(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
+  if (S.showProbes) S.probes.forEach((p, i) => drawMeasure(ctx, p.at, PROBE_COLORS[i % PROBE_COLORS.length], "P" + (i + 1)));
+  if (S.brush) S.brush.kind ? drawSample(ctx, S.brush, KIND_COLOR[S.brush.kind], S.brush.label) : drawMeasure(ctx, S.brush, "#fff", "");
 
   if (S.push) S.push.kind === "light" ? drawLightBar(ctx) : drawWheel(ctx);
 }
 
-// A sample area is a circle; a point sample is a small cross. Probes are dashed.
-function drawBrush(ctx, s, color, label, dashed = false) {
-  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0);
-  const outline = color === "#000" ? "#fff" : "#000";
+// Samples are round: a circle for an area, a dot for a point, with a numbered badge
+// in the sample's colour.
+function drawSample(ctx, s, color, label) {
+  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0), outline = color === "#000" ? "#fff" : "#000";
   ctx.save();
-  if (rad < 3) {
-    for (const [c, w] of [[outline, 4], [color, 2]]) {
-      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
-      ctx.moveTo(p.x - 6, p.y); ctx.lineTo(p.x + 6, p.y); ctx.moveTo(p.x, p.y - 6); ctx.lineTo(p.x, p.y + 6); ctx.stroke();
-    }
+  if (rad < 4) {
+    ctx.fillStyle = color; ctx.strokeStyle = outline; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, 7); ctx.fill(); ctx.stroke();
   } else {
-    if (dashed) ctx.setLineDash([4, 4]);
-    for (const [c, w] of [[outline, 3.5], [color, 1.5]]) {
+    for (const [c, w] of [[outline, 3.5], [color, 1.6]]) {
       ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
     }
   }
-  if (label) { ctx.fillStyle = "#fff"; ctx.font = "11px sans-serif"; ctx.fillText(label, p.x + Math.max(rad, 6) + 4, p.y - Math.max(rad, 6)); }
+  if (label) {
+    const d = Math.max(rad, 5) * 0.72, bx = p.x + d + 7, by = p.y - d - 7;
+    ctx.fillStyle = color; ctx.strokeStyle = outline; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(bx, by, 7, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = outline; ctx.font = "bold 10px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(label, bx, by + 0.5);
+  }
+  ctx.restore();
+}
+
+// Measured points are square: a crosshair with an open centre for a point,
+// corner brackets for an area, and a plain coloured label.
+function drawMeasure(ctx, s, color, label) {
+  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0);
+  ctx.save();
+  const path = () => {
+    ctx.beginPath();
+    if (rad < 4) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(p.x + dx * 3, p.y + dy * 3); ctx.lineTo(p.x + dx * 10, p.y + dy * 10); }
+    } else {
+      const k = Math.min(rad * 0.45, 12);
+      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const cx = p.x + sx * rad, cy = p.y + sy * rad;
+        ctx.moveTo(cx, cy - sy * k); ctx.lineTo(cx, cy); ctx.lineTo(cx - sx * k, cy);
+      }
+    }
+  };
+  for (const [c, w] of [["rgba(0,0,0,.85)", 4], [color, 2]]) { ctx.strokeStyle = c; ctx.lineWidth = w; path(); ctx.stroke(); }
+  if (label) {
+    const d = Math.max(rad, 10);
+    ctx.font = "bold 11px sans-serif"; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.fillStyle = color;
+    ctx.strokeText(label, p.x + d + 3, p.y - d + 2); ctx.fillText(label, p.x + d + 3, p.y - d + 2);
+  }
   ctx.restore();
 }
 
@@ -1207,6 +1238,8 @@ $("#width").addEventListener("input", (e) => setWidth(+e.target.value));
 
 function setTool(t) {
   S.tool = t;
+  if (["neutral", "white", "black", "skin"].includes(t)) setShown("samples", true);
+  if (t === "probe" && S.probes.length) setShown("probes", true);
   $$("#tools [data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));
   overlay.style.cursor = t === "push" ? "move" : t === "light" ? "ns-resize" : "crosshair";
   if (t === "crop") fitView();
@@ -1217,6 +1250,18 @@ function setTool(t) {
     crop: "drag the new crop",
   }[t] || "");
 }
+// Eye buttons: show or hide samples / measured points on the image.
+function setShown(which, on) {
+  S[which === "samples" ? "showSamples" : "showProbes"] = on;
+  const b = $(`[data-eye="${which}"]`);
+  b.classList.toggle("off", !on);
+  b.title = (on ? "Hide " : "Show ") + (which === "samples" ? "samples" : "measured points") + " on the image";
+  drawOverlay();
+}
+$$("[data-eye]").forEach((b) => b.addEventListener("click", (ev) => {
+  ev.stopPropagation();  // the title click would fold the panel
+  setShown(b.dataset.eye, b.classList.contains("off"));
+}));
 $$("#tools [data-tool]").forEach((b) => (b.onclick = () => setTool(b.dataset.tool)));
 $$("[data-surround]").forEach((b) => (b.onclick = () => {
   document.documentElement.style.setProperty("--surround", b.dataset.surround);

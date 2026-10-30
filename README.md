@@ -64,7 +64,10 @@ for Pixelmator.
 | \\ (hold) | Before: the scan as the scanner delivered it |
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo |
 
-Click a panel's title to fold it away.
+Click a panel's title to fold it away. The eye in the Samples and Measure
+panels hides those marks on the image. Samples are round with a numbered
+badge; measured points are square (a crosshair, or corner brackets for an
+area) and labelled P1, P2, …
 
 ### Levels
 

@@ -89,3 +89,8 @@ button.icon { display: inline-flex; align-items: center; gap: 5px; }
 #probe-list .res { flex: 1; color: var(--muted); }
 #probe-list button, #probe-clear { padding: 0 6px; }
 #probe-clear { margin-top: 6px; }
+.panel h3 .eye { float: right; background: none; border: none; padding: 0 2px; color: var(--muted); line-height: 0; }
+.panel h3 .eye:hover { color: var(--text); }
+.eye .shut, .eye.off .open { display: none; }
+.eye.off .shut { display: inline; }
+.eye.off { color: #e9b030; }
