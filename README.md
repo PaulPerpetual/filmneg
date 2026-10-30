@@ -34,7 +34,7 @@ for Pixelmator.
 
 ### A good order of work
 
-1. **Auto** detects the crop and sets each channel's black and white point
+1. **Auto** sets each channel's black and white point (crop is detected on first open; Reset in crop mode re-detects it)
    from the histogram. It runs by itself the first time you open a scan.
 2. Click a few **Grey** areas at different brightness (a wall in light, the
    same wall in shade, a dark grey), plus **White** and **Black** if there are

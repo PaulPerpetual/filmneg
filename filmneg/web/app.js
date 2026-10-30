@@ -1662,7 +1662,7 @@ $("#colour-curve").onchange = (e) => { S.colourCurve = e.target.value; drawCurve
 $$("#curve-tabs [data-curve]").forEach((b) => (b.onclick = () => setCurve(b.dataset.curve)));
 $("#zoom").onchange = (e) => { S.zoom = +e.target.value; drawCurve(); };
 
-$("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api("auto", { params: S.params })).params; syncControls(); render(); commit(); });
+$("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api("levels", { params: S.params })).params; syncControls(); render(); commit(); });
 $("#btn-solve").onclick = () => guard("Solve", async () => {
   if (!S.samples.length) throw new Error("add some grey, white, black or skin samples first");
   const r = await api("solve", { params: S.params, samples: S.samples });
