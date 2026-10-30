@@ -54,12 +54,12 @@ for Pixelmator.
 
 | Key | Tool |
 |---|---|
-| P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. hover one and click its × (or press Delete) to remove it, drag to move it |
+| P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. hover one and click it to remove it (or press Delete), drag to move it |
 | C | Shift colour (the target button in Colour by tone): click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. Its bell shows in the Colour by tone panel while you drag |
 | L | Shift brightness (the target button in Curves): same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
-| N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it; hover it and click its × (or press Delete) to remove it |
+| N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it; hover it and click to remove it (or press Delete) |
 | R | Crop & straighten: the sidebar shows angle, *Level by line* (draw along a horizon or wall edge), aspect ratio (6×7, 4×5, …), lens distortion and *Reset*. Drag the corners or edges to fine-tune, inside to move; a press outside the crop pulls the nearest edge there, ⇧-drag draws a new crop, dragging outside the picture rotates (⌥ finer). Leave with Done |
 | D | Dust: find dust and hairs, review the ranked list, repair (see below) |
 | right-click | Background colour around the picture (white, mid grey, dark), fit |
@@ -67,7 +67,8 @@ for Pixelmator.
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo (a short note on the image says what was undone) |
 
 Hover a sample or measured point (on the image or in its list) to highlight
-it; its red × or the Delete key removes it, dragging moves it. Under the
+it: a small grey × badge appears, a click removes it (no modifier key), a drag
+moves it, and the Delete key works too. Under the
 samples, **Colour casts left** says in words what cast remains in the
 shadows, midtones and highlights (from your grey samples where there are
 some, otherwise from grey-ish areas of the picture) and what would fix it.
@@ -107,8 +108,10 @@ one each (a channel's levels apply first, then RGB). The number fields take
 exact values. Clicking anywhere in the histogram moves the nearest triangle
 there. To fine-tune clipping, zoom in: pinch over the histogram, use the
 magnifier (click to zoom in, ⌥-click out, double-click for everything) or
-pick Shadows / Highlights in the menu. Scroll sideways to move along. A drag
-then moves the triangles in finer steps, and a click still places a triangle
+pick Shadows / Highlights in the menu. Scroll sideways to move along. Hold ⌥ while dragging a triangle (black, grey, white or output) for fine
+adjustment: it moves at a tenth of the speed, and you can press or let go of ⌥
+mid-drag without the triangle jumping. A drag in a zoomed view
+also moves the triangles in finer steps, and a click still places a triangle
 that is out of view.
 While you drag the black or white point, the image shows what gets clipped
 (red = white, blue = black), like Lightroom's clipping warning. The panel also says how much is

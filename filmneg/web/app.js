@@ -557,13 +557,16 @@ function markOf(hl) {
 function drawHighlight(ctx) {
   const m = markOf(S.hl);
   if (!m) return;
+  // hovered: a soft white ring and a macOS-style remove badge (grey disc, white ×)
   const r = Math.max(m.rad, 9) + 5;
   ctx.save();
-  ctx.strokeStyle = "rgba(255,210,60,.95)"; ctx.lineWidth = 3; ctx.shadowColor = "rgba(0,0,0,.8)"; ctx.shadowBlur = 6;
+  ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 2; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 4;
   ctx.beginPath(); ctx.arc(m.p.x, m.p.y, r, 0, 7); ctx.stroke();
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = "#d33"; ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(m.del.x, m.del.y, 8, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = "rgba(72,72,74,.95)"; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1;
+  ctx.beginPath(); ctx.arc(m.del.x, m.del.y, 8.5, 0, 7); ctx.fill();
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.strokeStyle = "rgba(255,255,255,.25)"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.6; ctx.lineCap = "round";
   ctx.beginPath(); ctx.moveTo(m.del.x - 3, m.del.y - 3); ctx.lineTo(m.del.x + 3, m.del.y + 3);
   ctx.moveTo(m.del.x + 3, m.del.y - 3); ctx.lineTo(m.del.x - 3, m.del.y + 3); ctx.stroke();
   ctx.restore();
@@ -700,10 +703,10 @@ overlay.addEventListener("mousedown", async (ev) => {
   if (S.hl) {  // the × next to a highlighted mark
     const m = markOf(S.hl);
     if (m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10) { deleteMark(S.hl); return; }
-    if (tool !== "crop" && S.hl && !ev.shiftKey) {  // grab a mark to move it, whatever the tool
+    if (tool !== "crop" && S.hl) {  // a click removes the mark, a drag moves it, whatever the tool
       const probe = S.hl.type === "probe", t = probe ? S.probes[S.hl.i].at : S.samples[S.hl.i];
       if (probe) { S.probeSel = S.hl.i; showProbe(); }
-      S.sampleMove = { probe, i: S.hl.i, sx: ev.clientX, sy: ev.clientY, x: t.x, y: t.y, moved: false };
+      S.sampleMove = { probe, i: S.hl.i, sx: ev.clientX, sy: ev.clientY, x: t.x, y: t.y, moved: false, hovered: true };
       return;
     }
   }
@@ -787,7 +790,9 @@ overlay.addEventListener("mousemove", (ev) => {
   }
   const m = S.hl && markOf(S.hl), onDel = m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10;
   if (!onDel) setHighlight(markAt(ev.offsetX, ev.offsetY));
-  overlay.style.cursor = onDel ? "pointer" : S.hl ? "move" : S.tool === "push" ? "move" : S.tool === "light" ? "ns-resize" : "crosshair";
+  if (S.hl) hint("click to remove · drag to move");
+  else if (hint.last === "click to remove · drag to move") hint("");
+  overlay.style.cursor = onDel || S.hl ? "pointer" : S.tool === "push" ? "move" : S.tool === "light" ? "ns-resize" : "crosshair";
 });
 overlay.addEventListener("mouseleave", () => { if (!S.sampleMove) setHighlight(null); });
 
@@ -818,6 +823,7 @@ window.addEventListener("mousemove", (ev) => {
   }
   if (S.sampleMove) {
     const M = S.sampleMove, r = fitRect(), c = shownBox();
+    if (!M.moved && Math.hypot(ev.clientX - M.sx, ev.clientY - M.sy) < 3) return;  // still a click (removes it)
     M.moved = true;
     const target = M.probe ? S.probes[M.i].at : S.samples[M.i];
     target.x = M.x + (ev.clientX - M.sx) / r.w * (c[2] - c[0]);
@@ -881,8 +887,10 @@ window.addEventListener("mouseup", () => {
     else doProbe({ x, y, r });
   }
   if (S.sampleMove) {
-    if (S.sampleMove.moved) S.sampleMove.probe ? refreshProbes() : commit();
+    const M = S.sampleMove;
     S.sampleMove = null;
+    if (M.moved) M.probe ? refreshProbes() : commit();
+    else if (M.hovered) deleteMark({ type: M.probe ? "probe" : "sample", i: M.i });  // a plain click removes it
   }
   if (S.rotDrag) { S.rotDrag = null; S.rotating = false; commit(); endDrag(); drawOverlay(); }
   if (S.levelLine) {
@@ -962,7 +970,7 @@ function refreshProbes() {
   }, 150);
 }
 
-function hint(t) { $("#hint").textContent = t; }
+function hint(t) { hint.last = t; $("#hint").textContent = t; }
 const fmt = (v, d = 1) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
 
 function castWords(a, b) {
@@ -1755,7 +1763,7 @@ levelsCanvas.addEventListener("mousedown", (ev) => {
     setLevelHandle(which, v);
     render();
   }
-  S.levelDrag = { which, x0: p.x, start: levelValue(which, curLevel()) };
+  S.levelDrag = { which, x0: p.x, start: levelValue(which, curLevel()), fine: ev.altKey };
   if (which === "lo" || which === "hi") S.mask = { kind: "clip" };
   startDrag(); drawLevels(); drawOverlay();
 });
@@ -1766,14 +1774,17 @@ window.addEventListener("mousemove", (ev) => {
     return;
   }
   const D = S.levelDrag, p = levelPoint(ev), g = levelGeom();
-  const dx = (p.x - D.x0) / g.span, scale = D.which.startsWith("out") ? 1 : S.levelView[1] - S.levelView[0];
+  // ⌥ held: a tenth of the speed. Pressing or releasing it mid-drag re-anchors, so the handle doesn't jump.
+  if (ev.altKey !== D.fine) { D.fine = ev.altKey; D.x0 = p.x; D.start = levelValue(D.which, curLevel()); }
+  const dx = (p.x - D.x0) / g.span * (D.fine ? 0.1 : 1), scale = D.which.startsWith("out") ? 1 : S.levelView[1] - S.levelView[0];
   setLevelHandle(D.which, D.start + dx * scale);
+  if (D.fine) hint("Levels: fine adjustment (⌥)");
   drawLevels(); render();
   if (S.mask) { cancelAnimationFrame(S.clipFrame); S.clipFrame = requestAnimationFrame(drawOverlay); }
 });
 
 window.addEventListener("mouseup", () => {
-  if (S.levelDrag) { S.levelDrag = null; if (S.mask && S.mask.kind === "clip") { S.mask = null; drawOverlay(); } commit(); endDrag(); }
+  if (S.levelDrag) { S.levelDrag = null; if ((hint.last || "").startsWith("Levels: fine")) hint(""); if (S.mask && S.mask.kind === "clip") { S.mask = null; drawOverlay(); } commit(); endDrag(); }
 });
 
 // Trackpad: pinch zooms around the pointer (browsers report it as ctrl+wheel,
