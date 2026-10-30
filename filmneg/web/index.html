@@ -42,7 +42,7 @@
       <button data-tool="white" class="k-white" title="Add a white area (W)">White</button>
       <button data-tool="black" class="k-black" title="Add a black area (K)">Black</button>
       <button data-tool="skin" class="k-skin" title="Add a skin area (S)">Skin</button>
-      <label title="Sample area size">size <input id="radius" type="range" min="0.004" max="0.06" step="0.002" value="0.015"></label>
+      <label title="Click = one point, click and drag = an area. Softness: how gently the area's weight fades towards its edge (also scroll while dragging)">softness <input id="soft" type="range" min="0" max="1" step="0.05" value="0.5"></label>
       <span class="sep"></span>
       <button data-tool="crop" title="Drag a new crop (R)">Crop</button>
       <span class="sep"></span>
@@ -102,7 +102,7 @@
     <div class="panel">
       <h3>Samples</h3>
       <ul id="samples"></ul>
-      <div class="muted small" id="samples-empty">Pick Grey, White, Black or Skin and click areas in the image. Several greys at different brightness let “Solve samples” fix casts that shift between shadows and highlights. ⇧-click a sample to remove it.</div>
+      <div class="muted small" id="samples-empty">Pick Grey, White, Black or Skin, then click a point or click and drag to sample an area (scroll while dragging for softness). Drag a sample to move it. Several greys at different brightness let “Solve samples” fix casts that shift between shadows and highlights. ⇧-click a sample to remove it.</div>
     </div>
 
     <div class="panel">

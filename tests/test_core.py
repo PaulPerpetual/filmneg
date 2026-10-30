@@ -129,3 +129,17 @@ def test_levels_set_black_and_white_points():
     rgb = np.array([[0.1, 0.35, 0.6]] * 3, np.float32).T.copy()  # three greys
     out = pipeline.render_pixels(rgb, p, ADOBE_RGB)
     assert out[0, 0] < 0.01 and out[2, 0] > 0.99
+
+
+def test_soft_sample_weights_the_centre_and_ignores_dust():
+    img = np.zeros((101, 101, 3), np.float32)
+    yy, xx = np.mgrid[0:101, 0:101]
+    ring = np.hypot(xx - 50, yy - 50) > 20
+    img[...] = 0.5
+    img[ring] = 0.7                      # brighter outside the core
+    img[50, 52] = 1.0                    # a dust speck near the centre
+    hard = analysis.sample_color(img, {"x": 0.5, "y": 0.5, "r": 0.3, "soft": 0.0})
+    soft = analysis.sample_color(img, {"x": 0.5, "y": 0.5, "r": 0.3, "soft": 1.0})
+    assert soft[0] < hard[0]             # a soft brush leans towards the centre
+    point = analysis.sample_color(img, {"x": 0.5, "y": 0.5, "r": 0})
+    assert abs(point[0] - 0.5) < 0.05    # a click samples one spot, not the speck

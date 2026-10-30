@@ -56,12 +56,12 @@ for Pixelmator.
 
 | Key | Tool |
 |---|---|
-| P | Probe: shows the area's values, its cast, and where it sits on the curves |
+| P | Probe: click a spot or drag an area. Probes stay pinned (P1, P2, …), update after every edit and are marked on the curves. ⇧-click removes one, dragging moves it |
 | C | Push colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. The parts of the image it leaves alone are veiled while you drag |
 | L | Push light: same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider edits (also scroll while pushing, or the width slider) |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
-| N / W / K / S | Add grey / white / black / skin sample (⇧-click a sample to remove it) |
+| N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (scroll while dragging for softness: a soft area weights its centre more, like a soft brush). Drag a sample to move it, ⇧-click to remove it |
 | R | Crop |
 | V | Variants grid |
 | \\ (hold) | Before: the scan as the scanner delivered it |

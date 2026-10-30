@@ -146,6 +146,10 @@ def make_handler(session: Session):
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)
             return analysis.probe(src, out, body["at"], p, s.scan.space)
+        if route == "probes":
+            src = s.source("preview", p)
+            out = pipeline.render_pixels(src, p, s.scan.space)
+            return {"probes": [analysis.probe(src, out, at, p, s.scan.space) for at in body.get("at", [])]}
         if route == "variants":
             state = body.get("state") or variants.new_state()
             if body.get("pick") is not None:

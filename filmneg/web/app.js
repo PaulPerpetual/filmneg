@@ -14,7 +14,9 @@ const S = {
   curve: "colour",
   zoom: 0.04,         // curve panel shows ±zoom (encoded units)
   width: 0.12,        // soft-edit width on the tone axis (push tools and curves)
-  probe: null,        // last probe result + position
+  soft: 0.5,          // softness of sample areas: how far in from the edge their weight starts fading
+  probes: [],         // pinned probes: {at, res}
+  probeSel: null,     // which probe the detail table shows
   push: null,         // active push gesture (colour or light)
   undo: [], redo: [],
   variants: null,     // {state, cells}
@@ -170,7 +172,7 @@ async function render() {
     drawImage();
     drawScopes();
     drawCurve();
-    if (!S.dragging && !dirty && gen === renderGen) scheduleDetail();
+    if (!S.dragging && !dirty && gen === renderGen) { scheduleDetail(); refreshProbes(); }
   } catch (e) { status("render failed: " + e.message, 8000); }
   inflight = false;
   if (dirty) render();
@@ -342,24 +344,37 @@ function drawOverlay() {
   const m = maskCanvas();
   if (m) { const r = fitRect(); ctx.imageSmoothingEnabled = false; ctx.drawImage(m, r.x, r.y, r.w, r.h); ctx.imageSmoothingEnabled = true; }
 
-  S.samples.forEach((s, i) => {
-    const p = toScreen(s.x, s.y), rad = Math.max(radiusPx(s.r), 3);
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = s.kind === "black" ? "#fff" : "#000";
-    ctx.beginPath(); ctx.arc(p.x, p.y, rad + 1.5, 0, 7); ctx.stroke();
-    ctx.strokeStyle = KIND_COLOR[s.kind];
-    ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
-    ctx.fillStyle = "#fff"; ctx.font = "11px sans-serif";
-    ctx.fillText(String(i + 1), p.x + rad + 4, p.y - rad);
-  });
-
-  if (S.probe && S.tool === "probe") {
-    const p = toScreen(S.probe.at.x, S.probe.at.y), rad = Math.max(radiusPx(S.probe.at.r), 3);
-    ctx.setLineDash([3, 3]); ctx.strokeStyle = "#fff"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke(); ctx.setLineDash([]);
-  }
+  S.samples.forEach((s, i) => drawBrush(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
+  if (S.brush) drawBrush(ctx, S.brush, S.brush.kind ? KIND_COLOR[S.brush.kind] : "#fff", S.brush.label);
+  if (S.tool === "probe" || S.tool === "push" || S.tool === "light") S.probes.forEach((p, i) => drawBrush(ctx, p.at, PROBE_COLORS[i % PROBE_COLORS.length], "P" + (i + 1), true));
 
   if (S.push) S.push.kind === "light" ? drawLightBar(ctx) : drawWheel(ctx);
+}
+
+// A sample area drawn like a soft brush: solid ring where it counts fully,
+// dashed ring where its weight fades out. A point sample is a small cross.
+function drawBrush(ctx, s, color, label, dashed = false) {
+  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0), inner = rad * (1 - (s.soft ?? 0.5));
+  const outline = color === "#000" ? "#fff" : "#000";
+  ctx.save();
+  if (rad < 3) {
+    for (const [c, w] of [[outline, 4], [color, 2]]) {
+      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
+      ctx.moveTo(p.x - 6, p.y); ctx.lineTo(p.x + 6, p.y); ctx.moveTo(p.x, p.y - 6); ctx.lineTo(p.x, p.y + 6); ctx.stroke();
+    }
+  } else {
+    if (dashed) ctx.setLineDash([3, 3]);
+    for (const [c, w] of [[outline, 3.5], [color, 1.5]]) {
+      ctx.strokeStyle = c; ctx.lineWidth = w;
+      if (inner > 1.5) { ctx.beginPath(); ctx.arc(p.x, p.y, inner, 0, 7); ctx.stroke(); }
+    }
+    ctx.setLineDash([4, 4]);
+    for (const [c, w] of [[outline, 3], [color, 1.2]]) {
+      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
+    }
+  }
+  if (label) { ctx.fillStyle = "#fff"; ctx.font = "11px sans-serif"; ctx.fillText(label, p.x + Math.max(rad, 6) + 4, p.y - Math.max(rad, 6)); }
+  ctx.restore();
 }
 
 // Colour wheel for the push tool. Right = magenta, up = yellow, left = green, down = blue,
@@ -418,15 +433,23 @@ overlay.addEventListener("mousedown", async (ev) => {
     return;
   }
 
-  if (["neutral", "white", "black", "skin"].includes(tool)) {
-    const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - ev.offsetX, toScreen(s.x, s.y).y - ev.offsetY) < Math.max(radiusPx(s.r), 6));
-    if (ev.shiftKey && hit >= 0) S.samples.splice(hit, 1);
-    else S.samples.push({ kind: tool, x: p.x, y: p.y, r: +$("#radius").value });
-    drawOverlay(); renderSamples(); commit();
+  if (["neutral", "white", "black", "skin", "probe"].includes(tool)) {
+    if (tool === "probe") {
+      const hit = S.probes.findIndex((q) => Math.hypot(toScreen(q.at.x, q.at.y).x - ev.offsetX, toScreen(q.at.x, q.at.y).y - ev.offsetY) < Math.max(radiusPx(q.at.r || 0), 8));
+      if (hit >= 0 && ev.shiftKey) { S.probes.splice(hit, 1); S.probeSel = null; showProbe(); drawOverlay(); drawCurve(); return; }
+      if (hit >= 0) { S.probeSel = hit; S.sampleMove = { probe: true, i: hit, sx: ev.clientX, sy: ev.clientY, x: S.probes[hit].at.x, y: S.probes[hit].at.y, moved: false }; showProbe(); return; }
+    }
+    if (tool !== "probe") {
+      const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - ev.offsetX, toScreen(s.x, s.y).y - ev.offsetY) < Math.max(radiusPx(s.r || 0), 8));
+      if (hit >= 0 && ev.shiftKey) { S.samples.splice(hit, 1); drawOverlay(); renderSamples(); commit(); return; }
+      if (hit >= 0) { S.sampleMove = { i: hit, sx: ev.clientX, sy: ev.clientY, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
+    }
+    // a click takes one point; dragging grows a soft brush-like area from the click
+    S.brush = { kind: tool === "probe" ? null : tool, x: p.x, y: p.y, r: 0, soft: S.soft, sx: ev.clientX, sy: ev.clientY,
+                label: tool === "probe" ? "" : String(S.samples.length + 1) };
+    drawOverlay();
     return;
   }
-
-  if (tool === "probe") { await doProbe(p); return; }
 
   if (tool === "push" || tool === "light") {
     const at = { x: p.x, y: p.y, r: 0.006 };
@@ -437,7 +460,7 @@ overlay.addEventListener("mousedown", async (ev) => {
     startDrag(); drawOverlay();
     if (tool === "light") setCurve("lightness"); else setCurve("colour");
     const pr = await api("probe", { params: S.params, at });
-    if (S.push) { S.push.tone = pr.tone; S.probe = { ...pr, at }; applyPush(ev.altKey); }
+    if (S.push) { S.push.tone = pr.tone; applyPush(ev.altKey); }
   }
 });
 
@@ -445,6 +468,20 @@ window.addEventListener("mousemove", (ev) => {
   if (S.cropStart) {
     const p = toScan(ev), a = S.cropStart;
     S.cropDrag = [clamp(Math.min(a.x, p.x), 0, 1), clamp(Math.min(a.y, p.y), 0, 1), clamp(Math.max(a.x, p.x), 0, 1), clamp(Math.max(a.y, p.y), 0, 1)];
+    drawOverlay(); return;
+  }
+  if (S.brush) {
+    const d = Math.hypot(ev.clientX - S.brush.sx, ev.clientY - S.brush.sy);
+    S.brush.r = d < 4 ? 0 : d / radiusPx(1);
+    hint(S.brush.r ? `area ${Math.round(d)} px · softness ${Math.round(S.brush.soft * 100)}% (scroll to change)` : "");
+    drawOverlay(); return;
+  }
+  if (S.sampleMove) {
+    const M = S.sampleMove, r = fitRect(), c = shownBox();
+    M.moved = true;
+    const target = M.probe ? S.probes[M.i].at : S.samples[M.i];
+    target.x = M.x + (ev.clientX - M.sx) / r.w * (c[2] - c[0]);
+    target.y = M.y + (ev.clientY - M.sy) / r.h * (c[3] - c[1]);
     drawOverlay(); return;
   }
   if (S.pan) {
@@ -482,6 +519,16 @@ function applyPush(fine) {
 
 window.addEventListener("mouseup", () => {
   S.pan = null;
+  if (S.brush) {
+    const { kind, x, y, r, soft } = S.brush;
+    S.brush = null; hint("");
+    if (kind) { S.samples.push({ kind, x, y, r, soft }); renderSamples(); commit(); drawOverlay(); }
+    else doProbe({ x, y, r, soft });
+  }
+  if (S.sampleMove) {
+    if (S.sampleMove.moved) S.sampleMove.probe ? refreshProbes() : commit();
+    S.sampleMove = null;
+  }
   if (S.cropStart) {
     const c = S.cropDrag;
     S.cropStart = null; S.cropDrag = null;
@@ -504,6 +551,11 @@ overlay.addEventListener("wheel", (ev) => {
   ev.preventDefault();
   const b = overlay.getBoundingClientRect();
   if (S.push) { setWidth(S.width * (ev.deltaY > 0 ? 1.06 : 0.94)); return; }
+  if (S.brush) {
+    S.brush.soft = S.soft = clamp(S.brush.soft + (ev.deltaY > 0 ? -0.04 : 0.04), 0, 1);
+    $("#soft").value = S.soft; drawOverlay();
+    hint(`softness ${Math.round(S.soft * 100)}%`); return;
+  }
   if (ev.ctrlKey) { zoomAt(ev.clientX - b.left, ev.clientY - b.top, Math.exp(-ev.deltaY * 0.01)); return; }
   if (S.view.scale > 1) {
     const r = fitRect();
@@ -527,11 +579,28 @@ overlay.addEventListener("dblclick", (ev) => {
   if (S.view.scale > 1) fitView(); else zoomAt(ev.clientX - b.left, ev.clientY - b.top, 3);
 });
 
-async function doProbe(p) {
-  const at = { x: p.x, y: p.y, r: +$("#radius").value };
+// Probes stay pinned (up to 8) and update after every edit, so you can watch
+// several spots at once on the curves.
+const PROBE_COLORS = ["#ffffff", "#7fd4ff", "#ffb36b", "#b0ff7a", "#ff8ad8", "#fff27a", "#a8a8ff", "#7affd9"];
+
+async function doProbe(at) {
   const pr = await api("probe", { params: S.params, at });
-  S.probe = { ...pr, at };
+  S.probes.push({ at, res: pr });
+  if (S.probes.length > PROBE_COLORS.length) S.probes.shift();
+  S.probeSel = S.probes.length - 1;
   showProbe(); drawOverlay(); drawCurve();
+}
+
+function refreshProbes() {
+  clearTimeout(refreshProbes.t);
+  if (!S.probes.length) return;
+  refreshProbes.t = setTimeout(async () => {
+    try {
+      const r = await api("probes", { params: S.params, at: S.probes.map((p) => p.at) });
+      r.probes.forEach((res, i) => { if (S.probes[i]) S.probes[i].res = res; });
+      showProbe(); drawCurve();
+    } catch (e) { console.error(e); }
+  }, 150);
 }
 
 function hint(t) { $("#hint").textContent = t; }
@@ -548,12 +617,27 @@ function castWords(a, b) {
 }
 
 function showProbe() {
-  const p = S.probe;
+  const box = $("#probe");
+  if (!S.probes.length) { box.innerHTML = "Probe tool: click a spot or drag an area. Each click adds a probe (P1, P2, …); ⇧-click one to remove it, drag it to move it."; return; }
+  const sel = clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1);
+  const rows = S.probes.map((q, i) => `<li data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot" style="background:${PROBE_COLORS[i % PROBE_COLORS.length]}"></span>
+    <span>P${i + 1}</span><span class="res">${(q.res.tone * 100).toFixed(0)}% · ${castWords(q.res.a, q.res.b).replace(/ \(.*\)/, "")}</span><button title="Remove">×</button></li>`).join("");
+  box.innerHTML = `<ul id="probe-list">${rows}</ul><div id="probe-detail"></div><button id="probe-clear">Clear probes</button>`;
+  box.querySelectorAll("li").forEach((li) => {
+    const i = +li.dataset.i;
+    li.onclick = () => { S.probeSel = i; showProbe(); };
+    li.querySelector("button").onclick = (e) => { e.stopPropagation(); S.probes.splice(i, 1); S.probeSel = null; showProbe(); drawOverlay(); drawCurve(); };
+  });
+  $("#probe-clear").onclick = () => { S.probes = []; showProbe(); drawOverlay(); drawCurve(); };
+  showProbeDetail(S.probes[sel].res, "P" + (sel + 1));
+}
+
+function showProbeDetail(p, name) {
   const rgb = (v) => v.map((x) => Math.round(x * 255)).join(" / ");
   const zone = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][Math.round(p.tone * 10)];
   const skin = Math.abs(p.skin_hue_off) < 5 ? "matches typical skin" :
     `${Math.abs(p.skin_hue_off).toFixed(0)}° ${p.skin_hue_off > 0 ? "more yellow" : "more red/pink"} than typical skin`;
-  $("#probe").innerHTML = `<table>
+  $("#probe-detail").innerHTML = `<div class="muted small">${name}:</div><table>
     <tr><td>original</td><td>R/G/B ${rgb(p.input)} (as scanned)</td></tr>
     <tr><td>now</td><td>R/G/B ${rgb(p.output)} (with your edits)</td></tr>
     <tr><td>brightness</td><td>${(p.tone * 100).toFixed(0)}% · about zone ${zone} · marked on the curves</td></tr>
@@ -686,14 +770,19 @@ function drawCurve() {
     ctrl.forEach((v, i) => { ctx.beginPath(); ctx.arc(g.x(CTRL_POS[i]), g.y(v), 2, 0, 7); ctx.fill(); });
   }
 
-  // where the probed / pushed area sits on the curve(s)
-  if (S.probe) {
-    const marks = S.curve === "lightness" ? [["r", S.probe.output[0]], ["g", S.probe.output[1]], ["b", S.probe.output[2]]]
-      : S.curve === "colour" ? [["lightness", S.probe.tone]] : [[S.curve, S.probe.output["rgb".indexOf(S.curve)]]];
-    for (const [c, t] of marks) {
-      ctx.strokeStyle = c === "lightness" ? "#fff" : CURVE_COLORS[c]; ctx.setLineDash([4, 3]); ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(g.x(t), 0); ctx.lineTo(g.x(t), g.H); ctx.stroke(); ctx.setLineDash([]);
-    }
+  // where each probe sits on the curve(s): its tone, or its channel value in R/G/B
+  ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+  S.probes.forEach((q, i) => {
+    const t = ["r", "g", "b"].includes(S.curve) ? q.res.output["rgb".indexOf(S.curve)] : q.res.tone;
+    const col = PROBE_COLORS[i % PROBE_COLORS.length];
+    ctx.strokeStyle = col; ctx.setLineDash([4, 3]); ctx.lineWidth = i === S.probeSel ? 1.6 : 1;
+    const ly = 12 + (i % 3) * 13;  // stagger labels so neighbours stay readable
+    ctx.beginPath(); ctx.moveTo(g.x(t), ly + 2); ctx.lineTo(g.x(t), g.H); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = col; ctx.fillText("P" + (i + 1), g.x(t), ly);
+  });
+  if (S.push && S.push.tone != null) {
+    ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(g.x(S.push.tone), 0); ctx.lineTo(g.x(S.push.tone), g.H); ctx.stroke();
   }
 
   // while dragging: a swatch of the colour you're pushing towards
@@ -997,6 +1086,7 @@ for (const k of SLIDERS) {
 }
 $("#lighting").addEventListener("change", (e) => { S.params.lighting = e.target.value; commit(); });
 $("#width").addEventListener("input", (e) => setWidth(+e.target.value));
+$("#soft").addEventListener("input", (e) => { S.soft = +e.target.value; });
 
 function setTool(t) {
   S.tool = t;
@@ -1091,7 +1181,7 @@ document.addEventListener("gesturestart", (ev) => ev.preventDefault());
 // ---------------------------------------------------------------- start
 async function load(name) {
   const d = await api("load", { name });
-  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.undo = []; S.redo = []; S.probe = null;
+  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.undo = []; S.redo = []; S.probes = [];
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
   $("#lighting").innerHTML = d.lighting_options.map((o) => `<option>${o}</option>`).join("");
