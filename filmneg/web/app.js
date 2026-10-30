@@ -572,9 +572,16 @@ overlay.addEventListener("mousedown", async (ev) => {
     const hit = cropHit(ev.offsetX, ev.offsetY), c = S.params.crop;
     if (hit && hit.corner) S.cropStart = { mode: "corner", ax: hit.ax, ay: hit.ay };
     else if (hit && hit.edge) S.cropStart = { mode: "edge", edge: hit.edge, c0: [...c] };
-    else if (hit && hit.inside) S.cropStart = { mode: "move", x: p.x, y: p.y, c0: [...c] };
-    else S.cropStart = { mode: "corner", ax: p.x, ay: p.y };
+    else if (hit && hit.inside) S.cropStart = ev.shiftKey ? { mode: "corner", ax: p.x, ay: p.y } : { mode: "move", x: p.x, y: p.y, c0: [...c] };
+    else if (ev.shiftKey) S.cropStart = { mode: "corner", ax: p.x, ay: p.y };  // ⇧-drag: a new crop
+    else {
+      // outside the crop: the nearest edge (or corner, if beyond two edges) jumps to the pointer
+      const ex = p.x < c[0] ? 0 : p.x > c[2] ? 2 : null, ey = p.y < c[1] ? 1 : p.y > c[3] ? 3 : null;
+      if (ex !== null && ey !== null) S.cropStart = { mode: "corner", ax: c[2 - ex], ay: c[4 - ey] };
+      else S.cropStart = { mode: "edge", edge: ex ?? ey, c0: [...c] };
+    }
     S.cropDrag = [...c];
+    if (S.cropStart.mode !== "move") { mousemoveCrop(p); drawOverlay(); }
     return;
   }
   if (!p.inside) {
@@ -617,7 +624,10 @@ overlay.addEventListener("mousemove", (ev) => {
   if (S.brush || S.sampleMove || S.push || S.cropStart || S.pan || S.rotDrag || ev.buttons) return;
   if (S.tool === "crop") {
     const hit = !S.leveling && cropHit(ev.offsetX, ev.offsetY);
-    overlay.style.cursor = S.leveling ? "crosshair" : hit ? hit.cursor : toScan(ev).inside ? "crosshair" : ROTATE_CURSOR;
+    const p = toScan(ev), c = S.params.crop;
+    const ex = p.x < c[0] || p.x > c[2], ey = p.y < c[1] || p.y > c[3];
+    const outside = ex && ey ? ((p.x < c[0]) === (p.y < c[1]) ? "nwse-resize" : "nesw-resize") : ex ? "ew-resize" : "ns-resize";
+    overlay.style.cursor = S.leveling ? "crosshair" : hit ? hit.cursor : p.inside ? outside : ROTATE_CURSOR;
     return;
   }
   const m = S.hl && markOf(S.hl), onDel = m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10;
@@ -643,14 +653,7 @@ window.addEventListener("mousemove", (ev) => {
     drawOverlay(); return;
   }
   if (S.cropStart) {
-    const p = toScan(ev), a = S.cropStart;
-    if (a.mode === "corner") S.cropDrag = constrainCrop(a.ax, a.ay, p.x, p.y);
-    else if (a.mode === "move") {
-      const c = a.c0, w = c[2] - c[0], h = c[3] - c[1];
-      const x0 = clamp(c[0] + p.x - a.x, 0, 1 - w), y0 = clamp(c[1] + p.y - a.y, 0, 1 - h);
-      S.cropDrag = [x0, y0, x0 + w, y0 + h];
-    } else S.cropDrag = dragEdge(a.c0, a.edge, p);
-    drawOverlay(); return;
+    mousemoveCrop(toScan(ev)); drawOverlay(); return;
   }
   if (S.brush) {
     const d = Math.hypot(ev.clientX - S.brush.sx, ev.clientY - S.brush.sy);
@@ -1548,6 +1551,17 @@ function cropHit(x, y) {
   if (inX && Math.abs(y - B.y) < near / 1.5) return { edge: 3, cursor: "ns-resize" };
   if (inX && inY) return { inside: true, cursor: "move" };
   return null;
+}
+
+// Update the crop being dragged for pointer p (scan fractions).
+function mousemoveCrop(p) {
+  const a = S.cropStart;
+  if (a.mode === "corner") S.cropDrag = constrainCrop(a.ax, a.ay, p.x, p.y);
+  else if (a.mode === "move") {
+    const c = a.c0, w = c[2] - c[0], h = c[3] - c[1];
+    const x0 = clamp(c[0] + p.x - a.x, 0, 1 - w), y0 = clamp(c[1] + p.y - a.y, 0, 1 - h);
+    S.cropDrag = [x0, y0, x0 + w, y0 + h];
+  } else S.cropDrag = dragEdge(a.c0, a.edge, p);
 }
 
 // Drag one edge; with a fixed aspect the other dimension follows, centred.
