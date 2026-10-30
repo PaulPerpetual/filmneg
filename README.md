@@ -85,9 +85,10 @@ Classic levels, like Pixelmator Pro's: a histogram of the image before levels
 and curves, black / grey / white input triangles under it, and output black and
 white on the bar below. **RGB** moves all three channels, **R**, **G**, **B**
 one each (a channel's levels apply first, then RGB). The number fields take
-exact values. To fine-tune clipping, zoom into the histogram: pinch or scroll
-over it, or pick *Shadows* / *Highlights*; drag it to move around and
-double-click to see everything. A drag then moves the triangles in finer steps.
+exact values. Clicking anywhere in the histogram moves the nearest triangle
+there. To fine-tune clipping, zoom into the shadows or highlights (4× or 16×)
+with the menu; a drag then moves the triangles in finer steps, and a click
+still places a triangle that is out of view.
 While you drag the black or white point, the image shows what gets clipped
 (red = white, blue = black), fading in a little before it clips so you can
 see where the brightest and darkest parts are. The panel also says how much is

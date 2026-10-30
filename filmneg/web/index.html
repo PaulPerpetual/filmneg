@@ -90,11 +90,12 @@
         <button data-level="r">R</button>
         <button data-level="g">G</button>
         <button data-level="b">B</button>
-        <select id="level-zoom" title="Look closer at one end of the histogram. You can also pinch or scroll over it">
+        <select id="level-zoom" title="Zoom into one end of the histogram to set black or white precisely">
           <option value="0,1">Whole range</option>
-          <option value="0,0.25">Shadows</option>
-          <option value="0.75,1">Highlights</option>
-          <option value="zoomed" hidden>Zoomed in</option>
+          <option value="0,0.25">Shadows 4×</option>
+          <option value="0,0.0625">Deepest shadows 16×</option>
+          <option value="0.75,1">Highlights 4×</option>
+          <option value="0.9375,1">Brightest highlights 16×</option>
         </select>
       </div>
       <canvas id="levels" width="560" height="214"></canvas>
@@ -108,7 +109,7 @@
         <input id="lv-out-hi" type="number" min="1" max="255" step="1" title="Output white">
       </div>
       <div class="muted small" id="lv-clip"></div>
-      <div class="muted small">Drag the black, grey and white triangles under the histogram; the lower bar sets the output. Pinch or scroll over the histogram to zoom in, drag it to move around, double-click to see everything. While you drag the black or white point, the image shows what gets clipped: red for white, blue for black, fading in just before it clips. Double-click the triangles to reset.</div>
+      <div class="muted small">Drag the black, grey and white triangles, or click anywhere in the histogram to move the nearest one there (also when zoomed in and it is out of view). The lower bar sets the output. The menu zooms into the shadows or highlights. While you drag the black or white point, the image shows what gets clipped: red for white, blue for black, fading in just before it clips. Double-click the triangles to reset.</div>
     </div>
 
     <div class="panel">

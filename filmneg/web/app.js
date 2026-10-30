@@ -1135,7 +1135,7 @@ function drawLevels() {
     ctx.fillStyle = "#999"; ctx.font = "16px sans-serif";
     ctx.textAlign = "left"; ctx.fillText(Math.round(v0 * 255), g.pad + 2, 17);
     ctx.textAlign = "right"; ctx.fillText(Math.round(v1 * 255), g.pad + g.span - 2, 17);
-    ctx.textAlign = "center"; ctx.fillText(`${(1 / (v1 - v0)).toFixed(1)}×`, g.W / 2, 17);
+    ctx.textAlign = "center"; ctx.fillText(`${Math.round(1 / (v1 - v0))}×`, g.W / 2, 17);
   }
 
   // input ramp and handles
@@ -1180,10 +1180,10 @@ function setLevelView(v0, v1) {
   v0 = clamp(v0, 0, 1 - w);
   S.levelView = [v0, v0 + w];
   const sel = $("#level-zoom"), key = S.levelView.map((v) => +v.toFixed(4)).join(",");
-  sel.value = [...sel.options].some((o) => o.value === key) ? key : "zoomed";
+  sel.value = [...sel.options].some((o) => o.value === key) ? key : "0,1";
   drawLevels();
 }
-$("#level-zoom").onchange = (e) => { if (e.target.value !== "zoomed") { const [a, b] = e.target.value.split(",").map(Number); setLevelView(a, b); } };
+$("#level-zoom").onchange = (e) => { const [a, b] = e.target.value.split(",").map(Number); setLevelView(a, b); };
 
 const levelPoint = (ev) => {
   const b = levelsCanvas.getBoundingClientRect(), sc = levelsCanvas.width / b.width;
@@ -1201,59 +1201,56 @@ function levelHandleAt(p) {
   return near(best[1]) < 16 ? best[0] : null;
 }
 
+// Move one handle to a value (input handles in 0..1 of the input, output handles of the output).
+function setLevelHandle(which, v) {
+  const L = curLevel();
+  if (which === "lo") L.lo = clamp(v, 0, L.hi - 2 / 255);
+  else if (which === "hi") L.hi = clamp(v, L.lo + 2 / 255, 1);
+  else if (which === "mid") {
+    const m = clamp(v, L.lo + 0.002, L.hi - 0.002);
+    L.gamma = clamp(Math.log((m - L.lo) / (L.hi - L.lo)) / Math.log(0.5), 0.1, 9.99);
+  } else if (which === "out_lo") L.out_lo = clamp(v, 0, L.out_hi - 2 / 255);
+  else L.out_hi = clamp(v, L.out_lo + 2 / 255, 1);
+}
+
+const levelValue = (which, L) => (which === "mid" ? midPos(L) : L[which]);
+
+// A press on a handle grabs it. A press anywhere else in the histogram or the
+// input bar moves the nearest of black / grey / white there (even if it is
+// outside the zoomed view), and the output bar likewise for the output handles.
 levelsCanvas.addEventListener("mousedown", (ev) => {
-  const p = levelPoint(ev), which = levelHandleAt(p);
-  if (which) {
-    S.levelDrag = { which, x0: p.x, base: { ...curLevel() } };
-    if (which === "lo" || which === "hi") { S.mask = { kind: "clip" }; drawOverlay(); }
-    startDrag();
-  } else if (p.y < LV_HIST) {
-    S.levelPan = { x0: p.x, view: [...S.levelView] };
+  const p = levelPoint(ev), g = levelGeom(), L = curLevel();
+  let which = levelHandleAt(p);
+  if (!which) {
+    const out = p.y >= g.outY - 4, v = out ? clamp((p.x - g.pad) / g.span, 0, 1) : clamp(g.v(p.x), 0, 1);
+    const opts = out ? ["out_lo", "out_hi"] : ["lo", "mid", "hi"];
+    which = opts.reduce((a, b) => (Math.abs(levelValue(b, L) - v) < Math.abs(levelValue(a, L) - v) ? b : a));
+    setLevelHandle(which, v);
+    render();
   }
+  S.levelDrag = { which, x0: p.x, start: levelValue(which, curLevel()) };
+  if (which === "lo" || which === "hi") S.mask = { kind: "clip" };
+  startDrag(); drawLevels(); drawOverlay();
 });
 
 window.addEventListener("mousemove", (ev) => {
-  if (S.levelPan) {
-    const p = levelPoint(ev), g = levelGeom(), P = S.levelPan, w = P.view[1] - P.view[0];
-    const d = -(p.x - P.x0) / g.span * w;
-    setLevelView(P.view[0] + d, P.view[1] + d); return;
-  }
   if (!S.levelDrag) {
-    if (ev.target === levelsCanvas) levelsCanvas.style.cursor = levelHandleAt(levelPoint(ev)) ? "ew-resize" : S.levelView[1] - S.levelView[0] < 0.999 ? "grab" : "default";
+    if (ev.target === levelsCanvas) levelsCanvas.style.cursor = levelHandleAt(levelPoint(ev)) ? "ew-resize" : "pointer";
     return;
   }
-  const D = S.levelDrag, B = D.base, L = curLevel(), p = levelPoint(ev), g = levelGeom();
-  const dx = (p.x - D.x0) / g.span, inDv = dx * (S.levelView[1] - S.levelView[0]);
-  if (D.which === "lo") L.lo = clamp(B.lo + inDv, 0, L.hi - 2 / 255);
-  else if (D.which === "hi") L.hi = clamp(B.hi + inDv, L.lo + 2 / 255, 1);
-  else if (D.which === "mid") {
-    const m = clamp(midPos(B) + inDv, L.lo + 0.002, L.hi - 0.002);
-    L.gamma = clamp(Math.log((m - L.lo) / (L.hi - L.lo)) / Math.log(0.5), 0.1, 9.99);
-  } else if (D.which === "out_lo") L.out_lo = clamp(B.out_lo + dx, 0, L.out_hi - 2 / 255);
-  else L.out_hi = clamp(B.out_hi + dx, L.out_lo + 2 / 255, 1);
+  const D = S.levelDrag, p = levelPoint(ev), g = levelGeom();
+  const dx = (p.x - D.x0) / g.span, scale = D.which.startsWith("out") ? 1 : S.levelView[1] - S.levelView[0];
+  setLevelHandle(D.which, D.start + dx * scale);
   drawLevels(); render();
   if (S.mask) { cancelAnimationFrame(S.clipFrame); S.clipFrame = requestAnimationFrame(drawOverlay); }
 });
 
 window.addEventListener("mouseup", () => {
-  S.levelPan = null;
   if (S.levelDrag) { S.levelDrag = null; if (S.mask && S.mask.kind === "clip") { S.mask = null; drawOverlay(); } commit(); endDrag(); }
 });
 
-levelsCanvas.addEventListener("wheel", (ev) => {
-  ev.preventDefault();
-  const p = levelPoint(ev), g = levelGeom(), [v0, v1] = S.levelView, at = clamp(g.v(p.x), 0, 1);
-  if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY) && !ev.ctrlKey) {
-    const d = ev.deltaX / g.span * (v1 - v0) * p.sc; setLevelView(v0 + d, v1 + d); return;
-  }
-  const f = Math.exp(ev.deltaY * (ev.ctrlKey ? 0.01 : 0.003));
-  setLevelView(at - (at - v0) * f, at + (v1 - at) * f);
-}, { passive: false });
-levelsCanvas.addEventListener("gesturestart", (ev) => ev.preventDefault());
-
 levelsCanvas.addEventListener("dblclick", (ev) => {
   const p = levelPoint(ev), which = levelHandleAt(p);
-  if (p.y < LV_HIST) { setLevelView(0, 1); return; }
   if (!which) return;
   const L = curLevel();
   if (which.startsWith("out")) { L.out_lo = 0; L.out_hi = 1; } else if (which === "mid") L.gamma = 1; else { L.lo = 0; L.hi = 1; L.gamma = 1; }
