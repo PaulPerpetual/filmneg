@@ -780,7 +780,7 @@ async function load(name) {
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
   $("#lighting").innerHTML = d.lighting_options.map((o) => `<option>${o}</option>`).join("");
-  location.hash = d.name;
+  location.hash = encodeURIComponent(d.name);
   document.title = d.name + " · filmneg";
   syncControls(); setCurve(S.curve); setTool("probe"); renderSamples(); refreshReport();
   status(`${d.name} · ${d.width}×${d.height} · ${d.profile || "no profile, assuming sRGB"}`, 6000);

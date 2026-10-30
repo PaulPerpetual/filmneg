@@ -108,7 +108,7 @@ def make_handler(session: Session):
         p = pipeline.normalize(body.get("params")) if "params" in body else None
         s = session
         if route == "load":
-            return s.load(body.get("name") or s.files()[0])
+            return s.load(body.get("name") or s.default)
         if route == "auto":
             p["crop"] = analysis.auto_crop(s.proxies["preview"])
             p["black"], p["white"] = analysis.auto_levels(s.proxies["preview"], p, s.scan.space)
@@ -212,10 +212,11 @@ def main(argv=None):
     first = root.name if root.is_file() else (session.files() or [None])[0]
     if first is None:
         raise SystemExit(f"No scans found in {root}")
+    session.default = first
     session.load(first)
 
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(session))
-    url = f"http://127.0.0.1:{args.port}/#{first}"
+    url = f"http://127.0.0.1:{args.port}/"  # no file name in the URL: spaces and # break it
     print(f"filmneg running at {url}  (Ctrl-C to stop)")
     if not args.no_browser:
         webbrowser.open(url)
