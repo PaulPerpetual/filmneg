@@ -94,3 +94,10 @@ button.icon { display: inline-flex; align-items: center; gap: 5px; }
 .eye .shut, .eye.off .open { display: none; }
 .eye.off .shut { display: inline; }
 .eye.off { color: #e9b030; }
+#flash { position: fixed; left: calc((100% - 400px) / 2); top: 46%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 10px;
+  background: rgba(20,20,20,.82); color: #eee; padding: 12px 18px; border-radius: 10px; font-size: 15px; pointer-events: none; opacity: 0; z-index: 30; }
+#flash.show { animation: flash 1.3s ease-out; }
+@keyframes flash { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.94); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 70% { opacity: 1; } 100% { opacity: 0; } }
+#colour-curve { margin-left: 6px !important; }
+#curve-tabs { flex-wrap: wrap; }
+#colour-curve[hidden] { display: none; }

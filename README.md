@@ -57,12 +57,12 @@ for Pixelmator.
 | P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. ⇧-click removes one, dragging moves it |
 | C | Shift colour: click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. The parts of the image it leaves alone are veiled while you drag |
 | L | Shift brightness: same, but drag up to brighten or down to darken that brightness |
-| [ / ] | Narrower / wider edits (also scroll while pushing, or the width slider) |
+| [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
 | N / W / K / S | Grey / white / black / skin sample: click for one point, click and drag for an area (dust specks inside are ignored). Drag a sample to move it, ⇧-click to remove it |
 | R | Crop |
 | \\ (hold) | Before: the scan as the scanner delivered it |
-| ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo |
+| ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo (a short note on the image says what was undone) |
 
 Click a panel's title to fold it away. The eye in the Samples and Measure
 panels hides those marks on the image. Samples are round with a numbered
@@ -86,7 +86,7 @@ clipped.
 ### Curves
 
 - **Colour** shows warmth (yellow/blue) and tint (magenta/green) as a function
-  of brightness. Grab either curve and drag it up or down. This is the panel
+  of brightness. Pick Yellow/Blue or Magenta/Green in the menu next to the tab, then drag up or down. This is the panel
   for "the shadows are too red".
 - The histogram of the current image sits behind the curves.
 - **Smooth** (under the curves) relaxes the shown curve(s), like Rhino's
@@ -94,8 +94,8 @@ clipped.
 - **Light, R, G, B** are classic curves, but drawn as the *change* from
   neutral, magnified (±5 to ±40 levels), so small moves are visible.
 - Dragging never places points: the change falls off smoothly around where you
-  grab. Grab right on a curve to use the width setting, further away from it
-  for a broader pull (scroll changes the width). The background shows which
+  grab. Press right on the curve for a narrow change, further away from it
+  for a broader one; the shaded bell shows what will move. The background shows which
   colour each direction moves the image towards, and while you drag in the
   Colour panel a swatch shows the exact colour of the push. Curves are B-splines whose control points sit
   off the curve, like NURBS in Rhino, so they can't kink. The faint hairlines
