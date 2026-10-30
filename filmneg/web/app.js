@@ -1029,15 +1029,76 @@ function dustAt(x, y) {
   return best && best.d;
 }
 
+// The list in review order: spots not yet decided (most likely dust first), then
+// the ones you repaired, then the ones you left alone.
+function dustOrder() {
+  const shown = dustShown().sort((a, b) => b.conf - a.conf);
+  return [shown.filter((d) => d.on == null), shown.filter((d) => d.on === true), shown.filter((d) => d.on === false)];
+}
+
+// A spot's outline: the edge pixels of its bitmap, cached per spot.
+function dustOutline(d) {
+  S.dustOutlines = S.dustOutlines || {};
+  const key = d.id + ":" + d.mask;
+  if (S.dustOutlines[key]) return S.dustOutlines[key];
+  let w = d.mw, h = d.mh, on;
+  if (d.mask) {
+    const bits = atob(d.mask);
+    on = (x, y) => x >= 0 && y >= 0 && x < w && y < h && (bits.charCodeAt((y * w + x) >> 3) >> (7 - ((y * w + x) & 7))) & 1;
+  } else {  // marked by hand: an ellipse
+    w = h = 24;
+    on = (x, y) => ((x + 0.5 - 12) / 12) ** 2 + ((y + 0.5 - 12) / 12) ** 2 <= 1;
+  }
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  const ctx = c.getContext("2d"), im = ctx.createImageData(w, h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4;
+    if (on(x, y)) {
+      const edge = !on(x - 1, y) || !on(x + 1, y) || !on(x, y - 1) || !on(x, y + 1);
+      if (edge) im.data.set([80, 220, 255, 255], i);
+    }
+  }
+  ctx.putImageData(im, 0, 0);
+  return (S.dustOutlines[key] = c);
+}
+
 function drawDust(ctx) {
+  const sel = S.dust && S.dust.spots.find((d) => d.id === S.dustSel);
   for (const d of dustShown()) {
-    const p = toScreen(d.x, d.y), rad = Math.max(5, radiusPx(d.r) + 3), sel = d.id === S.dustSel;
+    if (d === sel) continue;
+    const p = toScreen(d.x, d.y), rad = Math.max(5, radiusPx(d.r) + 3);
+    ctx.globalAlpha = sel ? 0.45 : 1;
     ctx.setLineDash(d.healed ? [] : [3, 3]);
-    for (const [c, w] of [["rgba(0,0,0,.6)", sel ? 4 : 3], [d.healed ? "#6c6" : "#e9b44c", sel ? 2.2 : 1.3]]) {
+    for (const [c, w] of [["rgba(0,0,0,.6)", 3], [d.healed ? "#6c6" : "#e9b44c", 1.3]]) {
       ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
     }
   }
-  ctx.setLineDash([]);
+  ctx.globalAlpha = 1; ctx.setLineDash([]);
+  if (sel) {
+    // the selected spot: everything else dims, its exact shape is outlined, brackets frame it
+    const p = toScreen(sel.x, sel.y), k = radiusPx(1) * 1;  // screen px per unit of view fraction
+    const bw = Math.max(sel.bw * k, 4), bh = Math.max(sel.bh * k, 4), R = Math.max(bw, bh) / 2 + 14;
+    ctx.fillStyle = "rgba(0,0,0,.28)";
+    ctx.beginPath(); ctx.rect(0, 0, overlay.clientWidth, overlay.clientHeight); ctx.arc(p.x, p.y, R + 50, 0, 7); ctx.fill("evenodd");
+    if (!sel.healed || S.comparing) {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-(S.params.angle || 0) * Math.PI / 180);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(dustOutline(sel), -bw / 2, -bh / 2, bw, bh); ctx.restore();
+    }
+    const L = Math.min(10, R * 0.5);
+    for (const [c, w] of [["rgba(0,0,0,.7)", 4], [sel.healed ? "#7d7" : "#fff", 2]]) {
+      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
+      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const x = p.x + sx * R, y = p.y + sy * R;
+        ctx.moveTo(x - sx * L, y); ctx.lineTo(x, y); ctx.lineTo(x, y - sy * L);
+      }
+      ctx.stroke();
+    }
+    ctx.font = "12px sans-serif"; ctx.textAlign = "left"; ctx.fillStyle = "#fff";
+    ctx.shadowColor = "#000"; ctx.shadowBlur = 3;
+    ctx.fillText(`${Math.round(sel.conf * 100)}% · ${sel.healed ? "repaired" : "not repaired"} · Enter repair, ⌫ leave`, p.x + R + 10, p.y - R - 4);
+    ctx.shadowBlur = 0;
+  }
   if (S.dustMark) {
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.arc(S.dustMark.sx, S.dustMark.sy, Math.max(5, S.dustMark.r), 0, 7); ctx.stroke();
@@ -1050,17 +1111,16 @@ function renderDust() {
   $("#dust-threshold").value = D.threshold;
   $("#dust-threshold-num").textContent = Math.round(D.threshold * 100) + "%";
   $("#dust-repair").checked = D.repair;
-  const shown = dustShown().sort((a, b) => b.conf - a.conf);
-  const on = shown.filter((d) => d.healed), off = shown.filter((d) => !d.healed);
-  $("#dust-count").textContent = D.spots.length ? `${on.length} repaired · ${off.length} left alone` : "nothing searched yet";
-  const row = (d) => `<div class="row-d${d.id === S.dustSel ? " sel" : ""}" data-id="${d.id}">
+  const [todo, fixed, left] = dustOrder();
+  const healed = dustShown().filter((d) => d.healed).length;
+  $("#dust-count").textContent = D.spots.length ? `${healed} repaired · ${todo.length} to review` : "nothing searched yet";
+  const row = (d) => `<div class="row-d${d.id === S.dustSel ? " sel" : ""}${d.on != null ? " done" : ""}" data-id="${d.id}">
     <input type="checkbox"${d.healed ? " checked" : ""} title="Repair this spot">
     <span class="what">${d.kind === "manual" ? "by hand" : d.kind}</span><span class="px">${d.px} px</span>
     <span class="bar"><i style="width:${Math.round(d.conf * 100)}%"></i></span>
-    <span class="pct">${Math.round(d.conf * 100)}%</span>
-    <span class="hand" title="${d.on != null ? "decided by hand" : ""}">${d.on != null && d.kind !== "manual" ? "•" : ""}</span></div>`;
-  list.innerHTML = (on.length ? `<div class="sec">Repaired (${on.length})</div>` + on.map(row).join("") : "")
-    + (off.length ? `<div class="sec">Left alone (${off.length})</div>` + off.map(row).join("") : "");
+    <span class="pct">${Math.round(d.conf * 100)}%</span></div>`;
+  const sec = (title, ds) => (ds.length ? `<div class="sec">${title} (${ds.length})</div>` + ds.map(row).join("") : "");
+  list.innerHTML = sec("To review", todo) + sec("Repaired by you", fixed) + sec("Left alone by you", left);
   const sel = list.querySelector(".sel");
   if (sel) sel.scrollIntoView({ block: "nearest" });
 }
@@ -1068,25 +1128,41 @@ function renderDust() {
 function zoomToDust(d) {
   S.dustSel = d.id;
   const c = shownBox();
-  S.view.scale = Math.max(S.view.scale, 6);
+  // zoom so the spot shows at about 60 px, whatever its size
+  const now = radiusPx(Math.max(d.bw || 0, d.bh || 0, 1e-4));
+  S.view.scale = clamp(S.view.scale * 60 / now, 3, 16);
   S.view.cx = (d.x - c[0]) / (c[2] - c[0]); S.view.cy = (d.y - c[1]) / (c[3] - c[1]);
   clampView(); detail = null; drawImage(); scheduleDetail(); renderDust();
 }
 
-// ↑/↓ walk the list, Space switches the selected spot, Delete removes a hand-marked one.
+// Decide a spot and move on to the next one still to review.
+async function decideDust(d, on) {
+  const todo = dustOrder()[0], i = todo.findIndex((x) => x.id === d.id);
+  const next = todo[i + 1] || todo[i - 1];
+  await dustCall("dust", { id: d.id, on });
+  const fresh = next && S.dust.spots.find((x) => x.id === next.id);
+  if (fresh && fresh.on == null) zoomToDust(fresh);
+}
+
+// ↑/↓ walk the list; Enter repairs the selected spot and moves on, Backspace leaves
+// it alone and moves on (or removes a spot you marked), Space just switches it.
 function dustKey(ev) {
-  const shown = dustShown().sort((a, b) => (b.healed - a.healed) || (b.conf - a.conf));
-  const i = shown.findIndex((d) => d.id === S.dustSel);
+  const all = dustOrder().flat();
+  const i = all.findIndex((d) => d.id === S.dustSel), d = all[i];
   if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
     ev.preventDefault();
-    const n = shown[clamp(i + (ev.key === "ArrowDown" ? 1 : -1), 0, shown.length - 1)];
+    const n = all[i < 0 ? 0 : clamp(i + (ev.key === "ArrowDown" ? 1 : -1), 0, all.length - 1)];
     if (n) zoomToDust(n);
     return true;
   }
-  if (ev.key === " " && i >= 0) { ev.preventDefault(); switchDust(shown[i]); return true; }
-  if ((ev.key === "Backspace" || ev.key === "Delete") && i >= 0 && shown[i].kind === "manual") {
-    ev.preventDefault(); dustCall("dust", { remove: shown[i].id }); return true;
+  if (!d) return false;
+  if (ev.key === "Enter") { ev.preventDefault(); decideDust(d, true); return true; }
+  if (ev.key === "Backspace" || ev.key === "Delete") {
+    ev.preventDefault();
+    if (d.kind === "manual") dustCall("dust", { remove: d.id }); else decideDust(d, false);
+    return true;
   }
+  if (ev.key === " ") { ev.preventDefault(); switchDust(d); return true; }
   return false;
 }
 

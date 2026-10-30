@@ -137,6 +137,9 @@ class Session:
             r = max((x1 - x0) * W, (y1 - y0) * H) / 2 / max(W, H)
             out.append({"id": s["id"], "x": u, "y": v, "r": r, "conf": s["conf"], "kind": s.get("kind", "speck"),
                         "px": round(max((x1 - x0) * W, (y1 - y0) * H)),
+                        # its exact shape: a bitmap stretched over the box (box size in view fractions)
+                        "mask": s.get("mask"), "mw": s.get("mw"), "mh": s.get("mh"),
+                        "bw": (x1 - x0) * W / max(W, H), "bh": (y1 - y0) * H / max(W, H),
                         "on": s.get("on"), "healed": s["id"] in on})
         return {"spots": out, "threshold": self.dust["threshold"], "repair": self.dust["repair"]}
 

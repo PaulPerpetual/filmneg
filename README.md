@@ -128,8 +128,11 @@ smooth ground (sky, walls, skin) score high; bright details in busy texture
 
 - Spots from **Repair from** (60% by default) upwards are repaired; tick or
   untick any spot to decide yourself (a dot marks your choices).
-- Click a row, or walk the list with ↑/↓, to zoom to the spot; Space switches
-  it. On the image, solid green circles are repaired, dashed amber ones are
+- Click a row, or walk the list with ↑/↓, to zoom to the spot: the rest of
+  the picture dims and the spot's exact outline (what gets repaired) is
+  drawn. **Enter** repairs it and jumps to the next spot to review,
+  **Backspace** leaves it alone and jumps on; decided spots move down the
+  list, greyed. Space just switches a spot. On the image, solid green circles are repaired, dashed amber ones are
   left alone; click a circle to switch it, click anywhere else to mark a spot
   by hand (drag for a bigger one; Delete removes a hand-marked spot).
 - Hold `\` to compare with the unrepaired scan.

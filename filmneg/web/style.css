@@ -148,7 +148,8 @@ button:disabled { opacity: .45; cursor: default; }
 #dust-list .sec { padding: 6px 8px 3px; font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .04em; }
 #dust-list .row-d { display: flex; align-items: center; gap: 8px; padding: 3px 8px; font-size: 12px; cursor: pointer; }
 #dust-list .row-d:hover { background: #2c2c2c; }
-#dust-list .row-d.sel { background: #3a4a5e; }
+#dust-list .row-d.sel { background: #3a4a5e; box-shadow: inset 3px 0 0 #8cf; }
+#dust-list .row-d.done:not(.sel) { opacity: .5; }
 #dust-list .row-d .bar { flex: 1; height: 4px; background: #333; border-radius: 2px; overflow: hidden; }
 #dust-list .row-d .bar i { display: block; height: 100%; background: #8a8a8a; }
 #dust-list .row-d .pct { width: 34px; text-align: right; color: #aaa; font-variant-numeric: tabular-nums; }
