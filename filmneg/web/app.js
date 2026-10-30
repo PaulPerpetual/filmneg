@@ -1180,10 +1180,10 @@ function setLevelView(v0, v1) {
   v0 = clamp(v0, 0, 1 - w);
   S.levelView = [v0, v0 + w];
   const sel = $("#level-zoom"), key = S.levelView.map((v) => +v.toFixed(4)).join(",");
-  sel.value = [...sel.options].some((o) => o.value === key) ? key : "0,1";
+  sel.value = [...sel.options].some((o) => o.value === key) ? key : "custom";
   drawLevels();
 }
-$("#level-zoom").onchange = (e) => { const [a, b] = e.target.value.split(",").map(Number); setLevelView(a, b); };
+$("#level-zoom").onchange = (e) => { if (e.target.value === "custom") return; const [a, b] = e.target.value.split(",").map(Number); setLevelView(a, b); };
 
 const levelPoint = (ev) => {
   const b = levelsCanvas.getBoundingClientRect(), sc = levelsCanvas.width / b.width;
@@ -1220,6 +1220,11 @@ const levelValue = (which, L) => (which === "mid" ? midPos(L) : L[which]);
 // outside the zoomed view), and the output bar likewise for the output handles.
 levelsCanvas.addEventListener("mousedown", (ev) => {
   const p = levelPoint(ev), g = levelGeom(), L = curLevel();
+  if (S.levelMagnify && p.y < g.outY - 4) {  // magnifier: click zooms in there, ⌥-click zooms out
+    const at = clamp(g.v(p.x), 0, 1), f = ev.altKey ? 2 : 0.5, [v0, v1] = S.levelView;
+    setLevelView(at - (at - v0) * f, at + (v1 - at) * f);
+    return;
+  }
   let which = levelHandleAt(p);
   if (!which) {
     const out = p.y >= g.outY - 4, v = out ? clamp((p.x - g.pad) / g.span, 0, 1) : clamp(g.v(p.x), 0, 1);
@@ -1235,7 +1240,7 @@ levelsCanvas.addEventListener("mousedown", (ev) => {
 
 window.addEventListener("mousemove", (ev) => {
   if (!S.levelDrag) {
-    if (ev.target === levelsCanvas) levelsCanvas.style.cursor = levelHandleAt(levelPoint(ev)) ? "ew-resize" : "pointer";
+    if (ev.target === levelsCanvas) levelsCanvas.style.cursor = S.levelMagnify ? (ev.altKey ? "zoom-out" : "zoom-in") : levelHandleAt(levelPoint(ev)) ? "ew-resize" : "pointer";
     return;
   }
   const D = S.levelDrag, p = levelPoint(ev), g = levelGeom();
@@ -1249,7 +1254,42 @@ window.addEventListener("mouseup", () => {
   if (S.levelDrag) { S.levelDrag = null; if (S.mask && S.mask.kind === "clip") { S.mask = null; drawOverlay(); } commit(); endDrag(); }
 });
 
+// Trackpad: pinch zooms around the pointer (browsers report it as ctrl+wheel,
+// Safari as gesture events); sideways two-finger scroll moves along. Plain
+// vertical scrolling is left alone so the sidebar still scrolls.
+levelsCanvas.addEventListener("wheel", (ev) => {
+  const p = levelPoint(ev), g = levelGeom(), [v0, v1] = S.levelView;
+  if (ev.ctrlKey) {
+    ev.preventDefault();
+    const at = clamp(g.v(p.x), 0, 1), f = Math.exp(clamp(ev.deltaY, -30, 30) * 0.012);
+    setLevelView(at - (at - v0) * f, at + (v1 - at) * f);
+  } else if (Math.abs(ev.deltaX) > Math.abs(ev.deltaY)) {
+    ev.preventDefault();
+    const d = ev.deltaX * p.sc / g.span * (v1 - v0);
+    setLevelView(v0 + d, v1 + d);
+  }
+}, { passive: false });
+let levelGesture = null;
+levelsCanvas.addEventListener("gesturestart", (ev) => {
+  ev.preventDefault();
+  const g = levelGeom(), at = clamp(g.v(levelPoint(ev).x), 0, 1);
+  levelGesture = { at, view: [...S.levelView] };
+});
+levelsCanvas.addEventListener("gesturechange", (ev) => {
+  ev.preventDefault();
+  if (!levelGesture) return;
+  const { at, view: [v0, v1] } = levelGesture, f = 1 / ev.scale;
+  setLevelView(at - (at - v0) * f, at + (v1 - at) * f);
+});
+levelsCanvas.addEventListener("gestureend", () => (levelGesture = null));
+
+$("#level-magnify").onclick = () => {
+  S.levelMagnify = !S.levelMagnify;
+  $("#level-magnify").classList.toggle("active", S.levelMagnify);
+};
+
 levelsCanvas.addEventListener("dblclick", (ev) => {
+  if (S.levelMagnify) { setLevelView(0, 1); return; }
   const p = levelPoint(ev), which = levelHandleAt(p);
   if (!which) return;
   const L = curLevel();

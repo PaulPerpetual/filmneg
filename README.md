@@ -86,9 +86,11 @@ and curves, black / grey / white input triangles under it, and output black and
 white on the bar below. **RGB** moves all three channels, **R**, **G**, **B**
 one each (a channel's levels apply first, then RGB). The number fields take
 exact values. Clicking anywhere in the histogram moves the nearest triangle
-there. To fine-tune clipping, zoom into the shadows or highlights (4× or 16×)
-with the menu; a drag then moves the triangles in finer steps, and a click
-still places a triangle that is out of view.
+there. To fine-tune clipping, zoom in: pinch over the histogram, use the
+magnifier (click to zoom in, ⌥-click out, double-click for everything) or
+pick Shadows / Highlights in the menu. Scroll sideways to move along. A drag
+then moves the triangles in finer steps, and a click still places a triangle
+that is out of view.
 While you drag the black or white point, the image shows what gets clipped
 (red = white, blue = black), fading in a little before it clips so you can
 see where the brightest and darkest parts are. The panel also says how much is

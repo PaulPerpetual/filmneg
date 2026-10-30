@@ -112,3 +112,5 @@ button.icon { display: inline-flex; align-items: center; gap: 5px; }
   color: var(--muted); font-variant-numeric: tabular-nums; }
 .slider .num:hover { border-color: var(--line); }
 .slider .num:focus { outline: none; border-color: #888; color: var(--text); background: #262626; }
+#level-magnify { margin-left: auto; padding: 4px 7px; }
+#level-zoom { margin-left: 4px !important; }

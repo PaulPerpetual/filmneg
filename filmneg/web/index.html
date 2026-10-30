@@ -90,12 +90,13 @@
         <button data-level="r">R</button>
         <button data-level="g">G</button>
         <button data-level="b">B</button>
-        <select id="level-zoom" title="Zoom into one end of the histogram to set black or white precisely">
+        <button id="level-magnify" class="icon" title="Magnifier: click the histogram to zoom in there, ⌥-click to zoom out, double-click for the whole range. You can also pinch, and scroll sideways to move along">
+          <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m12.7 12.7 4.8 4.8"/></svg></button>
+        <select id="level-zoom" title="Jump to a part of the histogram">
           <option value="0,1">Whole range</option>
-          <option value="0,0.25">Shadows 4×</option>
-          <option value="0,0.0625">Deepest shadows 16×</option>
-          <option value="0.75,1">Highlights 4×</option>
-          <option value="0.9375,1">Brightest highlights 16×</option>
+          <option value="0,0.25">Shadows</option>
+          <option value="0.75,1">Highlights</option>
+          <option value="custom" hidden>Zoomed in</option>
         </select>
       </div>
       <canvas id="levels" width="560" height="214"></canvas>
@@ -109,7 +110,7 @@
         <input id="lv-out-hi" type="number" min="1" max="255" step="1" title="Output white">
       </div>
       <div class="muted small" id="lv-clip"></div>
-      <div class="muted small">Drag the black, grey and white triangles, or click anywhere in the histogram to move the nearest one there (also when zoomed in and it is out of view). The lower bar sets the output. The menu zooms into the shadows or highlights. While you drag the black or white point, the image shows what gets clipped: red for white, blue for black, fading in just before it clips. Double-click the triangles to reset.</div>
+      <div class="muted small">Drag a triangle, or click where it should go. Pinch, scroll sideways or use the magnifier to look closer. While dragging black or white, red/blue on the image shows what clips. Double-click a triangle to reset.</div>
     </div>
 
     <div class="panel">
