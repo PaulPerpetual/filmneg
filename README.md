@@ -11,7 +11,7 @@ colour pushes straight on the image, and curves that show the change magnified.
 
 ## Setup
 
-Python 3.10 or newer.
+Python 3.9 or newer (the one that comes with macOS works).
 
 ```sh
 git clone https://github.com/PaulPerpetual/filmneg.git

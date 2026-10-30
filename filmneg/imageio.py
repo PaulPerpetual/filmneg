@@ -1,4 +1,6 @@
 """Reading scans and writing 16-bit TIFFs with their colour profile."""
+from __future__ import annotations
+
 import io
 from dataclasses import dataclass
 from pathlib import Path
