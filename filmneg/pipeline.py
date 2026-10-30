@@ -170,12 +170,14 @@ def render_pixels(enc, params, space: RGBSpace):
         out = channel_stages(enc, params, space)
 
     c = params["curves"]
-    t = np.clip(luma(out), 0.0, 1.0).astype(np.float32)
+    y0 = luma(out)
+    t = np.clip(y0, 0.0, 1.0).astype(np.float32)
     w = curves.apply(c["warmth"], t)   # + yellow / - blue
     m = curves.apply(c["tint"], t)     # + magenta / - green
     out[..., 0] += w / 2 + m / 3
     out[..., 1] += -2 * m / 3
     out[..., 2] += -w / 2 + m / 3
+    out += (y0 - luma(out))[..., None]  # colour only: brightness stays where it was
 
     if params["saturation"] != 1.0:
         lab = space.lin_to_oklab(space.decode(np.clip(out, 0, 1)))

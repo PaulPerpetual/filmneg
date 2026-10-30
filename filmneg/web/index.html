@@ -117,7 +117,7 @@
     </div>
 
     <div class="panel">
-      <h3>Base <button class="power" data-power="base" title="Switch this panel's adjustments off for a moment (not saved)"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 2.5v7"/><path d="M5.6 5.2a6.2 6.2 0 1 0 8.8 0"/></svg></button></h3>
+      <h3>Base <button class="switch" data-power="base" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
       <div class="slider"><label>Exposure</label><input id="exposure" type="range" min="-2" max="2" step="0.01"><input class="num" data-for="exposure" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
       <div class="slider"><label>Contrast</label><input id="contrast" type="range" min="0.6" max="1.6" step="0.01"><input class="num" data-for="contrast" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
       <div class="slider"><label title="How early and gently the brightest parts roll off into white">Highlights</label><input id="shoulder" type="range" min="0" max="1" step="0.01"><input class="num" data-for="shoulder" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
@@ -127,7 +127,7 @@
     </div>
 
     <div class="panel" id="levels-panel">
-      <h3>Levels <button class="power" data-power="levels" title="Switch this panel's adjustments off for a moment (not saved)"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 2.5v7"/><path d="M5.6 5.2a6.2 6.2 0 1 0 8.8 0"/></svg></button></h3>
+      <h3>Levels <button class="switch" data-power="levels" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
       <div class="tabs" id="level-tabs">
         <button data-level="rgb">RGB</button>
         <button data-level="r">R</button>
@@ -157,7 +157,7 @@
     </div>
 
     <div class="panel">
-      <h3>Curves <button class="power" data-power="curves" title="Switch this panel's adjustments off for a moment (not saved)"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 2.5v7"/><path d="M5.6 5.2a6.2 6.2 0 1 0 8.8 0"/></svg></button></h3>
+      <h3>Curves <button class="switch" data-power="curves" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
       <div class="tabs" id="curve-tabs">
         <button data-curve="lightness">Light</button>
         <button data-curve="r">R</button>
@@ -180,7 +180,7 @@
     </div>
 
     <div class="panel">
-      <h3>Colour by tone <button class="power" data-power="colour" title="Switch this panel's adjustments off for a moment (not saved)"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 2.5v7"/><path d="M5.6 5.2a6.2 6.2 0 1 0 8.8 0"/></svg></button></h3>
+      <h3>Colour by tone <button class="switch" data-power="colour" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
       <div class="tabs" id="colour-tabs">
         <button data-curve="warmth" title="Yellow up, blue down">Yellow/Blue</button>
         <button data-curve="tint" title="Magenta up, green down">Magenta/Green</button>
@@ -200,8 +200,15 @@
     </div>
 
     <div class="panel">
-      <h3>Samples <button class="power" data-power="samples" title="Switch this panel's adjustments off for a moment (not saved)"><svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 2.5v7"/><path d="M5.6 5.2a6.2 6.2 0 1 0 8.8 0"/></svg></button><button class="eye" data-eye="samples" title="Hide samples on the image"><svg class="open" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/></svg><svg class="shut" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/><path d="M3 17 17 3"/></svg></button></h3>
-      <h4 class="sub" title="Solve samples makes your greys land on this colour instead of pure grey, so the mood of the light survives">Light the greys should keep</h4>
+      <h3>Samples <button class="switch" data-power="samples" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button><button class="eye" data-eye="samples" title="Hide samples on the image"><svg class="open" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/></svg><svg class="shut" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/><path d="M3 17 17 3"/></svg></button></h3>
+      <ul id="samples"></ul>
+      <div class="muted small" id="samples-empty" title="Drag a sample to move it. Hover one to highlight it; its red × or Delete removes it.">Pick Grey, White, Black or Skin and click (or drag over an area). Greys at several brightnesses let Solve samples fix casts that change from shadows to highlights.</div>
+      <h4 class="sub" title="From your grey samples where there are some, otherwise from grey-ish areas of the picture">Casts left</h4>
+      <div id="casts" class="small"></div>
+    </div>
+
+    <div class="panel" id="light-panel">
+      <h3 title="What your grey samples should look like after Solve samples: pure grey, or keeping the mood of the light">Light</h3>
       <div class="slider"><label>Warmth</label><input id="light-warmth" class="track-warm" type="range" min="-0.6" max="1.6" step="0.01" title="Double-click for neutral"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
       <div class="presets" id="light-presets"></div>
       <div class="slider"><label>Tint</label><input id="light-tint" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Green ← → magenta. Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
@@ -212,10 +219,6 @@
         <div class="range-row"><label>Shadows</label><input data-range="shadows" data-i="0" class="track-warm" type="range" min="-1" max="1" step="0.01"><input data-range="shadows" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01"></div>
         <div class="muted small">Leans each range on top of the overall light, e.g. warm highlights with neutral shadows. Double-click a slider for 0.</div>
       </details>
-      <ul id="samples"></ul>
-      <div class="muted small" id="samples-empty">Pick Grey, White, Black or Skin, then click a point or click and drag to sample an area. Drag a sample to move it. Several greys at different brightness let “Solve samples” fix casts that shift between shadows and highlights. Hover a sample to highlight it; click its red × (or press Delete) to remove it.</div>
-      <h4 class="sub">Colour casts left</h4>
-      <div id="casts" class="small"></div>
     </div>
 
     <div class="panel" id="versions-panel">

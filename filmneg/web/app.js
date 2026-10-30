@@ -232,7 +232,8 @@ $$("[data-power]").forEach((b) => b.addEventListener("click", (ev) => {
   const k = b.dataset.power, off = !OFF.has(k);
   off ? OFF.add(k) : OFF.delete(k);
   b.closest(".panel").classList.toggle("off", off);
-  b.title = off ? "Switch this panel's adjustments back on" : "Switch this panel's adjustments off for a moment (not saved)";
+  b.setAttribute("aria-checked", String(!off));
+  b.title = off ? "Turn this panel back on" : "Turn this panel off for a moment to compare (not saved)";
   render();
 }));
 
@@ -327,8 +328,10 @@ function paintLive(lut) {
   const q = (v) => (v <= 0 ? 0 : v >= 1 ? N1 : (v * N1 + 0.5) | 0);
   for (let p = 0, j = 0; p < data.length; p += 3, j += 4) {
     let r = T[(data[p] >> 4) * 3], g = T[(data[p + 1] >> 4) * 3 + 1], b = T[(data[p + 2] >> 4) * 3 + 2];
-    const t = q(0.2126 * r + 0.7152 * g + 0.0722 * b), wm = Sh[t * 2], m = Sh[t * 2 + 1];
+    const y0 = 0.2126 * r + 0.7152 * g + 0.0722 * b, t = q(y0), wm = Sh[t * 2], m = Sh[t * 2 + 1];
     r += wm / 2 + m / 3; g -= 2 * m / 3; b += -wm / 2 + m / 3;
+    const dy = y0 - (0.2126 * r + 0.7152 * g + 0.0722 * b);  // colour only: keep brightness
+    r += dy; g += dy; b += dy;
     r = dec[q(r)]; g = dec[q(g)]; b = dec[q(b)];
     if (sat !== 1) {  // Oklab chroma scale, then back to the scan's encoding and linear again
       let l = Math.cbrt(A[0] * r + A[1] * g + A[2] * b), mm = Math.cbrt(A[3] * r + A[4] * g + A[5] * b), s_ = Math.cbrt(A[6] * r + A[7] * g + A[8] * b);
@@ -1006,13 +1009,10 @@ function showProbeDetail(p, name) {
 function renderCasts() {
   const C = S.casts, box = $("#casts");
   if (!C) { box.innerHTML = ""; return; }
-  box.innerHTML = `<div class="cast-summary">${C.summary}</div>` + C.lines.map((l, i) =>
-    `<div class="cast-line${l.cast ? " has-cast" : ""}"><b>${l.band}</b> ${l.text}${l.src ? ` <span class="muted">(${l.src})</span>` : ""}`
-    + (l.cast && i < 3 ? ` <button class="fix" data-band="${i}" title="Bend the Colour by tone curves at this brightness until it is neutral (or matches the light above)">Fix</button>` : "") + `</div>`).join("");
-  box.querySelectorAll("button.fix").forEach((b) => (b.onclick = () => guard("Fix", async () => {
-    const r = await api("fix_cast", { params: S.params, samples: S.samples, band: +b.dataset.band });
-    S.params = r.params; S.report = r.report; S.casts = r.casts; render(); drawCurve(); renderSamples(); commit();
-  })));
+  // one short line per band; where the judgement comes from is in the tooltip
+  box.innerHTML = C.lines.map((l) =>
+    `<div class="cast-line${l.cast ? " has-cast" : ""}" title="${l.src || ""}"><b>${l.band}</b> ${l.text}</div>`).join("")
+    + `<div class="cast-summary muted small">${C.summary}</div>`;
 }
 
 function renderSamples() {

@@ -185,19 +185,6 @@ def test_geometry_point_round_trip():
     assert np.allclose(pipeline.geometry_point(u, v, 400, 300, 7, 3, inverse=True), (0.7, 0.2))
 
 
-def test_fix_band_removes_a_highlight_cast():
-    v = np.linspace(0.05, 0.95, 400, dtype=np.float32)
-    img = np.repeat(np.stack([v, v, v], axis=1)[None], 60, axis=0)
-    img[..., 2] -= 0.04 * (v > 0.7)  # yellowish highlights
-    p = pipeline.default_params()
-
-    def casts(q):
-        return analysis.band_casts(pipeline.render_pixels(img, q, ADOBE_RGB), [], [], q, ADOBE_RGB)
-    before = np.hypot(*casts(p)[2][0])
-    after = np.hypot(*casts(analysis.fix_band(casts, 2, p))[2][0])
-    assert before > 8 and after < before / 3
-
-
 def test_dust_learning_moves_similar_spots():
     from filmneg import dust
     a = {"id": 1, "base": 1.0, "f": [1.0, 0, 0, 0, 0, 0, 0.5], "conf": 0.73}
@@ -217,3 +204,15 @@ def test_clone_stroke_copies_from_source():
     s["id"] = 1
     out = dust.heal(img, [s])
     assert out[100, 50].mean() > 0.95 and out[20, 50].mean() == 0
+
+
+def test_colour_by_tone_keeps_brightness():
+    from filmneg.color import luma
+    rgb = grey_ramp() * 0.8
+    p = pipeline.default_params()
+    p["curves"]["tint"] = list(curves.bump(0.5, 0.05, 0.3))
+    p["curves"]["warmth"] = list(curves.bump(0.5, 0.05, 0.3))
+    out = pipeline.render_pixels(rgb, p, ADOBE_RGB)
+    base = pipeline.render_pixels(rgb, pipeline.default_params(), ADOBE_RGB)
+    assert np.allclose(luma(out), luma(base), atol=2e-3)
+    assert np.abs(out - base).max() > 0.01

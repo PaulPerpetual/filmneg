@@ -41,7 +41,7 @@ for Pixelmator.
    any, and **Skin** if there are people. Then **Solve samples**. Each sample
    shows how far it still is from neutral, so you can remove one that wasn't
    really grey.
-3. Set **Light the greys should keep** (in Samples) if the picture should keep
+3. Set **Light** (the panel under Samples) if the picture should keep
    its light: Warmth runs from shade through daylight and golden hour to
    tungsten (the chips jump to those, anything in between works), Tint leans
    green or magenta. **By brightness** leans highlights, midtones and shadows
@@ -71,12 +71,9 @@ it; its red × or the Delete key removes it, dragging moves it. Under the
 samples, **Colour casts left** says in words what cast remains in the
 shadows, midtones and highlights (from your grey samples where there are
 some, otherwise from grey-ish areas of the picture) and what would fix it.
-**Fix** next to a band bends the Colour by tone curves at that brightness
-until it is neutral (or matches the light you set), keeping the other bands
-as they are.
 
-The power button in the title of Base, Levels, Curves, Colour by tone and
-Samples switches that panel's adjustments off for a moment (Samples: the
+The switch in the title of Base, Levels, Curves, Colour by tone and
+Samples turns that panel's adjustments off for a moment (Samples: the
 solved colour), to see what it does. It isn't saved and doesn't touch the
 settings. Dust has its own *Repair here* switch.
 
@@ -164,6 +161,9 @@ smooth ground (sky, walls, skin) score high; bright details in busy texture
   menu to see only the *change*, magnified, when you need to judge small moves.
 - **Colour by tone** is its own panel: warmth (Yellow/Blue) and tint
   (Magenta/Green) as a function of brightness, always shown as the change.
+  It changes colour only: brightness stays exactly where it was (so does
+  Shift colour, which edits these curves). R/G/B curves are classic and do
+  change brightness.
   This is the panel for "the shadows are too red". Shift colour on the image
   edits these curves too.
 - The histogram of the current image sits behind the curves.

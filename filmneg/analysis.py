@@ -216,45 +216,6 @@ def band_casts(rendered, kinds, report, params, space: RGBSpace):
     return out
 
 
-BAND_TONE = (0.17, 0.5, 0.83)  # where Fix bends the Colour by tone curves, per band
-
-
-def fix_band(render, band, params):
-    """Bend the Colour by tone curves around one band until its cast is gone.
-
-    render(params) -> band_casts(...) for those params. Two Gauss-Newton steps
-    on the warmth and tint amount of a soft bump centred on the band, while
-    asking the other bands to stay as they were (the bump reaches them a bit).
-    """
-    first = render(params)
-    if first[band] is None:
-        return params
-    keep = {i: np.array(c[0]) for i, c in enumerate(first) if c is not None and i != band}
-
-    def resid(p):
-        cs = render(p)
-        r = [np.array(cs[band][0]) if cs[band] else np.zeros(2)]
-        r += [0.7 * (np.array(cs[i][0]) - v) if cs[i] else np.zeros(2) for i, v in keep.items()]
-        return np.concatenate(r)
-
-    def with_bump(p, w, t):
-        q = dict(p, curves=dict(p["curves"]))
-        q["curves"]["warmth"] = list(np.add(p["curves"]["warmth"], curves.bump(BAND_TONE[band], w, 0.13)))
-        q["curves"]["tint"] = list(np.add(p["curves"]["tint"], curves.bump(BAND_TONE[band], t, 0.13)))
-        return q
-
-    p = params
-    for _ in range(2):
-        r0 = resid(p)
-        if np.hypot(*r0[:2]) < 1.5:
-            break
-        h = 0.01
-        J = np.stack([(resid(with_bump(p, h, 0)) - r0) / h, (resid(with_bump(p, 0, h)) - r0) / h], axis=1)
-        step = np.linalg.lstsq(J, -r0, rcond=None)[0]
-        p = with_bump(p, *np.clip(step, -0.15, 0.15))
-    return p
-
-
 def cast_report(rendered, colors, kinds, report, params, space: RGBSpace):
     """Plain-language summary of the casts left in the image, by brightness band."""
     lines, casts = [], []

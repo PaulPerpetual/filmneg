@@ -299,19 +299,6 @@ def make_handler(session: Session):
                 p = analysis.solve(colors, kinds, p, s.scan.space)
             report = analysis.sample_report(colors, kinds, p, s.scan.space) if samples else []
             return {"params": p, "report": report, "casts": s.casts(colors, kinds, report, p)}
-        if route == "fix_cast":
-            # one click in the casts report: bend Colour by tone until that band is neutral
-            samples = body.get("samples", [])
-            colors = s.sample_colors(samples, p)
-            kinds = [x["kind"] for x in samples]
-            src = pipeline.crop(s.source("thumb", p), p["crop"])
-
-            def casts_for(q):
-                rep = analysis.sample_report(colors, kinds, q, s.scan.space) if samples else []
-                return analysis.band_casts(pipeline.render_pixels(src, q, s.scan.space), kinds, rep, q, s.scan.space)
-            p = analysis.fix_band(casts_for, int(body["band"]), p)
-            report = analysis.sample_report(colors, kinds, p, s.scan.space) if samples else []
-            return {"params": p, "report": report, "casts": s.casts(colors, kinds, report, p)}
         if route == "report":
             samples = body.get("samples", [])
             colors = s.sample_colors(samples, p)

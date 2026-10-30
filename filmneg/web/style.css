@@ -87,7 +87,7 @@ button.icon { display: inline-flex; align-items: center; gap: 5px; }
 #probe-list .res { flex: 1; color: var(--muted); }
 #probe-list button, #probe-clear { padding: 0 6px; }
 #probe-clear { margin-top: 6px; }
-.panel h3 .eye, .panel h3 .power { float: right; background: none; border: none; padding: 0 2px; color: var(--muted); line-height: 0; }
+.panel h3 .eye { float: right; background: none; border: none; padding: 0 2px; color: var(--muted); line-height: 0; }
 .panel h3 .eye:hover { color: var(--text); }
 .eye .shut, .eye.off .open { display: none; }
 .eye.off .shut { display: inline; }
@@ -181,8 +181,11 @@ input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060,
 .range-row, .range-head { display: grid; grid-template-columns: 90px 1fr 1fr; gap: 10px; align-items: center; margin: 2px 0; }
 .range-row label { color: var(--muted); }
 .range-head span { font-size: 11px; color: #888; text-align: center; }
-.cast-line button.fix { font-size: 11px; padding: 0 7px; margin-left: 4px; border-radius: 9px; }
-.panel h3 .power { background: none; border: none; padding: 0 2px; margin-left: 6px; color: var(--muted); line-height: 0; }
-.panel h3 .power:hover { color: var(--text); }
-.panel.off h3 .power { color: #e9b030; }
+/* panel on/off: a small macOS-style switch */
+.panel h3 .switch { float: right; width: 26px; height: 15px; padding: 0; margin: 0 0 0 8px; border: none; border-radius: 8px;
+  background: #0a84ff; position: relative; cursor: pointer; transition: background .15s; }
+.panel h3 .switch i { position: absolute; top: 2px; left: 13px; width: 11px; height: 11px; border-radius: 50%; background: #fff;
+  box-shadow: 0 1px 2px rgba(0,0,0,.4); transition: left .15s; }
+.panel.off h3 .switch { background: #4a4a4a; }
+.panel.off h3 .switch i { left: 2px; }
 .panel.off > :not(h3) { opacity: .4; }
