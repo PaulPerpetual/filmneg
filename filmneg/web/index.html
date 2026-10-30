@@ -119,7 +119,6 @@
       <div class="slider"><label title="How softly the darkest parts ease into black">Shadows</label><input id="toe" type="range" min="0" max="1" step="0.01"><input class="num" data-for="toe" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
       <div class="slider"><label>Saturation</label><input id="saturation" type="range" min="0" max="1.8" step="0.01"><input class="num" data-for="saturation" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
       <div class="slider"><label>Colour noise</label><input id="nr" type="range" min="0" max="1" step="0.05"><input class="num" data-for="nr" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-      <div class="slider"><label>Light</label><select id="lighting"></select></div>
     </div>
 
     <div class="panel" id="levels-panel">
@@ -197,6 +196,17 @@
 
     <div class="panel">
       <h3>Samples <button class="eye" data-eye="samples" title="Hide samples on the image"><svg class="open" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/></svg><svg class="shut" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/><path d="M3 17 17 3"/></svg></button></h3>
+      <h4 class="sub" title="Solve samples makes your greys land on this colour instead of pure grey, so the mood of the light survives">Light the greys should keep</h4>
+      <div class="slider"><label>Warmth</label><input id="light-warmth" class="track-warm" type="range" min="-0.6" max="1.6" step="0.01" title="Double-click for neutral"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <div class="presets" id="light-presets"></div>
+      <div class="slider"><label>Tint</label><input id="light-tint" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Green ← → magenta. Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <details id="light-ranges"><summary>By brightness</summary>
+        <div class="range-head"><span></span><span>warmth</span><span>tint</span></div>
+        <div class="range-row"><label>Highlights</label><input data-range="highlights" data-i="0" class="track-warm" type="range" min="-1" max="1" step="0.01"><input data-range="highlights" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01"></div>
+        <div class="range-row"><label>Midtones</label><input data-range="midtones" data-i="0" class="track-warm" type="range" min="-1" max="1" step="0.01"><input data-range="midtones" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01"></div>
+        <div class="range-row"><label>Shadows</label><input data-range="shadows" data-i="0" class="track-warm" type="range" min="-1" max="1" step="0.01"><input data-range="shadows" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01"></div>
+        <div class="muted small">Leans each range on top of the overall light, e.g. warm highlights with neutral shadows. Double-click a slider for 0.</div>
+      </details>
       <ul id="samples"></ul>
       <div class="muted small" id="samples-empty">Pick Grey, White, Black or Skin, then click a point or click and drag to sample an area. Drag a sample to move it. Several greys at different brightness let “Solve samples” fix casts that shift between shadows and highlights. Hover a sample to highlight it; click its red × (or press Delete) to remove it.</div>
       <h4 class="sub">Colour casts left</h4>

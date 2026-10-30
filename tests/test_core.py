@@ -62,10 +62,17 @@ def test_single_sample_is_a_white_balance():
 def test_lighting_keeps_warmth():
     scan = np.array([[0.6, 0.6, 0.6]], np.float32)
     p = pipeline.default_params()
-    p["lighting"] = "golden hour"
+    p["light"]["warmth"] = 1.0  # golden hour
     p = analysis.solve(scan, ["neutral"], p, ADOBE_RGB)
-    rep = analysis.sample_report(scan, ["neutral"], {**p, "lighting": "neutral"}, ADOBE_RGB)[0]
+    rep = analysis.sample_report(scan, ["neutral"], pipeline.default_params() | {k: p[k] for k in ("slope", "offset")}, ADOBE_RGB)[0]
     assert rep["db"] > 10  # the grey is left warm on purpose
+
+
+def test_light_by_range_and_old_sidecars():
+    p = pipeline.normalize({"lighting": "golden hour"})
+    assert p["light"]["warmth"] == 1.0 and "lighting" not in p
+    p["light"]["highlights"] = [1.0, 0.0]
+    assert analysis.target(p, 0.9)[1] > analysis.target(p, 0.3)[1] + 0.015
 
 
 def test_tiff_roundtrip_keeps_profile(tmp_path):
@@ -176,3 +183,16 @@ def test_dust_found_and_healed():
 def test_geometry_point_round_trip():
     u, v = pipeline.geometry_point(0.7, 0.2, 400, 300, 7, 3)
     assert np.allclose(pipeline.geometry_point(u, v, 400, 300, 7, 3, inverse=True), (0.7, 0.2))
+
+
+def test_fix_band_removes_a_highlight_cast():
+    v = np.linspace(0.05, 0.95, 400, dtype=np.float32)
+    img = np.repeat(np.stack([v, v, v], axis=1)[None], 60, axis=0)
+    img[..., 2] -= 0.04 * (v > 0.7)  # yellowish highlights
+    p = pipeline.default_params()
+
+    def casts(q):
+        return analysis.band_casts(pipeline.render_pixels(img, q, ADOBE_RGB), [], [], q, ADOBE_RGB)
+    before = np.hypot(*casts(p)[2][0])
+    after = np.hypot(*casts(analysis.fix_band(casts, 2, p))[2][0])
+    assert before > 8 and after < before / 3

@@ -139,7 +139,7 @@ function restore(snap) {
 
 // What changed between two snapshots, in words, for the undo/redo flash.
 const PARAM_NAMES = {
-  exposure: "Exposure", contrast: "Contrast", angle: "Rotation", distortion: "Lens distortion", shoulder: "Highlight roll-off", toe: "Shadow roll-off", saturation: "Saturation", nr: "Colour noise", lighting: "Light",
+  exposure: "Exposure", contrast: "Contrast", angle: "Rotation", distortion: "Lens distortion", shoulder: "Highlight roll-off", toe: "Shadow roll-off", saturation: "Saturation", nr: "Colour noise", light: "Light",
   crop: "Crop", levels: "Levels", black: "Auto levels", white: "Auto levels", slope: "Colour balance", offset: "Colour balance", mode: "Mode",
 };
 const CURVE_LABELS = { warmth: "Yellow/blue curve", tint: "Magenta/green curve", lightness: "Light curve", r: "Red curve", g: "Green curve", b: "Blue curve" };
@@ -950,8 +950,13 @@ function showProbeDetail(p, name) {
 function renderCasts() {
   const C = S.casts, box = $("#casts");
   if (!C) { box.innerHTML = ""; return; }
-  box.innerHTML = `<div class="cast-summary">${C.summary}</div>` + C.lines.map((l) =>
-    `<div class="cast-line${l.cast ? " has-cast" : ""}"><b>${l.band}</b> ${l.text}${l.src ? ` <span class="muted">(${l.src})</span>` : ""}</div>`).join("");
+  box.innerHTML = `<div class="cast-summary">${C.summary}</div>` + C.lines.map((l, i) =>
+    `<div class="cast-line${l.cast ? " has-cast" : ""}"><b>${l.band}</b> ${l.text}${l.src ? ` <span class="muted">(${l.src})</span>` : ""}`
+    + (l.cast && i < 3 ? ` <button class="fix" data-band="${i}" title="Bend the Colour by tone curves at this brightness until it is neutral (or matches the light above)">Fix</button>` : "") + `</div>`).join("");
+  box.querySelectorAll("button.fix").forEach((b) => (b.onclick = () => guard("Fix", async () => {
+    const r = await api("fix_cast", { params: S.params, samples: S.samples, band: +b.dataset.band });
+    S.params = r.params; S.report = r.report; S.casts = r.casts; render(); drawCurve(); renderSamples(); commit();
+  })));
 }
 
 function renderSamples() {
@@ -1310,7 +1315,7 @@ function levelY(x, L) { return clamp((x - L.lo) / Math.max(L.hi - L.lo, 1e-3), 0
 
 function scheduleLevelHist() {
   const p = clone(S.params);
-  for (const k of ["levels", "curves", "saturation", "lighting"]) delete p[k];
+  for (const k of ["levels", "curves", "saturation", "light"]) delete p[k];
   const key = JSON.stringify(p);
   if (key === S.levelHistKey) return;
   clearTimeout(scheduleLevelHist.t);
@@ -1710,7 +1715,7 @@ function syncControls() {
     const el = $("#" + k); el.value = S.params[k];
     el.nextElementSibling.value = (+S.params[k]).toFixed(2);
   }
-  $("#lighting").value = S.params.lighting;
+  syncLight();
   drawLevels();
 }
 
@@ -1738,7 +1743,45 @@ for (const k of SLIDERS) {
   el.addEventListener("change", () => { commit(); endDrag(); });
   el.addEventListener("dblclick", () => { S.params[k] = SLIDER_DEFAULTS[k]; syncControls(); render(); commit(); });
 }
-$("#lighting").addEventListener("change", (e) => { S.params.lighting = e.target.value; commit(); });
+// ---- light the greys keep: what Solve samples aims for
+let LIGHT_PRESETS = {};
+const PRESET_NAMES = { "overcast / shade": "Shade", neutral: "Neutral", daylight: "Daylight", "golden hour": "Golden hour", tungsten: "Tungsten" };
+
+function syncLight() {
+  const L = S.params.light;
+  $("#light-warmth").value = L.warmth; $("#light-warmth").nextElementSibling.value = (+L.warmth).toFixed(2);
+  $("#light-tint").value = L.tint; $("#light-tint").nextElementSibling.value = (+L.tint).toFixed(2);
+  $$("#light-ranges input[data-range]").forEach((el) => (el.value = L[el.dataset.range][+el.dataset.i]));
+  $$("#light-presets button").forEach((b) => b.classList.toggle("on", Math.abs(LIGHT_PRESETS[b.dataset.p] - L.warmth) < 0.005));
+  const leaning = ["shadows", "midtones", "highlights"].some((r) => L[r][0] || L[r][1]);
+  $("#light-ranges summary").textContent = "By brightness" + (leaning ? " •" : "");
+}
+
+// A changed light re-solves at once when there are samples, so you see its effect.
+function lightChanged() {
+  syncLight(); commit();
+  if (S.samples.length) $("#btn-solve").onclick(); else refreshReport();
+}
+
+function lightSlider(el, get, set) {
+  const num = el.nextElementSibling && el.nextElementSibling.classList.contains("num") ? el.nextElementSibling : null;
+  const setValue = (v) => { set(clamp(Math.round(v * 100) / 100, +el.min, +el.max)); syncLight(); };
+  el.addEventListener("input", () => setValue(+el.value));
+  el.addEventListener("change", lightChanged);
+  el.addEventListener("dblclick", () => { setValue(0); lightChanged(); });
+  if (!num) return;
+  num.addEventListener("focus", () => num.select());
+  num.addEventListener("keydown", (ev) => {
+    const step = { ArrowUp: 0.1, ArrowDown: -0.1, ArrowRight: 0.01, ArrowLeft: -0.01 }[ev.key];
+    if (step) { ev.preventDefault(); setValue(get() + step); clearTimeout(num.t); num.t = setTimeout(lightChanged, 500); }
+    else if (ev.key === "Enter") { const v = parseFloat(num.value.replace(",", ".").replace("−", "-")); if (Number.isFinite(v)) { setValue(v); lightChanged(); } num.blur(); }
+  });
+  num.addEventListener("blur", () => syncLight());
+}
+lightSlider($("#light-warmth"), () => S.params.light.warmth, (v) => (S.params.light.warmth = v));
+lightSlider($("#light-tint"), () => S.params.light.tint, (v) => (S.params.light.tint = v));
+$$("#light-ranges input[data-range]").forEach((el) =>
+  lightSlider(el, () => S.params.light[el.dataset.range][+el.dataset.i], (v) => (S.params.light[el.dataset.range][+el.dataset.i] = v)));
 
 // ---- crop panel: rotation, level by line, aspect, lens distortion, reset
 function setGeom(key, v) {
@@ -1942,7 +1985,7 @@ $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
 $("#btn-fit").onclick = fitView;
 $("#btn-reset").onclick = () => guard("Reset", async () => {
-  const keep = { crop: S.params.crop, mode: S.params.mode, lighting: S.params.lighting };
+  const keep = { crop: S.params.crop, mode: S.params.mode, light: S.params.light };
   const r = await api("levels", { params: { ...keep } });
   S.params = r.params; syncControls(); render(); drawCurve(); commit();
 });
@@ -1993,7 +2036,9 @@ async function load(name) {
   S.doc = d; S.params = d.params; S.samples = d.samples || []; S.dust = d.dust; S.dustSel = null; S.dustVer = (S.dustVer || 0) + 1; S.versions = d.versions || []; S.undo = []; S.redo = []; S.probes = [];
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
-  $("#lighting").innerHTML = d.lighting_options.map((o) => `<option>${o}</option>`).join("");
+  LIGHT_PRESETS = d.light_presets;
+  $("#light-presets").innerHTML = Object.keys(LIGHT_PRESETS).map((k) => `<button data-p="${k}">${PRESET_NAMES[k] || k}</button>`).join("");
+  $$("#light-presets button").forEach((b) => (b.onclick = () => { S.params.light.warmth = LIGHT_PRESETS[b.dataset.p]; lightChanged(); }));
   location.hash = encodeURIComponent(d.name);
   document.title = d.name + " · filmneg";
   S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; S.levelHist = null; S.levelHistKey = null;

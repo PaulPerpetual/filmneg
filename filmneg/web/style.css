@@ -158,3 +158,20 @@ button:disabled { opacity: .45; cursor: default; }
 #dust-list input { margin: 0; }
 .num.ro { display: inline-block; width: 44px; text-align: right; color: #ccc; }
 label.check { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #ccc; margin-right: auto; }
+
+/* light the greys keep: tracks show the direction */
+input.track-warm::-webkit-slider-runnable-track { background: linear-gradient(90deg, #5a7fc0, #777 30%, #c9a24a); }
+input.track-warm::-moz-range-track { background: linear-gradient(90deg, #5a7fc0, #777 30%, #c9a24a); }
+input.track-tint::-webkit-slider-runnable-track { background: linear-gradient(90deg, #5aa060, #777 50%, #b965b9); }
+input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060, #777 50%, #b965b9); }
+.range-row input.track-warm::-webkit-slider-runnable-track { background: linear-gradient(90deg, #5a7fc0, #777 50%, #c9a24a); }
+.range-row input.track-warm::-moz-range-track { background: linear-gradient(90deg, #5a7fc0, #777 50%, #c9a24a); }
+.presets { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 4px 98px; }
+.presets button { font-size: 11px; padding: 1px 7px; border-radius: 9px; }
+.presets button.on { background: #555; color: #fff; }
+#light-ranges { margin: 4px 0 8px; }
+#light-ranges summary { cursor: pointer; color: var(--muted); font-size: 12px; margin: 2px 0; }
+.range-row, .range-head { display: grid; grid-template-columns: 90px 1fr 1fr; gap: 10px; align-items: center; margin: 2px 0; }
+.range-row label { color: var(--muted); }
+.range-head span { font-size: 11px; color: #888; text-align: center; }
+.cast-line button.fix { font-size: 11px; padding: 0 7px; margin-left: 4px; border-radius: 9px; }

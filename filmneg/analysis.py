@@ -6,15 +6,24 @@ from . import curves
 from .color import SKIN_HUE, RGBSpace, luma
 from .pipeline import crop, render_pixels, to_working_linear
 
-# Target Oklab (a, b) for things that should be neutral, per lighting. Not
-# always 0: golden hour or tungsten should stay recognisably warm.
-LIGHTING = {
-    "neutral": (0.0, 0.0),
-    "daylight": (0.001, 0.006),
-    "overcast / shade": (-0.002, -0.006),
-    "golden hour": (0.006, 0.022),
-    "tungsten": (0.008, 0.03),
-}
+# What "neutral" should look like under the light the picture was taken in.
+# Warmth 0 is pure grey; 1 is golden hour, a grey that stays recognisably warm.
+# Tint moves it towards magenta (+) or green (-). Each brightness range can lean
+# further on top, e.g. warm highlights with neutral shadows.
+WARM_AB = (0.006, 0.022)   # Oklab (a, b) at warmth 1
+TINT_A = 0.01              # Oklab a at tint 1
+LIGHT_PRESETS = {"overcast / shade": -0.27, "neutral": 0.0, "daylight": 0.27, "golden hour": 1.0, "tungsten": 1.36}
+RANGES = ("shadows", "midtones", "highlights")
+RANGE_L = (0.3, 0.6, 0.88)  # Oklab L each range is centred on
+
+
+def target(params, L):
+    """Oklab (a, b) a grey/white/black of lightness L should land on."""
+    lt = params["light"]
+    w = lt["warmth"] + float(np.interp(L, RANGE_L, [lt[r][0] for r in RANGES]))
+    t = lt["tint"] + float(np.interp(L, RANGE_L, [lt[r][1] for r in RANGES]))
+    return WARM_AB[0] * w + TINT_A * t, WARM_AB[1] * w
+
 
 # Lightness (Oklab L) that "white" and "black" samples should land on.
 WHITE_L = 0.95
@@ -90,9 +99,9 @@ def _oklab(enc, space):
 def sample_report(colors, kinds, params, space: RGBSpace):
     """How far each sample is from its target after rendering, in 1/1000 Oklab units."""
     lab = _oklab(render_pixels(np.asarray(colors), params, space), space)
-    ta, tb = LIGHTING.get(params["lighting"], (0.0, 0.0))
     out = []
     for kind, (L, a, b) in zip(kinds, lab):
+        ta, tb = target(params, L)
         if kind == "skin":
             hue = np.arctan2(b, a)
             off = np.degrees(np.arctan2(np.sin(hue - SKIN_HUE), np.cos(hue - SKIN_HUE)))
@@ -116,7 +125,6 @@ def solve(colors, kinds, params, space: RGBSpace):
     kinds = list(kinds)
     if not len(colors):
         return params
-    ta, tb = LIGHTING.get(params["lighting"], (0.0, 0.0))
     tone_kinds = {"white", "black"} & set(kinds)
     base_slope = np.array(params["slope"], float)
     base_offset = np.array(params["offset"], float)
@@ -139,6 +147,7 @@ def solve(colors, kinds, params, space: RGBSpace):
             if kind == "skin":
                 r.append(0.5 * float(np.dot(skin_n, [a, b])))
             else:
+                ta, tb = target(params, L)
                 r += [a - ta, b - tb]
                 if kind == "white":
                     r.append(0.3 * (L - WHITE_L))
@@ -181,32 +190,80 @@ def _cast_words(a, b):
     return f"{size} {name}"
 
 
-def cast_report(rendered, colors, kinds, report, params, space: RGBSpace):
-    """Plain-language summary of the casts left in the image, by brightness band.
+def band_casts(rendered, kinds, report, params, space: RGBSpace):
+    """Per brightness band: ((a, b) cast in 1/1000 Oklab from its target, source) or None.
 
     Grey/white/black samples in a band are trusted first; bands without one
     fall back to the near-grey areas of the picture.
     """
-    ta, tb = LIGHTING.get(params["lighting"], (0.0, 0.0))
     px = rendered.reshape(-1, 3)
     lab = _oklab(px, space)
     t = luma(px)
-    grey = np.hypot(lab[:, 1] - ta, lab[:, 2] - tb) < 0.04
-    lines, casts = [], []
+    out = []
     for (name, lo, hi), (llo, lhi) in zip(BANDS, BANDS_L):
         own = [(r["da"], r["db"]) for k, r in zip(kinds, report)
                if k != "skin" and llo <= r["L"] < lhi]
         if own:
-            a, b = np.mean(own, axis=0)
-            src = f"from {len(own)} sample{'s' if len(own) > 1 else ''}"
-        else:
-            m = grey & (t >= lo) & (t < hi)
-            if m.sum() < 200:
-                lines.append({"band": name, "text": "no grey areas to judge by", "src": ""})
-                casts.append(None)
-                continue
-            a, b = (lab[m, 1].mean() - ta) * 1000, (lab[m, 2].mean() - tb) * 1000
-            src = "from grey-ish areas in the picture"
+            out.append((tuple(np.mean(own, axis=0)), f"from {len(own)} sample{'s' if len(own) > 1 else ''}"))
+            continue
+        ta, tb = target(params, (llo + min(lhi, 1.0)) / 2)
+        m = (np.hypot(lab[:, 1] - ta, lab[:, 2] - tb) < 0.04) & (t >= lo) & (t < hi)
+        if m.sum() < 200:
+            out.append(None)
+            continue
+        out.append((((lab[m, 1].mean() - ta) * 1000, (lab[m, 2].mean() - tb) * 1000),
+                    "from grey-ish areas in the picture"))
+    return out
+
+
+BAND_TONE = (0.17, 0.5, 0.83)  # where Fix bends the Colour by tone curves, per band
+
+
+def fix_band(render, band, params):
+    """Bend the Colour by tone curves around one band until its cast is gone.
+
+    render(params) -> band_casts(...) for those params. Two Gauss-Newton steps
+    on the warmth and tint amount of a soft bump centred on the band, while
+    asking the other bands to stay as they were (the bump reaches them a bit).
+    """
+    first = render(params)
+    if first[band] is None:
+        return params
+    keep = {i: np.array(c[0]) for i, c in enumerate(first) if c is not None and i != band}
+
+    def resid(p):
+        cs = render(p)
+        r = [np.array(cs[band][0]) if cs[band] else np.zeros(2)]
+        r += [0.7 * (np.array(cs[i][0]) - v) if cs[i] else np.zeros(2) for i, v in keep.items()]
+        return np.concatenate(r)
+
+    def with_bump(p, w, t):
+        q = dict(p, curves=dict(p["curves"]))
+        q["curves"]["warmth"] = list(np.add(p["curves"]["warmth"], curves.bump(BAND_TONE[band], w, 0.13)))
+        q["curves"]["tint"] = list(np.add(p["curves"]["tint"], curves.bump(BAND_TONE[band], t, 0.13)))
+        return q
+
+    p = params
+    for _ in range(2):
+        r0 = resid(p)
+        if np.hypot(*r0[:2]) < 1.5:
+            break
+        h = 0.01
+        J = np.stack([(resid(with_bump(p, h, 0)) - r0) / h, (resid(with_bump(p, 0, h)) - r0) / h], axis=1)
+        step = np.linalg.lstsq(J, -r0, rcond=None)[0]
+        p = with_bump(p, *np.clip(step, -0.15, 0.15))
+    return p
+
+
+def cast_report(rendered, colors, kinds, report, params, space: RGBSpace):
+    """Plain-language summary of the casts left in the image, by brightness band."""
+    lines, casts = [], []
+    for (name, _, _), c in zip(BANDS, band_casts(rendered, kinds, report, params, space)):
+        if c is None:
+            lines.append({"band": name, "text": "no grey areas to judge by", "src": ""})
+            casts.append(None)
+            continue
+        (a, b), src = c
         words = _cast_words(a, b)
         casts.append((a, b))
         lines.append({"band": name, "text": words or "neutral", "src": src, "cast": bool(words)})

@@ -41,8 +41,12 @@ for Pixelmator.
    any, and **Skin** if there are people. Then **Solve samples**. Each sample
    shows how far it still is from neutral, so you can remove one that wasn't
    really grey.
-3. Set **Light** if the picture should keep its light (golden hour, tungsten,
-   shade), then solve again.
+3. Set **Light the greys should keep** (in Samples) if the picture should keep
+   its light: Warmth runs from shade through daylight and golden hour to
+   tungsten (the chips jump to those, anything in between works), Tint leans
+   green or magenta. **By brightness** leans highlights, midtones and shadows
+   on their own, e.g. warm highlights with neutral shadows. With samples
+   placed, every change solves again at once.
 4. Set black and white points in **Levels** if the scan needs it.
 5. Fine-tune by hand with **Shift colour**, **Shift brightness** or the curves.
 
@@ -67,6 +71,9 @@ it; its red × or the Delete key removes it, dragging moves it. Under the
 samples, **Colour casts left** says in words what cast remains in the
 shadows, midtones and highlights (from your grey samples where there are
 some, otherwise from grey-ish areas of the picture) and what would fix it.
+**Fix** next to a band bends the Colour by tone curves at that brightness
+until it is neutral (or matches the light you set), keeping the other bands
+as they are.
 
 The numbers next to the Base sliders are fields: click one, then ↑/↓ steps
 by 0.1 and ←/→ by 0.01 (⇧ for ten times that), or type a value and press
