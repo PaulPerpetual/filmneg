@@ -909,7 +909,7 @@ window.addEventListener("mouseup", () => {
   if (S.brush) {
     const { kind, x, y, r } = S.brush;
     S.brush = null; hint("");
-    if (kind) { S.samples.push({ kind, x, y, r }); renderSamples(); commit(); drawOverlay(); }
+    if (kind) { S.samples.push({ kind, x, y, r }); renderSamples(); commit(); drawOverlay(); if (S.dropper) $("#btn-solve").onclick(); }
     else doProbe({ x, y, r });
   }
   if (S.sampleMove) {
@@ -1388,41 +1388,60 @@ function drawScope() {
   const ctx = scopeCanvas.getContext("2d"), N = scopeCanvas.width, R = N / 2 - 10, cx = N / 2, cy = N / 2;
   const k = R / 0.5 * S.scopeZoom;  // screen px per unit of Cb/Cr
   ctx.clearRect(0, 0, N, N);
-  ctx.drawImage(hueDisc(256, 0.38), cx - R, cy - R, 2 * R, 2 * R);
-  // graticule: rim, centre cross, the 75% colour targets and the skin tone line
-  ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
+  // DaVinci-style: black disc, gold graticule, the pixels glowing in their own colour
+  ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
+  ctx.drawImage(hueDisc(256, 0.13), cx - R, cy - R, 2 * R, 2 * R);  // which way is which, faintly
+  const GOLD = "rgba(196,170,96,.8)";
+  ctx.strokeStyle = GOLD; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+  for (let a = 0; a < 360; a += 5) {  // ticks round the rim, longer every 10°
+    const t = a * Math.PI / 180, l = a % 10 ? 5 : 10;
+    ctx.moveTo(cx + Math.cos(t) * R, cy + Math.sin(t) * R); ctx.lineTo(cx + Math.cos(t) * (R - l), cy + Math.sin(t) * (R - l));
+  }
+  ctx.stroke();
   const skin = cbcr(0.87, 0.64, 0.52), sl = Math.hypot(...skin);
-  ctx.strokeStyle = "rgba(233,163,122,.45)"; ctx.setLineDash([3, 3]);
-  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + skin[0] / sl * R, cy - skin[1] / sl * R); ctx.stroke(); ctx.setLineDash([]);
-  ctx.font = "11px -apple-system, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  for (const [name, rgb] of [["R", [1, 0, 0]], ["Yl", [1, 1, 0]], ["G", [0, 1, 0]], ["Cy", [0, 1, 1]], ["B", [0, 0, 1]], ["Mg", [1, 0, 1]]]) {
+  ctx.strokeStyle = "rgba(220,200,170,.45)";
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + skin[0] / sl * R, cy - skin[1] / sl * R); ctx.stroke();
+  ctx.font = "11px -apple-system, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = GOLD;
+  for (const [name, rgb] of [["R", [1, 0, 0]], ["Y", [1, 1, 0]], ["G", [0, 1, 0]], ["C", [0, 1, 1]], ["B", [0, 0, 1]], ["M", [1, 0, 1]]]) {
     const [b, r] = cbcr(...rgb.map((v) => v * 0.75)), x = cx + b * k, y = cy - r * k, d = Math.hypot(x - cx, y - cy);
-    ctx.fillStyle = "rgba(255,255,255,.6)";
-    if (d > R - 12) {  // zoomed in: the target is off the scope, so just name the direction at the rim
-      ctx.fillText(name, cx + (x - cx) / d * (R - 9), cy + (y - cy) / d * (R - 9));
+    if (d > R - 16) {  // zoomed in: the target is off the scope, so just name the direction at the rim
+      ctx.textAlign = "center"; ctx.fillText(name, cx + (x - cx) / d * (R - 18), cy + (y - cy) / d * (R - 18)); ctx.textAlign = "left";
       continue;
     }
-    ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.strokeRect(x - 4, y - 4, 8, 8);
-    ctx.fillText(name, x + (x - cx) / d * 12, y + (y - cy) / d * 12);
+    ctx.beginPath();  // corner brackets
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      ctx.moveTo(x + sx * 9, y + sy * 4); ctx.lineTo(x + sx * 9, y + sy * 9); ctx.lineTo(x + sx * 4, y + sy * 9);
+    }
+    ctx.stroke(); ctx.fillText(name, x + 11, y + 7);
   }
-  // the pixels: a density plot
-  const G = 192, cnt = new Float32Array(G * G), d = previewPx.data;
+  // the pixels: density, each cell in the average colour of its pixels
+  const G = 192, cnt = new Float32Array(G * G), sum = new Float32Array(G * G * 3), d = previewPx.data;
   let max = 0;
   for (let i = 0; i < d.length; i += 4) {
     const [b, r] = cbcr(d[i] / 255, d[i + 1] / 255, d[i + 2] / 255);
     const gx = Math.round((b * k / R + 1) * (G - 1) / 2), gy = Math.round((1 - r * k / R) * (G - 1) / 2);
     if (gx < 0 || gy < 0 || gx >= G || gy >= G) continue;
-    const v = ++cnt[gy * G + gx];
+    const j = gy * G + gx, v = ++cnt[j];
+    sum[j * 3] += d[i]; sum[j * 3 + 1] += d[i + 1]; sum[j * 3 + 2] += d[i + 2];
     if (v > max) max = v;
   }
   const dots = drawScope.c || (drawScope.c = document.createElement("canvas"));
   dots.width = dots.height = G;
   const dctx = dots.getContext("2d"), im = dctx.createImageData(G, G), lm = Math.log1p(max);
-  for (let i = 0; i < G * G; i++) if (cnt[i]) im.data.set([235, 240, 235, 60 + 195 * Math.log1p(cnt[i]) / lm], i * 4);
+  for (let i = 0; i < G * G; i++) {
+    if (!cnt[i]) continue;
+    const r = sum[i * 3], g = sum[i * 3 + 1], b = sum[i * 3 + 2], m = Math.max(r, g, b, 1);
+    // the colour at full brightness, whitened where it is dense (like light on film)
+    const f = Math.log1p(cnt[i]) / lm, w = f * f * 0.6;
+    im.data.set([255 * (r / m * (1 - w) + w), 255 * (g / m * (1 - w) + w), 255 * (b / m * (1 - w) + w), 40 + 215 * f], i * 4);
+  }
   dctx.putImageData(im, 0, 0);
   ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.clip();
-  ctx.imageSmoothingEnabled = true; ctx.drawImage(dots, cx - R, cy - R, 2 * R, 2 * R); ctx.restore();
+  ctx.imageSmoothingEnabled = true; ctx.globalCompositeOperation = "lighter";
+  ctx.filter = "blur(4px)"; ctx.globalAlpha = 0.7; ctx.drawImage(dots, cx - R, cy - R, 2 * R, 2 * R);  // glow
+  ctx.filter = "none"; ctx.globalAlpha = 1; ctx.drawImage(dots, cx - R, cy - R, 2 * R, 2 * R);
+  ctx.restore();
   drawWheels();
 }
 
@@ -1448,7 +1467,8 @@ function drawWheels() {
     for (const [col, w] of [["rgba(0,0,0,.7)", 3.5], ["#fff", 1.6]]) {
       ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(px, py, 6, 0, 7); ctx.stroke();
     }
-    $(`#wheel-${key}-num`).textContent = `${fmt(v[0] * 255, 0)} · ${fmt(v[1] * 255, 0)}`;
+    const n = (x) => { const r = Math.round(x * 255); return r ? fmt(r, 0) : "0"; };
+    $(`#wheel-${key}-num`).textContent = `${n(v[0])} · ${n(v[1])}`;
   }
 }
 
@@ -1892,7 +1912,9 @@ function drawLevels() {
       ctx.beginPath(); ctx.moveTo(e, y + 14); ctx.lineTo(e + 9 * d, y + 8); ctx.lineTo(e + 9 * d, y + 20); ctx.closePath(); ctx.fill(); ctx.stroke();
       return;
     }
-    ctx.beginPath(); ctx.moveTo(x, y + 8); ctx.lineTo(x - 8, y + 21); ctx.lineTo(x + 8, y + 21); ctx.closePath(); ctx.fill(); ctx.stroke();
+    // a little house, like Pixelmator's level handles
+    ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x + 7, y + 12); ctx.lineTo(x + 7, y + 22); ctx.lineTo(x - 7, y + 22); ctx.lineTo(x - 7, y + 12);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
   };
   tri(g.x(L.lo), g.inY, "#000"); tri(g.x(midPos(L)), g.inY, "#808080"); tri(g.x(L.hi), g.inY, "#fff");
 
@@ -1910,10 +1932,13 @@ function drawLevels() {
 
 function setLevelCh(ch) {
   S.levelCh = ch;
-  $$("#level-tabs [data-level]").forEach((b) => b.classList.toggle("active", b.dataset.level === ch));
+  $("#level-ch").value = ch;
   drawLevels();
 }
-$$("#level-tabs [data-level]").forEach((b) => (b.onclick = () => setLevelCh(b.dataset.level)));
+$("#level-ch").onchange = (e) => setLevelCh(e.target.value);
+// eyedroppers: place a black / grey / white sample and solve straight away
+$$("[data-dropper]").forEach((b) => (b.onclick = () => { setTool(b.dataset.dropper); S.dropper = true; markDroppers(); }));
+function markDroppers() { $$("[data-dropper]").forEach((b) => b.classList.toggle("active", !!S.dropper && b.dataset.dropper === S.tool)); }
 
 function setLevelView(v0, v1) {
   const w = clamp(v1 - v0, 1 / 32, 1);
@@ -2329,7 +2354,7 @@ $("#crop-done").onclick = () => setTool("probe");
 const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2.2-5.1" fill="none" stroke="black" stroke-width="4" stroke-linecap="round"/><path d="M5 12a7 7 0 1 0 2.2-5.1" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/><path d="M3.5 3.5v5h5" fill="none" stroke="black" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><path d="M3.5 3.5v5h5" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>')}") 12 12, grab`;
 
 function setTool(t) {
-  S.tool = t;
+  S.tool = t; S.dropper = false; markDroppers();
   if (["neutral", "white", "black", "skin"].includes(t)) setShown("samples", true);
   if (t === "probe" && S.probes.length) setShown("probes", true);
   $$("[data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));

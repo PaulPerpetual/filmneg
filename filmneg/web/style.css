@@ -196,7 +196,7 @@ input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060,
 .tabs .target.active { background: #0a84ff; color: #fff; border-color: #0a84ff; }
 
 /* vectorscope and colour wheels */
-#scope { width: 100%; max-width: 280px; height: auto; display: block; margin: 4px auto; background: #1e1e1e; border-radius: 50%; }
+#scope { width: 100%; max-width: 300px; height: auto; display: block; margin: 6px auto; background: #000; border-radius: 10px; }
 .scope-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .wheels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 6px 0; text-align: center; }
 .wheels canvas { width: 100%; max-width: 90px; height: auto; cursor: grab; display: block; margin: 0 auto; }
@@ -207,3 +207,42 @@ input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060,
 #probe-detail select { max-width: 100%; }
 #probe-detail table { table-layout: fixed; width: 100%; }
 #probe-detail td:first-child { width: 64px; }
+
+/* ---- Pixelmator Pro look: section headers with a switch, value above each slider */
+aside { background: #262628; border-left: 1px solid #1c1c1e; }
+.panel { padding: 0 16px 12px; border-bottom: 1px solid #1c1c1e; }
+.panel h3 { margin: 0 -16px 10px; padding: 13px 16px; background: #2e2e30; border-bottom: 1px solid #1f1f21;
+  font-size: 15px; font-weight: 600; letter-spacing: 0; text-transform: none; color: #e6e6e6; line-height: 22px; }
+.panel.collapsed { padding-bottom: 0; }
+.panel.collapsed h3 { margin-bottom: 0; border-bottom: none; }
+.panel h3 .switch { width: 38px; height: 22px; border-radius: 11px; background: #3478f6; margin-left: 12px; }
+.panel h3 .switch i { top: 2px; left: 18px; width: 18px; height: 18px; background: #e8e8e8; box-shadow: 0 1px 3px rgba(0,0,0,.45); }
+.panel.off h3 .switch { background: #48484a; }
+.panel.off h3 .switch i { left: 2px; }
+.panel h3 .revert, .panel h3 .eye { line-height: 22px; height: 22px; display: inline-flex; align-items: center; }
+.slider { grid-template-columns: 1fr auto; grid-template-rows: auto auto; gap: 0 8px; margin: 6px 0 9px; }
+.slider > label { grid-row: 1; grid-column: 1; color: #d8d8d8; font-size: 14px; }
+.slider > .num, .slider > output, .slider > span.num { grid-row: 1; grid-column: 2; font-size: 14px; color: #d8d8d8; }
+.slider > input[type=range] { grid-row: 2; grid-column: 1 / -1; width: 100%; }
+.slider > select { grid-row: 2; grid-column: 1 / -1; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: #3d3d40; }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 2px; background: #3d3d40; }
+input[type=range]::-webkit-slider-thumb { width: 9px; height: 19px; margin-top: -7.5px; border-radius: 4.5px; background: #b9b9bb; box-shadow: 0 1px 2px rgba(0,0,0,.5); }
+input[type=range]::-moz-range-thumb { width: 9px; height: 19px; border-radius: 4.5px; background: #b9b9bb; }
+input[type=range] { height: 22px; }
+/* pop-up menus: grey field with the blue chevron box, like macOS */
+aside select { -webkit-appearance: none; appearance: none; background: #4a4a4d url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20'%3E%3Crect width='20' height='20' rx='5' fill='%233478f6'/%3E%3Cpath d='M6.5 8 10 4.8 13.5 8M6.5 12 10 15.2 13.5 12' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 3px center / 18px 18px;
+  border: none; border-radius: 6px; padding: 3px 28px 3px 9px; box-shadow: 0 0.5px 1px rgba(0,0,0,.4); }
+aside button { background: #48484a; border: none; border-radius: 6px; box-shadow: 0 0.5px 1px rgba(0,0,0,.4); }
+aside button:hover { background: #545457; }
+aside button.active { background: #3478f6; color: #fff; }
+.panel h3 button.revert, .panel h3 button.eye, .panel h3 button.switch { box-shadow: none; }
+.panel h3 button.revert, .panel h3 button.eye { background: none; }
+/* Levels: channel menu, the three eyedroppers in one segmented control */
+.level-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.level-head #level-ch { flex: 1; font-size: 14px; padding-top: 5px; padding-bottom: 5px; }
+.droppers { display: inline-flex; background: #48484a; border-radius: 6px; box-shadow: 0 0.5px 1px rgba(0,0,0,.4); }
+.droppers button { background: none; box-shadow: none; border-radius: 0; padding: 4px 9px; line-height: 0; }
+.droppers button + button { border-left: 1px solid #3a3a3c; }
+.droppers button.active { background: #3478f6; border-radius: 6px; }
+.level-nums input { flex: 1; width: auto; }

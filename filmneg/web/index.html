@@ -122,11 +122,17 @@
 
     <div class="panel" id="levels-panel">
       <h3>Levels <button class="switch" data-power="levels" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
+      <div class="level-head">
+        <select id="level-ch" title="Which channel the triangles move">
+          <option value="rgb">RGB</option><option value="r">Red</option><option value="g">Green</option><option value="b">Blue</option>
+        </select>
+        <span class="droppers">
+          <button data-dropper="black" title="Set black point: click something that should be black (a Black sample, solved at once)"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.2 3.3a2 2 0 0 1 2.8 2.8l-1.6 1.6.7.7-1.2 1.2-4-4 1.2-1.2.7.7z" fill="currentColor"/><path d="M10.6 6.2 4.4 12.4 3.6 15.6l.8.8 3.2-.8 6.2-6.2" fill="#111"/></svg></button>
+          <button data-dropper="neutral" title="Set grey point: click something that should be neutral grey (a Grey sample, solved at once)"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.2 3.3a2 2 0 0 1 2.8 2.8l-1.6 1.6.7.7-1.2 1.2-4-4 1.2-1.2.7.7z" fill="currentColor"/><path d="M10.6 6.2 4.4 12.4 3.6 15.6l.8.8 3.2-.8 6.2-6.2" fill="#888"/></svg></button>
+          <button data-dropper="white" title="Set white point: click something that should be white (a White sample, solved at once)"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.2 3.3a2 2 0 0 1 2.8 2.8l-1.6 1.6.7.7-1.2 1.2-4-4 1.2-1.2.7.7z" fill="currentColor"/><path d="M10.6 6.2 4.4 12.4 3.6 15.6l.8.8 3.2-.8 6.2-6.2" fill="#fff"/></svg></button>
+        </span>
+      </div>
       <div class="tabs" id="level-tabs">
-        <button data-level="rgb">RGB</button>
-        <button data-level="r">R</button>
-        <button data-level="g">G</button>
-        <button data-level="b">B</button>
         <button id="level-auto" title="Black and white point of each channel where its histogram begins and ends (a tiny tail is ignored), grey in the middle">Auto</button>
         <button id="level-magnify" class="icon" title="Magnifier: click the histogram to zoom in there, ⌥-click to zoom out, double-click for the whole range. You can also pinch, and scroll sideways to move along">
           <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m12.7 12.7 4.8 4.8"/></svg></button>
@@ -222,7 +228,7 @@
 
     <div class="panel" id="scope-panel">
       <h3>Vectorscope</h3>
-      <div class="scope-head"><span class="muted small">Hue round the circle, saturation outwards; the dashed line is skin.</span>
+      <div class="scope-head"><span class="muted small">Hue round the circle, saturation outwards; the line is skin.</span>
         <select id="scope-zoom" title="Magnify the middle of the scope">
           <option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option>
         </select></div>
