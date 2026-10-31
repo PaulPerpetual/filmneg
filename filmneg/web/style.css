@@ -240,7 +240,7 @@ aside button.active { background: #3478f6; color: #fff; }
 .panel h3 button.revert, .panel h3 button.eye { background: none; }
 /* Levels: channel menu, the three eyedroppers in one segmented control */
 .level-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-.level-head #level-ch { flex: 1; font-size: 14px; padding-top: 5px; padding-bottom: 5px; }
+.level-head #level-ch { flex: 1; margin: 0; }
 .droppers { display: inline-flex; background: #48484a; border-radius: 6px; box-shadow: 0 0.5px 1px rgba(0,0,0,.4); }
 .droppers button { background: none; box-shadow: none; border-radius: 0; padding: 4px 9px; line-height: 0; }
 .droppers button + button { border-left: 1px solid #3a3a3c; }

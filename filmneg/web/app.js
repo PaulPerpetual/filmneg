@@ -1870,10 +1870,12 @@ function blur1d(a, sigma) {
 }
 
 // Channel colours as in Pixelmator Pro: the macOS system red, green and blue
+// like Pixelmator: a dark tinted fill under a bright outline in the channel's colour
 const LEVEL_COLORS = {
-  r: { fill: "rgba(255,69,58,.72)", bar: "#ff453a" },
-  g: { fill: "rgba(48,209,88,.68)", bar: "#30d158" },
-  b: { fill: "rgba(10,132,255,.75)", bar: "#0a84ff" },
+  rgb: { fill: "rgba(150,150,155,.32)", line: "rgba(215,215,220,.9)", bar: "#fff" },
+  r: { fill: "rgba(232,84,62,.30)", line: "#e8543e", bar: "#ff453a" },
+  g: { fill: "rgba(60,190,90,.28)", line: "#3cbe5a", bar: "#30d158" },
+  b: { fill: "rgba(40,130,255,.30)", line: "#3a8cff", bar: "#0a84ff" },
 };
 
 function drawLevels() {
@@ -1901,14 +1903,17 @@ function drawLevels() {
     // scale to the tall but not extreme columns, so a spike at pure black or white doesn't flatten everything
     const all = cols.flatMap((c) => [...c]).filter((v) => v > 0).sort((a, b) => a - b);
     const norm = (all[Math.floor(all.length * 0.985)] || 1) * 1.1;
-    ctx.globalCompositeOperation = "lighter";
-    cols.forEach((col, k) => {
-      ctx.fillStyle = rgbAll ? "rgba(190,190,190,.75)" : LEVEL_COLORS[S.levelCh].fill;
+    const LC = LEVEL_COLORS[S.levelCh];
+    cols.forEach((col) => {
+      const top = (px) => LV_HIST - Math.min(1, col[px] / norm) * (LV_HIST - 8);
       ctx.beginPath(); ctx.moveTo(g.pad, LV_HIST);
-      for (let px = 0; px < g.span; px++) ctx.lineTo(g.pad + px + 0.5, LV_HIST - Math.min(1, col[px] / norm) * (LV_HIST - 8));
-      ctx.lineTo(g.pad + g.span, LV_HIST); ctx.closePath(); ctx.fill();
+      for (let px = 0; px < g.span; px++) ctx.lineTo(g.pad + px + 0.5, top(px));
+      ctx.lineTo(g.pad + g.span, LV_HIST); ctx.closePath();
+      ctx.fillStyle = LC.fill; ctx.fill();
+      ctx.beginPath();
+      for (let px = 0; px < g.span; px++) (px ? ctx.lineTo : ctx.moveTo).call(ctx, g.pad + px + 0.5, top(px));
+      ctx.strokeStyle = LC.line; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
     });
-    ctx.globalCompositeOperation = "source-over";
   }
 
   // veil over what the black and white points cut off
@@ -1925,6 +1930,14 @@ function drawLevels() {
     ctx.textAlign = "center"; ctx.fillText(`${Math.round(1 / (v1 - v0))}×`, g.W / 2, 17);
   }
 
+  // dotted guides up from each handle, as in Pixelmator
+  ctx.save(); ctx.setLineDash([1.5, 3]); ctx.strokeStyle = "rgba(255,255,255,.35)"; ctx.lineWidth = 1;
+  for (const v of [L.lo, midPos(L), L.hi]) {
+    const x = g.x(v);
+    if (x >= g.pad && x <= g.pad + g.span) { ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, LV_HIST); ctx.stroke(); }
+  }
+  ctx.restore();
+
   // input ramp and handles
   const ramp = (x0, x1, y) => {
     const gr = ctx.createLinearGradient(x0, 0, x1, 0);
@@ -1933,21 +1946,24 @@ function drawLevels() {
   };
   ramp(g.x(0), g.x(1), g.inY + 3);
   const tri = (x, y, fill) => {
-    ctx.fillStyle = fill; ctx.strokeStyle = "#aaa"; ctx.lineWidth = 1.5;
+    ctx.fillStyle = fill; ctx.strokeStyle = fill === "#fff" ? "rgba(0,0,0,.35)" : "rgba(255,255,255,.28)"; ctx.lineWidth = 1;
     if (x < g.pad - 9 || x > g.pad + g.span + 9) {  // zoomed past it: a small arrow at the edge points to it
       const e = x < g.pad ? 2 : g.W - 2, d = x < g.pad ? 1 : -1;
       ctx.beginPath(); ctx.moveTo(e, y + 14); ctx.lineTo(e + 9 * d, y + 8); ctx.lineTo(e + 9 * d, y + 20); ctx.closePath(); ctx.fill(); ctx.stroke();
       return;
     }
-    // a little house, like Pixelmator's level handles
-    ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x + 7, y + 12); ctx.lineTo(x + 7, y + 22); ctx.lineTo(x - 7, y + 22); ctx.lineTo(x - 7, y + 12);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // a little house with soft corners and a shadow, like Pixelmator's level handles
+    ctx.save(); ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1;
+    ctx.beginPath(); ctx.moveTo(x, y + 5);
+    ctx.lineTo(x + 8, y + 12); ctx.lineTo(x + 8, y + 20); ctx.quadraticCurveTo(x + 8, y + 23, x + 5, y + 23);
+    ctx.lineTo(x - 5, y + 23); ctx.quadraticCurveTo(x - 8, y + 23, x - 8, y + 20); ctx.lineTo(x - 8, y + 12); ctx.closePath();
+    ctx.fill(); ctx.restore(); ctx.stroke();
   };
-  tri(g.x(L.lo), g.inY, "#000"); tri(g.x(midPos(L)), g.inY, "#808080"); tri(g.x(L.hi), g.inY, "#fff");
+  tri(g.x(L.lo), g.inY, "#3a3a3c"); tri(g.x(midPos(L)), g.inY, "#a1a1a6"); tri(g.x(L.hi), g.inY, "#fff");
 
   // output ramp and handles (always the whole range)
   ramp(g.ox(0), g.ox(1), g.outY + 3);
-  tri(g.ox(L.out_lo), g.outY, "#000"); tri(g.ox(L.out_hi), g.outY, "#fff");
+  tri(g.ox(L.out_lo), g.outY, "#3a3a3c"); tri(g.ox(L.out_hi), g.outY, "#fff");
 
   // numbers and clipping
   const set = (id, v) => { const el = $(id); if (document.activeElement !== el) el.value = v; };
@@ -1959,10 +1975,10 @@ function drawLevels() {
 
 function setLevelCh(ch) {
   S.levelCh = ch;
-  $("#level-ch").value = ch;
+  $$("#level-ch [data-ch]").forEach((b) => b.classList.toggle("active", b.dataset.ch === ch));
   drawLevels();
 }
-$("#level-ch").onchange = (e) => setLevelCh(e.target.value);
+$$("#level-ch [data-ch]").forEach((b) => (b.onclick = () => setLevelCh(b.dataset.ch)));
 // eyedroppers: place a black / grey / white sample and solve straight away
 $$("[data-dropper]").forEach((b) => (b.onclick = () => { setTool(b.dataset.dropper); S.dropper = true; markDroppers(); }));
 function markDroppers() { $$("[data-dropper]").forEach((b) => b.classList.toggle("active", !!S.dropper && b.dataset.dropper === S.tool)); }
@@ -2079,23 +2095,6 @@ levelsCanvas.addEventListener("gesturechange", (ev) => {
 });
 levelsCanvas.addEventListener("gestureend", () => (levelGesture = null));
 
-// Auto: each channel's black and white point where its histogram begins and ends
-// (ignoring the last 0.01%, so a few hot pixels don't count), grey in the middle.
-$("#level-auto").onclick = () => {
-  const H = S.levelHist;
-  if (!H) return;
-  const lv = S.params.levels;
-  [0, 1, 2].forEach((c) => {
-    const h = H.hist[c], n = h.reduce((a, b) => a + b, 0), tail = n * 1e-4;
-    let lo = 0, hi = H.bins - 1, acc = 0;
-    while (lo < hi && (acc += h[lo]) <= tail) lo++;
-    acc = 0;
-    while (hi > lo && (acc += h[hi]) <= tail) hi--;
-    Object.assign(lv["rgb"[c]], { lo: lo / H.bins, hi: Math.max((hi + 1) / H.bins, lo / H.bins + 2 / 255), gamma: 1 });
-  });
-  Object.assign(lv.rgb, { lo: 0, hi: 1, gamma: 1 });
-  drawLevels(); render(); commit();
-};
 
 $("#level-magnify").onclick = () => {
   S.levelMagnify = !S.levelMagnify;

@@ -131,14 +131,11 @@ called "Before paste".
 to switch to it (undo goes back), double-click its name to rename it.
 
 Click a panel's title to fold it away. The eye in the Points panel hides the
-points on the image. Samples are round with a numbered badge; points that are
-only measured are square (a crosshair, or corner brackets for an area).
+points on the image. Points are
+drawn quietly: a thin white ring and a small numbered pill (a coloured dot in
+it shows a sample's role; the selected point's pill is blue).
 
 ### Levels
-
-**Auto** (in the panel) sets each channel's black and white point where its
-histogram begins and ends (the last 0.01% is ignored, so a few hot pixels
-don't count), with the grey point in the middle.
 
 Classic levels, like Pixelmator Pro's: a histogram of the image before levels
 and curves, black / grey / white input triangles under it, and output black and
