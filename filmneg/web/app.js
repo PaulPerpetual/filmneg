@@ -948,8 +948,8 @@ overlay.addEventListener("dblclick", (ev) => {
 
 // ---------------------------------------------------------------- points
 // One list of points on the image. Each has a role: just measured, or a Grey /
-// White / Black / Skin sample that Solve makes right. Any of them can also get
-// an Adams zone (under Curves, Light), which only the Light curve serves.
+// White / Black / Skin sample that Solve makes right. Each also shows
+// its Adams zone (a reference table is under Curves, Light).
 // Readings update after every edit.
 const ROLES = { measure: "Measure only", neutral: "Grey", white: "White", black: "Black", skin: "Skin" };
 const ZONE_NAMES = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
@@ -992,7 +992,7 @@ function pointStatus(s, i) {
   const q = S.readings[i], r = S.report[i];
   const parts = [];
   if (q) parts.push(`${(q.tone * 100).toFixed(0)}%`);
-  if (s.zone != null) parts.push(q && Math.abs(q.tone * 10 - s.zone) > 0.5 ? `wants zone ${ZONE_NAMES[s.zone]}` : `zone ${ZONE_NAMES[s.zone]}`);
+  if (q) parts.push(`zone ${ZONE_NAMES[clamp(Math.round(q.tone * 10), 0, 10)]}`);
   let bad = false;
   if (s.kind === "skin" && r) { parts.push(`hue ${fmt(r.hue_off, 0)}°`); bad = Math.abs(r.hue_off) > 8; }
   else if (s.kind !== "measure" && r) { parts.push(Math.hypot(r.da, r.db) < 4 ? "right" : `off ${fmt(r.db, 0)} / ${fmt(r.da, 0)}`); bad = Math.hypot(r.da, r.db) > 4; }
@@ -1048,37 +1048,20 @@ function showPointDetail() {
   wireProbeFix();
 }
 
-// ---- zones (Curves, Light): each point can be given the zone it belongs in; the
-// Light curve then bends to put it there. Brightness only, colour stays.
+// ---- zones (Curves, Light): a reference of what typically sits in each zone;
+// the zones the points are in now are highlighted
 function renderZones() {
   const box = $("#zones-box");
   box.hidden = S.curve !== "lightness";
-  if (box.hidden) return;
-  $("#zones-empty").hidden = S.samples.length > 0;
-  const sel = selPoint();
-  $("#zones-list").innerHTML = S.samples.map((s, i) => {
-    const q = S.readings[i];
-    const now = q ? `${(q.tone * 100).toFixed(0)}% · ${ZONE_NAMES[clamp(Math.round(q.tone * 10), 0, 10)]}` : "";
-    const off = q && s.zone != null && Math.abs(q.tone * 10 - s.zone) > 0.5;
-    return `<li data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot${s.kind === "measure" ? " sq" : ""}" style="background:${KIND_COLOR[s.kind]}"></span><span class="pn">${i + 1}</span>
-      <span class="res${off ? " bad" : ""}" title="${off ? "Can't get there without bending the curve too far, or other points ask for the opposite" : "Brightness now, and its zone"}">${now}</span>
-      <select title="The zone this point belongs in"><option value="">no zone</option>${ZONES.map((z, k) => `<option value="${k}"${s.zone === k ? " selected" : ""}>${z}</option>`).join("")}</select></li>`;
+  if (box.hidden || !ZONES.length) return;
+  const here = new Map();
+  S.readings.forEach((q, i) => { if (q) { const z = clamp(Math.round(q.tone * 10), 0, 10); here.set(z, [...(here.get(z) || []), i + 1]); } });
+  $("#zones-table").innerHTML = ZONES.map((z, k) => {
+    const [, what] = z.split(" · ");
+    const pts = here.get(k);
+    return `<tr class="${pts ? "here" : ""}"><td class="zn">${ZONE_NAMES[k]}</td><td>${what}</td><td class="zp">${pts ? pts.join(", ") : ""}</td></tr>`;
   }).join("");
-  $$("#zones-list li").forEach((li) => {
-    const i = +li.dataset.i, s = S.samples[i];
-    li.onmouseenter = () => setHighlight({ type: "sample", i });
-    li.onmouseleave = () => setHighlight(null);
-    li.querySelector("select").onchange = (e) => {
-      if (e.target.value === "") delete s.zone; else s.zone = +e.target.value;
-      S.sel = i; placeZones();
-    };
-  });
 }
-
-const placeZones = () => guard("Zones", async () => {
-  if (S.samples.some((s) => s.zone != null)) S.params = (await api("zones", { params: S.params, samples: S.samples })).params;
-  syncControls(); render(); drawCurve(); renderPoints(); commit();
-});
 
 // ---- "correct just here": a slider per cast axis whose knob shows where the point
 // is now (the middle is neutral, for skin: the typical skin hue). Moving it bends the
@@ -2534,7 +2517,7 @@ document.addEventListener("gesturestart", (ev) => ev.preventDefault());
 // ---------------------------------------------------------------- start
 async function load(name) {
   const d = await api("load", { name });
-  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.dust = d.dust; S.dustSel = null; S.dustVer = (S.dustVer || 0) + 1; S.versions = d.versions || []; S.undo = []; S.redo = []; S.sel = null; S.readings = [];
+  S.doc = d; S.params = d.params; S.samples = (d.samples || []).map(({ zone, ...s }) => s);  // zones are no longer fitted S.dust = d.dust; S.dustSel = null; S.dustVer = (S.dustVer || 0) + 1; S.versions = d.versions || []; S.undo = []; S.redo = []; S.sel = null; S.readings = [];
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
   LIGHT_PRESETS = d.light_presets; ZONES = d.zones || [];

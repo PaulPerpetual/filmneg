@@ -363,12 +363,6 @@ def make_handler(session: Session):
             report = [None if x.get("kind", "neutral") == "measure" else next(rep) for x in samples]
             out = {"report": report, "casts": s.casts(colors, kinds, [r for r in report if r], p)}
             return {"params": p, **out} if route == "solve" else out
-        if route == "zones":
-            # the Light curve only: points with a zone go there, colour stays as it is
-            zoned = [x for x in body.get("samples", []) if x.get("zone") is not None]
-            if zoned:
-                p = analysis.place_zones(s.sample_colors(zoned, p), [x["zone"] for x in zoned], p, s.scan.space)
-            return {"params": p}
         if route == "probe":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)

@@ -178,11 +178,10 @@
         <button data-act="reset" title="Reset the shown curve">Reset curve</button>
       </div>
       <div class="muted small">Drag up or down. Press right on the curve for a narrow change, further away from it for a broader one; the shaded bell shows what will move. The Light curve changes brightness only, never colour.</div>
-      <div id="zones-box">
-        <div class="range-title" title="Ansel Adams' zone system: say which zone a point belongs in, and the Light curve bends, as simply as it can, to put it there. Only brightness changes">Zones</div>
-        <div class="muted small" id="zones-empty">Pin points with Measure (P), then pick the zone each should sit in.</div>
-        <ul id="zones-list"></ul>
-      </div>
+      <details id="zones-box">
+        <summary title="Ansel Adams' zone system: zone n sits at brightness n/10, as marked under the curve">Zones</summary>
+        <table id="zones-table" class="small"></table>
+      </details>
     </div>
 
     <div class="panel">

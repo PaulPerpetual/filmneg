@@ -97,16 +97,12 @@ the Shift colour width (`[` `]`).
 
 ### Zones
 
-Under **Curves**, on the **Light** tab, each point can be given the zone it
-belongs in. The zones are Ansel Adams' (each listed with what typically sits
-there: V grey card, grass, darker skin; VI light skin in sun; VIII textured
-snow, …). The Light curve bends, as simply and smoothly as it can, to put
-each point with a zone there (zone n at brightness n/10, as marked under the
-curves). Only brightness changes: colour stays as it is. The curve always
-keeps rising, so if two points are close in tone but far apart in zone, it
-stops at a gentle compromise and the point shows in orange. The fit only moves
-three soft handles on the curve (shadows, mids, highlights), so the curve stays
-simple; the black and white ends never move.
+Each point shows which of Ansel Adams' zones it is in now (zone n at
+brightness n/10, as marked under the curves). Under **Curves**, on the
+**Light** tab, **Zones** folds out a small table of what typically sits in each
+zone (V grey card, grass, darker skin; VI light skin in sun; VIII textured
+snow, …), with the numbers of the points in each zone now. Shaping the Light
+curve to put things where they belong is up to you; nothing is fitted.
 
 The switch in the title of Base, Levels, Curves and Colour by tone turns
 that panel's adjustments off for a moment, to see what it does. It isn't

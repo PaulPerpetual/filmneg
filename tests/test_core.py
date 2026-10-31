@@ -275,20 +275,9 @@ def test_neutralize_a_measured_point():
     assert w[0] < 0.2 * w.max() and w[-1] < 0.2 * w.max()
 
 
-def test_place_zones_bends_the_light_curve():
-    # a dark and a light point placed in zones III and VII; the curve stays rising
-    from filmneg.color import luma
-    cols = np.array([[0.2, 0.2, 0.2], [0.6, 0.6, 0.6]], np.float32)
-    p = analysis.place_zones(cols, [3, 7], pipeline.default_params(), ADOBE_RGB)
-    got = luma(pipeline.render_pixels(cols, p, ADOBE_RGB))
-    assert np.abs(got - [0.3, 0.7]).max() < 0.02
-    t = np.linspace(0, 1, 101)
-    assert np.all(np.diff(t + curves.apply(np.asarray(p["curves"]["lightness"]), t)) > 0)
-
-
 def test_light_curve_moves_brightness_only():
     # the same amount goes onto R, G and B, so coloured pixels keep their colour
-    # differences; zones placed on coloured points therefore don't shift hues
+    # differences: brightening or darkening never shifts hues
     cols = np.array([[0.5, 0.3, 0.2], [0.2, 0.4, 0.6], [0.4, 0.4, 0.4]], np.float32)
     p0 = pipeline.default_params()
     p = pipeline.default_params()
@@ -296,30 +285,3 @@ def test_light_curve_moves_brightness_only():
     a, b = pipeline.render_pixels(cols, p0, ADOBE_RGB), pipeline.render_pixels(cols, p, ADOBE_RGB)
     assert np.allclose(np.diff(a, axis=1), np.diff(b, axis=1), atol=2e-3)
     assert np.all(b.mean(axis=1) > a.mean(axis=1) + 0.01)
-    z = analysis.place_zones(cols[:1], [7], p0, ADOBE_RGB)
-    assert z["curves"]["warmth"] == p0["curves"]["warmth"] and z["curves"]["r"] == p0["curves"]["r"]
-
-
-def test_zones_keep_colour_by_tone_casts():
-    # the colour curves read the tone before the Light curve, so placing a point
-    # in a zone doesn't slide it onto another part of a bent warmth curve
-    cols = np.array([[0.45, 0.42, 0.40]], np.float32)
-    p = pipeline.default_params()
-    p["curves"]["warmth"] = list(0.06 * np.asarray(curves.bump(0.45, 0.15)))
-    a = pipeline.render_pixels(cols, p, ADOBE_RGB)
-    z = analysis.place_zones(cols, [8], p, ADOBE_RGB)
-    b = pipeline.render_pixels(cols, z, ADOBE_RGB)
-    assert b.mean() > a.mean() + 0.15
-    assert np.allclose(np.diff(a, axis=1), np.diff(b, axis=1), atol=3e-3)
-
-
-def test_zones_are_local_soft_edits():
-    # placing a mid-tone point leaves the shadows and highlights where they were
-    from filmneg.color import luma
-    p = pipeline.default_params()
-    cols = np.array([[0.45, 0.45, 0.45]], np.float32)
-    z = analysis.place_zones(cols, [6], p, ADOBE_RGB)
-    assert abs(luma(pipeline.render_pixels(cols, z, ADOBE_RGB))[0] - 0.6) < 0.02
-    others = np.array([[0.08] * 3, [0.92] * 3], np.float32)
-    before, after = (luma(pipeline.render_pixels(others, q, ADOBE_RGB)) for q in (p, z))
-    assert np.abs(after - before).max() < 0.02

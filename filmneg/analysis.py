@@ -234,38 +234,13 @@ def three_handles(flat_ends):
     highlights, like a curve with three points. Each is a tent reaching to its
     neighbours (the B-spline rounds it off). flat_ends: the outer two keep their
     value out to black / white (colour); otherwise they fade to 0 there, so the
-    black and white ends stay put (Light)."""
+    black and white ends stay put."""
     pos = curves.ctrl_positions(curves.N_CTRL)
     basis = np.stack([np.clip(1 - np.abs(pos - c) / 0.25, 0, 1) for c in HANDLES])
     if flat_ends:
         basis[0, pos <= HANDLES[0]] = 1.0
         basis[-1, pos >= HANDLES[-1]] = 1.0
     return basis
-
-
-def place_zones(colors, zones, params, space: RGBSpace):
-    """Put each colour in its zone (brightness zone/10) by moving the Light curve's
-    three handles (shadows, mids, highlights) as little as possible. The black and
-    white ends stay put and the curve keeps rising (tones never swap places); a
-    point that would need more than that stops at a compromise."""
-    colors = np.asarray(colors, np.float32)
-    want = np.asarray(zones, float) / 10
-    c0 = np.asarray(params["curves"]["lightness"], float)
-    basis = three_handles(flat_ends=False)
-    grid = np.linspace(0, 1, 101)
-
-    def unpack(x):
-        return {**params, "curves": {**params["curves"], "lightness": [float(v) for v in c0 + x @ basis]}}
-
-    def residuals(x):
-        p = unpack(x)
-        got = luma(render_pixels(colors, p, space))
-        y = grid + curves.apply(np.asarray(p["curves"]["lightness"]), grid)
-        rising = np.minimum(np.diff(y) * 100 - 0.15, 0)  # slope at least 0.15
-        return np.concatenate([3 * (got - want), 0.05 * x, rising])
-
-    x = least_squares(residuals, np.zeros(len(HANDLES)), jac=lambda x: _jac(residuals, x), max_nfev=40).x
-    return unpack(x)
 
 
 def _solve_curves(colors, kinds, params, space: RGBSpace):
