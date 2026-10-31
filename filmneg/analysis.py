@@ -227,12 +227,15 @@ ZONES = [
 
 
 def place_zones(colors, zones, params, space: RGBSpace):
-    """The simplest smooth change of the Light curve that puts each colour in its
-    zone (brightness zone/10). The curve stays rising, so tones never swap places."""
+    """Put each colour in its zone (brightness zone/10) with the smallest change of
+    the Light curve: it bends where the points sit and fades out around them, like
+    a soft drag there, so other tones stay where they were. The black and white
+    ends stay put, and the curve keeps rising (tones never swap places); a point
+    that would need that broken stops at a compromise."""
     colors = np.asarray(colors, np.float32)
     want = np.asarray(zones, float) / 10
     c0 = np.asarray(params["curves"]["lightness"], float)
-    grid = np.linspace(0, 1, 41)
+    grid = np.linspace(0, 1, 101)
 
     def unpack(x):
         return {**params, "curves": {**params["curves"], "lightness": [float(v) for v in c0 + x]}}
@@ -241,12 +244,13 @@ def place_zones(colors, zones, params, space: RGBSpace):
         p = unpack(x)
         got = luma(render_pixels(colors, p, space))
         y = grid + curves.apply(np.asarray(p["curves"]["lightness"]), grid)
-        rising = np.minimum(np.diff(y) * 40 - 0.2, 0)  # slope at least 0.2
-        return np.concatenate([got - want, 0.003 * x, 0.03 * np.diff(x), 0.3 * np.diff(x, 2), rising])
+        rising = np.minimum(np.diff(y) * 100 - 0.15, 0)  # slope at least 0.15
+        # small (keeps far tones untouched) beats smooth here; a little smoothness
+        # only so the bend has soft shoulders
+        return np.concatenate([3 * (got - want), 0.08 * x, 0.01 * np.diff(x), 0.03 * np.diff(x, 2),
+                               3 * x[[0, -1]], rising])
 
-    # a few dozen steps are plenty for points that can be placed; ones that can't
-    # (asked for an order the curve can't give) then stop at a fair compromise
-    x = least_squares(residuals, np.zeros(len(c0)), jac=lambda x: _jac(residuals, x), max_nfev=30).x
+    x = least_squares(residuals, np.zeros(len(c0)), jac=lambda x: _jac(residuals, x), max_nfev=60).x
     return unpack(x)
 
 

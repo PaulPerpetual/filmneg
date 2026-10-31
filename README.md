@@ -103,7 +103,9 @@ snow, …). The Light curve bends, as simply and smoothly as it can, to put
 each point with a zone there (zone n at brightness n/10, as marked under the
 curves). Only brightness changes: colour stays as it is. The curve always
 keeps rising, so if two points are close in tone but far apart in zone, it
-stops at a gentle compromise and the point shows in orange.
+stops at a gentle compromise and the point shows in orange. The change is
+kept to where the points are: shadows and highlights away from them stay put,
+and the black and white ends never move.
 
 The switch in the title of Base, Levels, Curves and Colour by tone turns
 that panel's adjustments off for a moment, to see what it does. It isn't

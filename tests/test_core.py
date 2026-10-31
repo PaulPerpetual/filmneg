@@ -311,3 +311,15 @@ def test_zones_keep_colour_by_tone_casts():
     b = pipeline.render_pixels(cols, z, ADOBE_RGB)
     assert b.mean() > a.mean() + 0.15
     assert np.allclose(np.diff(a, axis=1), np.diff(b, axis=1), atol=3e-3)
+
+
+def test_zones_are_local_soft_edits():
+    # placing a mid-tone point leaves the shadows and highlights where they were
+    from filmneg.color import luma
+    p = pipeline.default_params()
+    cols = np.array([[0.45, 0.45, 0.45]], np.float32)
+    z = analysis.place_zones(cols, [6], p, ADOBE_RGB)
+    assert abs(luma(pipeline.render_pixels(cols, z, ADOBE_RGB))[0] - 0.6) < 0.02
+    others = np.array([[0.08] * 3, [0.92] * 3], np.float32)
+    before, after = (luma(pipeline.render_pixels(others, q, ADOBE_RGB)) for q in (p, z))
+    assert np.abs(after - before).max() < 0.02
