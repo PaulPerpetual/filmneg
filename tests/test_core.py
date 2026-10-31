@@ -216,3 +216,42 @@ def test_colour_by_tone_keeps_brightness():
     base = pipeline.render_pixels(rgb, pipeline.default_params(), ADOBE_RGB)
     assert np.allclose(luma(out), luma(base), atol=2e-3)
     assert np.abs(out - base).max() > 0.01
+
+
+def test_dust_decisions_update_source_locally(tmp_path):
+    # switching single repairs patches the cached source around those spots only;
+    # the result must equal a full re-render, also rotated and with colour noise
+    from filmneg import dust, server
+    rng = np.random.default_rng(0)
+    img = np.clip(0.5 + rng.normal(0, 0.01, (400, 500, 3)), 0, 1).astype(np.float32)
+    yy, xx = np.ogrid[:400, :500]
+    for cy, cx in [(100, 120), (250, 300), (330, 80), (60, 400)]:
+        img[(yy - cy) ** 2 + (xx - cx) ** 2 <= 9] += 0.3
+    imageio.save_tiff16(tmp_path / "x.tif", img, b"\x00" * 128)
+    s = server.Session(tmp_path)
+    s.load("x.tif")
+    s.dust["spots"] = dust.find(s.scan.rgb)
+    s.dust_changed(new_spots=True)
+    for geo in [(0, 0), (1.1, 1.5)]:
+        p = pipeline.normalize({"angle": geo[0], "distortion": geo[1], "nr": 0.5})
+        before = s.source("full", p).copy()
+        s.dust["spots"][0]["on"] = False
+        quick = s.source("full", p).copy()
+        s._nr_cache = {}
+        assert np.abs(quick - s.source("full", p)).max() < 1e-6
+        assert np.abs(quick - before).max() > 0.1
+        s.dust["spots"][0]["on"] = None
+
+
+def test_white_and_black_samples_set_channel_levels():
+    # like Levels' eyedroppers: the samples become neutral white and black,
+    # exposure and contrast stay; a grey sample is still solved alongside
+    scan = np.array([[0.9, 0.85, 0.75], [0.1, 0.12, 0.16], [0.5, 0.47, 0.42]], np.float32)
+    kinds = ["white", "black", "neutral"]
+    p0 = pipeline.default_params()
+    p = analysis.solve(scan, kinds, p0, ADOBE_RGB)
+    assert p["exposure"] == p0["exposure"] and p["contrast"] == p0["contrast"]
+    out = pipeline.render_pixels(scan, p, ADOBE_RGB)
+    assert np.abs(out[0] - 1).max() < 0.01 and np.abs(out[1]).max() < 0.01
+    rep = analysis.sample_report(scan, kinds, p, ADOBE_RGB)[2]
+    assert np.hypot(rep["da"], rep["db"]) < 2

@@ -227,6 +227,30 @@ function viewParams() {
   if (d && d.on == null) p.dust_peek = S.dustTry === d.id ? { show: [d.id] } : { hide: [d.id] };
   return p;
 }
+// Revert: a panel's adjustments back to their defaults (one undo step brings them back).
+const REVERT = {
+  base: ["Base", (p) => Object.assign(p, SLIDER_DEFAULTS)],
+  levels: ["Levels", (p) => { for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 }); }],
+  curves: ["Curves", (p) => { for (const n of ["lightness", "r", "g", "b"]) p.curves[n] = Array(N_CTRL).fill(0); }],
+  colour: ["Colour by tone", (p) => { for (const n of ["warmth", "tint"]) p.curves[n] = Array(N_CTRL).fill(0); }],
+  samples: ["Solved colour", (p) => { p.slope = [1, 1, 1]; p.offset = [0, 0, 0]; }],
+  light: ["Light", (p) => { p.light = { warmth: 0, tint: 0, shadows: [0, 0], midtones: [0, 0], highlights: [0, 0] }; }],
+};
+const REVERT_ICON = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8.5h8a4 4 0 0 1 0 8H9"/><path d="M8 5 4.5 8.5 8 12"/></svg>';
+for (const [k, [name]] of Object.entries(REVERT)) {
+  const h3 = (k === "light" ? $("#light-panel") : $(`[data-power="${k}"]`).closest(".panel")).querySelector("h3");
+  const b = document.createElement("button");
+  b.className = "revert"; b.dataset.revert = k; b.innerHTML = REVERT_ICON;
+  b.title = `Revert ${name} to its defaults (⌘Z brings it back)`;
+  h3.append(b);
+  b.addEventListener("click", (ev) => {
+    ev.stopPropagation();  // the title click would fold the panel
+    REVERT[k][1](S.params);
+    syncControls(); render(); drawCurve(); drawLevels(); commit();
+    flash("revert", `${name} reverted`);
+    if (k === "light" && S.samples.length) $("#btn-solve").onclick();  // greys follow the light
+  });
+}
 $$("[data-power]").forEach((b) => b.addEventListener("click", (ev) => {
   ev.stopPropagation();  // the title click would fold the panel
   const k = b.dataset.power, off = !OFF.has(k);

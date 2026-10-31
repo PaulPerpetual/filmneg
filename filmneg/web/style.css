@@ -189,6 +189,8 @@ input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060,
 .panel.off h3 .switch { background: #4a4a4a; }
 .panel.off h3 .switch i { left: 2px; }
 .panel.off > :not(h3) { opacity: .4; }
+.panel h3 .revert { float: right; background: none; border: none; padding: 0 3px; margin-left: 6px; color: var(--muted); line-height: 0; cursor: pointer; }
+.panel h3 .revert:hover { color: var(--text); }
 /* the on-image adjustment tools live in their panels, like Lightroom's targeted adjustment */
 .tabs .target { padding: 2px 6px; margin-right: 4px; }
 .tabs .target.active { background: #0a84ff; color: #fff; border-color: #0a84ff; }

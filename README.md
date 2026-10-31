@@ -37,10 +37,15 @@ for Pixelmator.
 1. **Auto** sets each channel's black and white point (crop is detected on first open; Reset in crop mode re-detects it)
    from the histogram. It runs by itself the first time you open a scan.
 2. Click a few **Grey** areas at different brightness (a wall in light, the
-   same wall in shade, a dark grey), plus **White** and **Black** if there are
-   any, and **Skin** if there are people. Then **Solve samples**. Each sample
-   shows how far it still is from neutral, so you can remove one that wasn't
-   really grey.
+   same wall in shade, a dark grey), and **Skin** if there are people. Then
+   **Solve samples**. Each sample shows how far it still is from neutral, so
+   you can remove one that wasn't really grey. Solve changes only the
+   *solved colour* (a per-channel balance before Levels, shown under Samples).
+   **White** and **Black** samples work like the eyedroppers in a classic
+   Levels: Solve sets the R, G and B input white / black points in **Levels**
+   so that spot becomes neutral white / black (anything brighter / darker
+   clips). With greys as well, the R and B grey sliders keep the greys
+   neutral. Exposure and contrast are never touched.
 3. Set **Light** (the panel under Samples) if the picture should keep
    its light: Warmth runs from shade through daylight and golden hour to
    tungsten (the chips jump to those, anything in between works), Tint leans
@@ -76,7 +81,9 @@ some, otherwise from grey-ish areas of the picture) and what would fix it.
 The switch in the title of Base, Levels, Curves, Colour by tone and
 Samples turns that panel's adjustments off for a moment (Samples: the
 solved colour), to see what it does. It isn't saved and doesn't touch the
-settings. Dust has its own *Repair here* switch.
+settings. Dust has its own *Repair here* switch. The arrow next to it
+(also on Light) **reverts** that panel to its defaults; for Samples that is
+the solved colour, the samples themselves stay. ⌘Z brings it back.
 
 The numbers next to the Base sliders are fields: click one, then ↑/↓ steps
 by 0.1 and ←/→ by 0.01 (⇧ for ten times that), or type a value and press
