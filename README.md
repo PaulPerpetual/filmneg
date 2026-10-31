@@ -36,7 +36,8 @@ for Pixelmator.
 
 1. **Auto** sets each channel's black and white point (crop is detected on first open; Reset in crop mode re-detects it)
    from the histogram. It runs by itself the first time you open a scan.
-2. **Balance**: with the eyedroppers in Levels (or the keys K, N, W) click
+2. **Balance**: with **Black**, **Grey** and **White** in the toolbar (or the
+   eyedroppers in Levels, keys K, N, W) click
    something that should be black (with detail, zone II), neutral grey and
    white (with texture, zone VIII, never a highlight or a lamp). Each becomes a
    point in the **Balance** panel; you can also add measured points there with
@@ -66,7 +67,7 @@ for Pixelmator.
 | L | Shift brightness (the target button in Curves): same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
-| K / N / W | Levels eyedroppers: black / grey / white point for Balance. Click for one point, click and drag for an area (dust specks inside are ignored) |
+| K / N / W / S | Black / Grey / White point for Balance (the same as the eyedroppers in Levels), or a Skin point: click for one point, click and drag for an area (dust specks inside are ignored). Drag a point to move it; hover it and click to remove it (or press Delete) |
 | R | Crop & straighten: the sidebar shows angle, *Level by line* (draw along a horizon or wall edge), aspect ratio (6×7, 4×5, …), lens distortion and *Reset*. Drag the corners or edges to fine-tune, inside to move; a press outside the crop pulls the nearest edge there, ⇧-drag draws a new crop, dragging outside the picture rotates (⌥ finer). Leave with Done |
 | D | Dust: find dust and hairs, review the ranked list, repair (see below) |
 | right-click | Background colour around the picture (white, mid grey, dark), fit |

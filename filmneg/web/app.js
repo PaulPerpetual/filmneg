@@ -961,7 +961,7 @@ const balanced = () => S.samples.some((s) => ["neutral", "white", "black"].inclu
 function addPoint(s) {
   S.samples.push(s); S.sel = S.samples.length - 1;
   commit(); renderPoints(); drawOverlay();
-  if (S.dropper) runBalance();
+  if (["neutral", "white", "black"].includes(s.kind)) runBalance();  // a Balance point
 }
 
 // Balance: black / grey / white points set the channels' end points and grey
@@ -2004,7 +2004,7 @@ function setLevelCh(ch) {
 $$("#level-ch [data-ch]").forEach((b) => (b.onclick = () => setLevelCh(b.dataset.ch)));
 // eyedroppers: place a black / grey / white sample and solve straight away
 $$("[data-dropper]").forEach((b) => (b.onclick = () => { setTool(b.dataset.dropper); S.dropper = true; markDroppers(); }));
-function markDroppers() { $$("[data-dropper]").forEach((b) => b.classList.toggle("active", !!S.dropper && b.dataset.dropper === S.tool)); }
+function markDroppers() { $$("[data-dropper]").forEach((b) => b.classList.toggle("active", b.dataset.dropper === S.tool)); }
 
 function setLevelView(v0, v1) {
   const w = clamp(v1 - v0, 1 / 32, 1);
@@ -2532,10 +2532,8 @@ window.addEventListener("keydown", (ev) => {
   if (k === "[") { setWidth(S.width * 0.85); return; }
   if (k === "]") { setWidth(S.width / 0.85); return; }
   if (k === "0") { fitView(); return; }
-  const tools = { p: "probe", c: "push", l: "light", r: "crop", d: "dust" };
+  const tools = { p: "probe", c: "push", l: "light", n: "neutral", w: "white", k: "black", s: "skin", r: "crop", d: "dust" };
   if (tools[k]) setTool(tools[k]);
-  const drop = { n: "neutral", w: "white", k: "black" };  // the Levels eyedroppers
-  if (drop[k]) $(`[data-dropper="${drop[k]}"]`).click();
 });
 window.addEventListener("keyup", (ev) => {
   if (ev.key === "\\") compare(false);
