@@ -34,10 +34,9 @@ class Session:
         self.root = root
         self.lock = threading.Lock()
         self.scan = None
-        self._nr_cache = {}
+        self._nr_cache = {}  # (size, nr, geometry, healed?) -> (repaired spot ids, source)
         self.dust = {"spots": [], "threshold": 0.6, "repair": True, "size": [2, 150]}
         self._patches = {}  # size -> {spot id: repairs at that size}
-        self._healed = {}   # size -> (key, image with the repairs)
         self.progress = None  # {"label", "frac"} while a long task runs, for the browser's pie
 
     def files(self):
@@ -51,7 +50,7 @@ class Session:
     def load(self, name):
         path = self.folder() / name
         self.scan = imageio.load(path)
-        self._nr_cache, self._patches, self._healed = {}, {}, {}
+        self._nr_cache, self._patches = {}, {}
         self.proxies = {
             "preview": imageio.downsample(self.scan.rgb, PREVIEW),
             "drag": imageio.downsample(self.scan.rgb, DRAG),
@@ -81,19 +80,110 @@ class Session:
         return doc
 
     def source(self, size, params, nr=True):
-        """The input at a given size, rotated and chroma-denoised as asked.
+        """The input at a given size, dust repaired, rotated and chroma-denoised as asked.
 
         Cached per size; only the latest strength and angle are kept per size.
+        When only the repaired spots change, just the pixels around those spots
+        are worked out again, so reviewing dust stays quick on big scans.
         """
         strength = round(float(params.get("nr", 0)), 3) if nr else 0.0
-        angle = (round(float(params.get("angle", 0)), 2), round(float(params.get("distortion", 0)), 2))
-        heal_key, base = self.healed_base(size, params.get("dust_peek")) if nr else ((), self.raw(size))
-        key = (size, strength, angle, heal_key)
-        if key not in self._nr_cache:
-            for k in [k for k in self._nr_cache if k[0] == size and (k[2:] != key[2:] or len(self._nr_cache) > 8)]:
+        geo = (round(float(params.get("angle", 0)), 2), round(float(params.get("distortion", 0)), 2))
+        key = (size, strength, geo, nr)
+        ids = frozenset(x["id"] for x in self.dust_on()) if nr else frozenset()
+        hit = self._nr_cache.get(key)
+        if hit and hit[0] != ids and len(hit[0] ^ ids) <= 400:
+            changed = hit[0] ^ ids
+            self._ensure_patches(size, ids)
+            out = hit[1]
+            for win in self._spot_windows(size, changed, geo):
+                y0, y1, x0, x1 = win
+                out[y0:y1, x0:x1] = self._window(size, win, ids, strength, geo)
+            hit = self._nr_cache[key] = (ids, out)
+        if not hit or hit[0] != ids:
+            for k in [k for k in self._nr_cache if k[0] == size]:
                 del self._nr_cache[k]
-            self._nr_cache[key] = pipeline.chroma_denoise(pipeline.geometry(base, *angle), strength, self.scan.space)
-        return self._nr_cache[key]
+            base = self.healed_base(size, ids) if ids else self.raw(size)
+            arr = pipeline.chroma_denoise(pipeline.geometry(base, *geo), strength, self.scan.space)
+            if arr is self.raw(size):
+                arr = np.array(arr, np.float32, copy=True)  # updated in place later
+            hit = self._nr_cache[key] = (ids, arr)
+        return hit[1]
+
+    def _ensure_patches(self, size, ids):
+        done = self._patches.setdefault(size, {})
+        todo = [x for x in self.dust["spots"] if x["id"] in ids and x["id"] not in done]
+        if todo:
+            avoid = [x for x in self.dust["spots"] if x["conf"] >= 0.2 or x.get("on")]
+            big = len(todo) > 40
+            done.update(dust.patches(self.raw(size), todo, avoid,
+                                     progress=(lambda f: self.task("Repairing dust", f)) if big else None))
+            self.task("", 1)
+        return done
+
+    def _spot_windows(self, size, sids, geo):
+        """Output windows (y0, y1, x0, x1) at this size that cover the given spots."""
+        raw = self.raw(size)
+        H, W = raw.shape[:2]
+        done = self._patches.get(size, {})
+        spots = {x["id"]: x for x in self.dust["spots"]}
+        out = []
+        for sid in sids:
+            boxes = [(y0, y0 + v.shape[0], x0, x0 + v.shape[1]) for y0, x0, v, _ in done.get(sid, [])]
+            if not boxes and sid in spots:
+                b = spots[sid]["box"]
+                boxes = [(b[1] * H, b[3] * H, b[0] * W, b[2] * W)]
+            if not boxes:
+                continue
+            y0, y1 = min(b[0] for b in boxes) - 2, max(b[1] for b in boxes) + 2
+            x0, x1 = min(b[2] for b in boxes) - 2, max(b[3] for b in boxes) + 2
+            if any(geo):  # where those scan pixels land after rotation / lens correction
+                pts = [pipeline.geometry_point(x / W, y / H, W, H, *geo) for y in (y0, y1) for x in (x0, x1)]
+                y0, y1 = min(q[1] for q in pts) * H - 3, max(q[1] for q in pts) * H + 3
+                x0, x1 = min(q[0] for q in pts) * W - 3, max(q[0] for q in pts) * W + 3
+            y0, y1 = max(0, int(np.floor(y0))), min(H, int(np.ceil(y1)))
+            x0, x1 = max(0, int(np.floor(x0))), min(W, int(np.ceil(x1)))
+            if y0 < y1 and x0 < x1:
+                out.append((y0, y1, x0, x1))
+        return out
+
+    def _window(self, size, win, ids, strength, geo):
+        """One window of source() output, worked out on its own with the spots ids
+        repaired: the scan pixels it needs, repairs pasted in, geometry, chroma noise."""
+        from scipy.ndimage import map_coordinates
+        raw = self.raw(size)
+        H, W = raw.shape[:2]
+        y0, y1, x0, x1 = win
+        pad = 2 * pipeline.nr_radius(strength, max(H, W)) + 2 if strength > 0 else 0
+        py0, py1, px0, px1 = max(0, y0 - pad), min(H, y1 + pad), max(0, x0 - pad), min(W, x1 + pad)
+        if any(geo):
+            yy, xx = np.mgrid[py0:py1, px0:px1].astype(np.float32)
+            sy, sx = pipeline.geometry_coords(yy, xx, H, W, *geo)
+            ry0, ry1 = max(0, int(np.floor(sy.min())) - 1), min(H, int(np.ceil(sy.max())) + 2)
+            rx0, rx1 = max(0, int(np.floor(sx.min())) - 1), min(W, int(np.ceil(sx.max())) + 2)
+        else:
+            ry0, ry1, rx0, rx1 = py0, py1, px0, px1
+        base = np.array(raw[ry0:ry1, rx0:rx1], np.float32, copy=True)
+        done = self._patches.get(size, {})
+        for sid in ids:
+            for t0, l0, v, a in done.get(sid, []):
+                ya, xa = max(ry0, t0), max(rx0, l0)
+                yb, xb = min(ry1, t0 + v.shape[0]), min(rx1, l0 + v.shape[1])
+                if ya < yb and xa < xb:
+                    t = base[ya - ry0:yb - ry0, xa - rx0:xb - rx0]
+                    aa = a[ya - t0:yb - t0, xa - l0:xb - l0]
+                    t[...] = t * (1 - aa) + v[ya - t0:yb - t0, xa - l0:xb - l0] * aa
+        if any(geo):
+            if ry0 >= ry1 or rx0 >= rx1:  # entirely outside the scan
+                return np.zeros((y1 - y0, x1 - x0, 3), np.float32)
+            # outside the scan stays black, as in geometry(): only coordinates inside it are offset
+            inside = (sy > -1) & (sy < H) & (sx > -1) & (sx < W)
+            sy, sx = np.where(inside, sy - ry0, -10), np.where(inside, sx - rx0, -10)
+            img = np.stack([map_coordinates(base[..., c], [sy, sx], order=1, mode="constant", cval=0.0)
+                            for c in range(3)], axis=-1)
+        else:
+            img = base
+        img = pipeline.chroma_denoise(img, strength, self.scan.space, size=max(H, W))
+        return np.asarray(img, np.float32)[y0 - py0:y1 - py0, x0 - px0:x1 - px0]
 
     def raw(self, size):
         return self.scan.rgb if size == "full" else self.proxies[size]
@@ -109,34 +199,15 @@ class Session:
     def task(self, label, frac):
         self.progress = {"label": label, "frac": float(frac)} if frac < 1 else None
 
-    def healed_base(self, size, peek=None):
-        """(key, the scan at this size with the chosen dust repaired). Repairs are
-        computed once per spot and size, so switching one on or off is quick.
-
-        peek {"hide": [ids], "show": [ids]} overrides single spots for the view
-        only, while you review them."""
-        peek = peek or {}
-        hide, show = set(peek.get("hide", [])), set(peek.get("show", []))
-        on = [s for s in self.dust_on() if s["id"] not in hide]
-        on += [s for s in self.dust["spots"] if s["id"] in show and s not in on]
-        key = tuple(sorted(s["id"] for s in on))
-        if self._healed.get(size, (None,))[0] != key:
-            raw = self.raw(size)
-            done = self._patches.setdefault(size, {})
-            todo = [s for s in on if s["id"] not in done]
-            if todo:
-                avoid = [s for s in self.dust["spots"] if s["conf"] >= 0.2 or s.get("on")]
-                big = len(todo) > 40
-                done.update(dust.patches(raw, todo, avoid,
-                                         progress=(lambda f: self.task("Repairing dust", f)) if big else None))
-                self.task("", 1)
-            self._healed[size] = (key, dust.apply(raw, [p for s in on for p in done.get(s["id"], [])]))
-        return self._healed[size]
+    def healed_base(self, size, ids):
+        """The scan at this size with the given spots repaired. Repairs are
+        computed once per spot and size, so switching one on or off is quick."""
+        done = self._ensure_patches(size, ids)
+        return dust.apply(self.raw(size), [p for sid in ids for p in done.get(sid, [])])
 
     def dust_changed(self, new_spots=False):
         if new_spots:
-            self._patches = {}
-        self._healed = {}
+            self._patches, self._nr_cache = {}, {}
         side = sidecar_path(self.scan.path)
         doc = json.loads(side.read_text()) if side.exists() else {}
         doc["dust"] = self.dust
@@ -194,41 +265,29 @@ class Session:
         return pipeline.render_pixels(src, params, self.scan.space)
 
     def _peek_region(self, src, params, region, peek):
-        """Show or hide single spots' repairs inside a full-resolution region.
-        Only without rotation or lens correction, where scan and view pixels match."""
-        if params["angle"] or params["distortion"]:
-            return src
+        """Show or hide single spots' repairs inside a full-resolution region
+        (src, a view into the cached source), worked out around those spots only."""
         H, W = self.scan.rgb.shape[:2]
         c = params["crop"]
-        ch, cw = int(round(c[3] * H)) - int(round(c[1] * H)), int(round(c[2] * W)) - int(round(c[0] * W))
-        oy = int(round(c[1] * H)) + int(round(region[1] * ch))
-        ox = int(round(c[0] * W)) + int(round(region[0] * cw))
+        oy = int(round(c[1] * H)) + int(round(region[1] * (int(round(c[3] * H)) - int(round(c[1] * H)))))
+        ox = int(round(c[0] * W)) + int(round(region[0] * (int(round(c[2] * W)) - int(round(c[0] * W)))))
+        ids = frozenset(x["id"] for x in self.dust_on())
+        show, hide = set(peek.get("show", [])), set(peek.get("hide", []))
+        changed = (show - ids) | (hide & ids)
+        if not changed:
+            return src
+        ids = (ids | show) - hide
+        self._ensure_patches("full", ids)
+        geo = (round(float(params["angle"]), 2), round(float(params["distortion"]), 2))
+        strength = round(float(params.get("nr", 0)), 3)
         out = np.array(src, np.float32, copy=True)
-        spots = {s["id"]: s for s in self.dust["spots"]}
-        done = self._patches.setdefault("full", {})
-        healed_now = {s["id"] for s in self.dust_on()}
-        for sid in peek.get("show", []) + peek.get("hide", []):
-            s = spots.get(sid)
-            if s is None:
-                continue
-            if sid in peek.get("show", []) and sid not in healed_now:
-                if sid not in done:
-                    done.update(dust.patches(self.scan.rgb, [s], self.dust["spots"]))
-                pieces = [(y0 - oy, x0 - ox, v, a) for y0, x0, v, a in done.get(sid, [])]
-            elif sid in peek.get("hide", []) and sid in healed_now:
-                y0, x0, m = dust.spot_mask(s, H, W)
-                y0, x0 = max(0, y0 - 2), max(0, x0 - 2)
-                raw = self.scan.rgb[y0:y0 + m.shape[0] + 4, x0:x0 + m.shape[1] + 4]
-                pieces = [(y0 - oy, x0 - ox, raw, np.ones(raw.shape[:2] + (1,), np.float32))]
-            else:
-                continue
-            for y0, x0, v, a in pieces:  # paste, clipped to the region
-                ya, xa = max(0, y0), max(0, x0)
-                yb, xb = min(out.shape[0], y0 + v.shape[0]), min(out.shape[1], x0 + v.shape[1])
-                if ya < yb and xa < xb:
-                    t = out[ya:yb, xa:xb]
-                    vv, aa = v[ya - y0:yb - y0, xa - x0:xb - x0], a[ya - y0:yb - y0, xa - x0:xb - x0]
-                    t[...] = t * (1 - aa) + vv * aa
+        for win in self._spot_windows("full", changed, geo):
+            y0, y1, x0, x1 = win
+            ya, yb = max(y0, oy), min(y1, oy + out.shape[0])
+            xa, xb = max(x0, ox), min(x1, ox + out.shape[1])
+            if ya < yb and xa < xb:
+                v = self._window("full", win, ids, strength, geo)
+                out[ya - oy:yb - oy, xa - ox:xb - ox] = v[ya - y0:yb - y0, xa - x0:xb - x0]
         return out
 
     def sample_colors(self, samples, params):

@@ -251,7 +251,7 @@ async function render() {
       current = bmp; currentFull = full;
       showCurrent();
     }
-    if (!S.dragging && !dirty && gen === renderGen) { scheduleDetail(); refreshProbes(); if (S.tool !== "crop") ensureSource(); }
+    if (!S.dragging && !dirty && gen === renderGen) { scheduleDetail(); refreshProbes(); if (S.tool !== "crop" && S.tool !== "dust") ensureSource(); }
   } catch (e) { status("render failed: " + e.message, 8000); }
   inflight = false;
   if (dirty) render();
@@ -1065,7 +1065,9 @@ async function dustCall(route, body = {}) {
   try {
     S.dust = await api(route, { params: S.params, ...body });
     S.dustVer = (S.dustVer || 0) + 1;
-    renderDust(); drawOverlay(); render();
+    renderDust(); drawOverlay();
+    // reviewing (zoomed in on a spot): only the detail shows, so only that is fetched again
+    if (S.dustSel && S.view.scale >= 1.3) peekView(); else render();
   } catch (e) { status("dust: " + e.message, 8000); }
 }
 
@@ -1199,9 +1201,9 @@ async function decideDust(d, on) {
   const todo = dustOrder()[0], i = todo.findIndex((x) => x.id === d.id);
   const next = todo[i + 1] || todo[i - 1];
   S.dustTry = null;
+  d.on = on; d.healed = on;  // shown at once; the server's answer (with relearned scores) follows
+  if (next) zoomToDust(next); else renderDust();
   await dustCall("dust", { id: d.id, on });
-  const fresh = next && S.dust.spots.find((x) => x.id === next.id);
-  if (fresh && fresh.on == null) zoomToDust(fresh);
 }
 
 // ↑/↓ walk the list; Enter repairs the selected spot and moves on, Backspace leaves

@@ -198,8 +198,18 @@ def geometry(img, angle=0.0, distortion=0.0):
         return img
     from scipy.ndimage import map_coordinates
     h, w = img.shape[:2]
-    cy, cx, R = (h - 1) / 2, (w - 1) / 2, np.hypot(h, w) / 2
     yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    sy, sx = geometry_coords(yy, xx, h, w, angle, distortion)
+    out = np.empty_like(img, dtype=np.float32)
+    for c in range(img.shape[2]):
+        out[..., c] = map_coordinates(img[..., c], [sy, sx], order=1, mode="constant", cval=0.0)
+    return out
+
+
+def geometry_coords(yy, xx, h, w, angle=0.0, distortion=0.0):
+    """The scan pixel (sy, sx) that geometry() samples for output pixels (yy, xx)
+    of an h x w image. Also used to render a small window of the output."""
+    cy, cx, R = (h - 1) / 2, (w - 1) / 2, np.hypot(h, w) / 2
     x, y = (xx - cx) / R, (yy - cy) / R
     # undistort: barrel squeezed the edges inwards, so sample further in (and out for pincushion)
     k = -0.01 * distortion
@@ -207,12 +217,7 @@ def geometry(img, angle=0.0, distortion=0.0):
     x, y = x * scale, y * scale
     # rotate the sampling grid the other way; screen y points down
     a = np.radians(angle)
-    sx = cx + R * (np.cos(a) * x - np.sin(a) * y)
-    sy = cy + R * (np.sin(a) * x + np.cos(a) * y)
-    out = np.empty_like(img, dtype=np.float32)
-    for c in range(img.shape[2]):
-        out[..., c] = map_coordinates(img[..., c], [sy, sx], order=1, mode="constant", cval=0.0)
-    return out
+    return cy + R * (np.sin(a) * x + np.cos(a) * y), cx + R * (np.cos(a) * x - np.sin(a) * y)
 
 
 def geometry_point(u, v, w, h, angle=0.0, distortion=0.0, inverse=False):
@@ -256,17 +261,23 @@ def _guided(guide, src, radius, eps):
     return uniform_filter(a, size) * guide + uniform_filter(b, size)
 
 
-def chroma_denoise(enc, strength, space: RGBSpace):
+def nr_radius(strength, size):
+    """Chroma noise radius in pixels for an image whose longer side is size."""
+    return max(1, int(round(strength * size / 600)))
+
+
+def chroma_denoise(enc, strength, space: RGBSpace, size=None):
     """Blur only the colour (Oklab a/b), keep lightness and its detail.
 
     The radius scales with image size, so a preview and the full-resolution
     export look the same. Edges come from the lightness channel, so colour
-    does not bleed across them.
+    does not bleed across them. size: the longer side of the whole image, when
+    enc is only a window of it.
     """
     if strength <= 0:
         return enc
     lab = space.lin_to_oklab(space.decode(enc)).astype(np.float32)
-    radius = max(1, int(round(strength * max(enc.shape[:2]) / 600)))
+    radius = nr_radius(strength, size or max(enc.shape[:2]))
     L = lab[..., 0]
     for i in (1, 2):
         lab[..., i] = _guided(L, lab[..., i], radius, 1e-3)
