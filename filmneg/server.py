@@ -351,30 +351,28 @@ def make_handler(session: Session):
         if route == "levels":
             p["black"], p["white"] = analysis.auto_levels(pipeline.geometry(s.proxies["preview"], p["angle"], p["distortion"]), p, s.scan.space)
             return {"params": p}
-        if route == "solve":
+        if route in ("solve", "report"):
+            # points with a role are samples; "measure" points are only read. A zone on
+            # any point is placed by the Light curve.
             samples = body.get("samples", [])
-            colors = s.sample_colors(samples, p)
-            kinds = [x["kind"] for x in samples]
-            if samples:
-                p = analysis.solve(colors, kinds, p, s.scan.space)
-            report = analysis.sample_report(colors, kinds, p, s.scan.space) if samples else []
-            return {"params": p, "report": report, "casts": s.casts(colors, kinds, report, p)}
-        if route == "report":
-            samples = body.get("samples", [])
-            colors = s.sample_colors(samples, p)
-            kinds = [x["kind"] for x in samples]
-            report = analysis.sample_report(colors, kinds, p, s.scan.space) if samples else []
-            return {"report": report, "casts": s.casts(colors, kinds, report, p)}
+            active = [x for x in samples if x.get("kind", "neutral") != "measure"]
+            colors = s.sample_colors(active, p)
+            kinds = [x["kind"] for x in active]
+            if route == "solve":
+                # brightness first: the colour by tone curves then act on the final tones
+                zoned = [x for x in samples if x.get("zone") is not None]
+                if zoned:
+                    p = analysis.place_zones(s.sample_colors(zoned, p), [x["zone"] for x in zoned], p, s.scan.space)
+                if active:
+                    p = analysis.solve(colors, kinds, p, s.scan.space)
+            rep = iter(analysis.sample_report(colors, kinds, p, s.scan.space) if active else [])
+            report = [None if x.get("kind", "neutral") == "measure" else next(rep) for x in samples]
+            out = {"report": report, "casts": s.casts(colors, kinds, [r for r in report if r], p)}
+            return {"params": p, **out} if route == "solve" else out
         if route == "probe":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)
             return analysis.probe(src, out, body["at"], p, s.scan.space)
-        if route == "zones":  # measured points placed in Adams' zones: bend the Light curve
-            src = s.source("preview", p)
-            pts = [q for q in body.get("points", []) if q.get("zone") is not None]
-            if pts:
-                p = analysis.place_zones([analysis.sample_color(src, q["at"]) for q in pts], [q["zone"] for q in pts], p, s.scan.space)
-            return {"params": p}
         if route == "neutralize":
             col = analysis.sample_color(s.source("preview", p), body["at"])
             return analysis.neutralize(col, body.get("kind", "neutral"), p, s.scan.space, float(body.get("sigma", 0.15)))

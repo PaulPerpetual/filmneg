@@ -17,11 +17,10 @@ const S = {
   colourZoom: 0.04,
   scopeZoom: 2,       // vectorscope magnification (film is rarely very saturated)   // the Colour by tone panel always shows the change, ±colourZoom
   width: 0.12,        // soft-edit width on the tone axis (push tools and curves)
-  probes: [],         // pinned probes: {at, res}
+  readings: [],       // what each point reads now (tone, colour), alongside S.samples
   colourCurve: "warmth", // which curve the Colour by tone panel edits
-  probeSel: null,     // which probe the detail table shows
-  showSamples: true,  // eye toggles in the Samples and Measure panels
-  showProbes: true,
+  sel: null,          // which point the Points panel shows in detail
+  showSamples: true,  // the eye in the Points panel
   push: null,         // active push gesture (colour or light)
   undo: [], redo: [],
   levelCh: "rgb",     // which levels the Levels panel edits
@@ -249,7 +248,7 @@ for (const [k, [name]] of Object.entries(REVERT)) {
     REVERT[k][1](S.params);
     syncControls(); render(); drawCurve(); drawLevels(); commit();
     flash("revert", `${name} reverted`);
-    if (k === "light" && S.samples.length) $("#btn-solve").onclick();  // greys follow the light
+    if (k === "light" && solvable()) $("#btn-solve").onclick();  // greys follow the light
   });
 }
 $$("[data-power]").forEach((b) => b.addEventListener("click", (ev) => {
@@ -276,7 +275,7 @@ async function render() {
       current = bmp; currentFull = full;
       showCurrent();
     }
-    if (!S.dragging && !dirty && gen === renderGen) { scheduleDetail(); refreshProbes(); if (S.tool !== "crop" && S.tool !== "dust") ensureSource(); }
+    if (!S.dragging && !dirty && gen === renderGen) { scheduleDetail(); refreshReadings(); if (S.tool !== "crop" && S.tool !== "dust") ensureSource(); }
   } catch (e) { status("render failed: " + e.message, 8000); }
   inflight = false;
   if (dirty) render();
@@ -493,7 +492,7 @@ function previewTone(u, v) {
 }
 
 // ---------------------------------------------------------------- overlay
-const KIND_COLOR = { neutral: "#9ad", white: "#fff", black: "#000", skin: "#e9a37a" };
+const KIND_COLOR = { measure: "#fff", neutral: "#9ad", white: "#fff", black: "#000", skin: "#e9a37a" };
 
 // A canvas the size of previewPx that dims what a push leaves alone, or the clipping overlay.
 function maskCanvas() {
@@ -561,10 +560,9 @@ function drawOverlay() {
   }
 
   if (S.tool === "dust") { drawDust(ctx); return; }
-  if (S.showSamples) S.samples.forEach((s, i) => drawSample(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
-  if (S.showProbes) S.probes.forEach((p, i) => drawMeasure(ctx, p.at, PROBE_COLORS[i % PROBE_COLORS.length], "P" + (i + 1)));
+  if (S.showSamples) S.samples.forEach((s, i) => (s.kind === "measure" ? drawMeasure : drawSample)(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
   if (S.hl) drawHighlight(ctx);
-  if (S.brush) S.brush.kind ? drawSample(ctx, S.brush, KIND_COLOR[S.brush.kind], S.brush.label) : drawMeasure(ctx, S.brush, "#fff", "");
+  if (S.brush) (S.brush.kind === "measure" ? drawMeasure : drawSample)(ctx, S.brush, KIND_COLOR[S.brush.kind], S.brush.label);
 
   if (S.push) S.push.kind === "light" ? drawLightBar(ctx) : drawWheel(ctx);
 }
@@ -573,7 +571,7 @@ function drawOverlay() {
 // S.hl = {type: "sample"|"probe", i}: the mark under the mouse, or whose row in
 // the sidebar the mouse is over. It gets a halo and a small × to delete it.
 function markOf(hl) {
-  const m = hl.type === "sample" ? S.samples[hl.i] : S.probes[hl.i]?.at;
+  const m = S.samples[hl.i];
   if (!m) return null;
   const p = toScreen(m.x, m.y), rad = radiusPx(m.r || 0);
   const d = Math.max(rad, 10) * 0.72;
@@ -601,7 +599,6 @@ function drawHighlight(ctx) {
 // Which visible mark is under screen point (x, y), if any.
 function markAt(x, y) {
   const near = (m) => m && Math.hypot(m.p.x - x, m.p.y - y) < Math.max(m.rad, 9);
-  if (S.showProbes) for (let i = S.probes.length - 1; i >= 0; i--) if (near(markOf({ type: "probe", i }))) return { type: "probe", i };
   if (S.showSamples) for (let i = S.samples.length - 1; i >= 0; i--) if (near(markOf({ type: "sample", i }))) return { type: "sample", i };
   return null;
 }
@@ -610,13 +607,12 @@ function setHighlight(hl) {
   const same = (a, b) => (a && b ? a.type === b.type && a.i === b.i : a === b);
   if (same(hl, S.hl)) return;
   S.hl = hl;
-  $$("#samples li, #probe-list li").forEach((li) => li.classList.toggle("hl", !!hl && li.dataset.type === hl.type && +li.dataset.i === hl.i));
+  $$("#samples li").forEach((li) => li.classList.toggle("hl", !!hl && li.dataset.type === hl.type && +li.dataset.i === hl.i));
   drawOverlay();
 }
 
 function deleteMark(hl) {
-  if (hl.type === "sample") { S.samples.splice(hl.i, 1); renderSamples(); commit(); }
-  else { S.probes.splice(hl.i, 1); S.probeSel = null; showProbe(); drawCurve(); }
+  S.samples.splice(hl.i, 1); S.sel = null; commit(); renderPoints(); drawCurve();
   S.hl = null; drawOverlay();
 }
 
@@ -730,9 +726,9 @@ overlay.addEventListener("mousedown", async (ev) => {
     const m = markOf(S.hl);
     if (m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10) { deleteMark(S.hl); return; }
     if (tool !== "crop" && S.hl) {  // a click removes the mark, a drag moves it, whatever the tool
-      const probe = S.hl.type === "probe", t = probe ? S.probes[S.hl.i].at : S.samples[S.hl.i];
-      if (probe) { S.probeSel = S.hl.i; showProbe(); }
-      S.sampleMove = { probe, i: S.hl.i, sx: ev.clientX, sy: ev.clientY, x: t.x, y: t.y, moved: false, hovered: true };
+      const t = S.samples[S.hl.i];
+      S.sel = S.hl.i; renderPoints(); drawCurve();
+      S.sampleMove = { i: S.hl.i, sx: ev.clientX, sy: ev.clientY, x: t.x, y: t.y, moved: false, hovered: true };
       return;
     }
   }
@@ -765,19 +761,11 @@ overlay.addEventListener("mousedown", async (ev) => {
   }
 
   if (["neutral", "white", "black", "skin", "probe"].includes(tool)) {
-    if (tool === "probe") {
-      const hit = S.probes.findIndex((q) => Math.hypot(toScreen(q.at.x, q.at.y).x - ev.offsetX, toScreen(q.at.x, q.at.y).y - ev.offsetY) < Math.max(radiusPx(q.at.r || 0), 8));
-      if (hit >= 0 && ev.shiftKey) { S.probes.splice(hit, 1); S.probeSel = null; showProbe(); drawOverlay(); drawCurve(); return; }
-      if (hit >= 0) { S.probeSel = hit; S.sampleMove = { probe: true, i: hit, sx: ev.clientX, sy: ev.clientY, x: S.probes[hit].at.x, y: S.probes[hit].at.y, moved: false }; showProbe(); return; }
-    }
-    if (tool !== "probe") {
-      const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - ev.offsetX, toScreen(s.x, s.y).y - ev.offsetY) < Math.max(radiusPx(s.r || 0), 8));
-      if (hit >= 0 && ev.shiftKey) { S.samples.splice(hit, 1); drawOverlay(); renderSamples(); commit(); return; }
-      if (hit >= 0) { S.sampleMove = { i: hit, sx: ev.clientX, sy: ev.clientY, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
-    }
+    const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - ev.offsetX, toScreen(s.x, s.y).y - ev.offsetY) < Math.max(radiusPx(s.r || 0), 8));
+    if (hit >= 0) { S.sel = hit; renderPoints(); S.sampleMove = { i: hit, sx: ev.clientX, sy: ev.clientY, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
     // a click takes one point; dragging grows a circle from the click
-    S.brush = { kind: tool === "probe" ? null : tool, x: p.x, y: p.y, r: 0, sx: ev.clientX, sy: ev.clientY,
-                label: tool === "probe" ? "" : String(S.samples.length + 1) };
+    S.brush = { kind: tool === "probe" ? "measure" : tool, x: p.x, y: p.y, r: 0, sx: ev.clientX, sy: ev.clientY,
+                label: String(S.samples.length + 1) };
     drawOverlay();
     return;
   }
@@ -851,7 +839,7 @@ window.addEventListener("mousemove", (ev) => {
     const M = S.sampleMove, r = fitRect(), c = shownBox();
     if (!M.moved && Math.hypot(ev.clientX - M.sx, ev.clientY - M.sy) < 3) return;  // still a click (removes it)
     M.moved = true;
-    const target = M.probe ? S.probes[M.i].at : S.samples[M.i];
+    const target = S.samples[M.i];
     target.x = M.x + (ev.clientX - M.sx) / r.w * (c[2] - c[0]);
     target.y = M.y + (ev.clientY - M.sy) / r.h * (c[3] - c[1]);
     drawOverlay(); return;
@@ -909,14 +897,13 @@ window.addEventListener("mouseup", () => {
   if (S.brush) {
     const { kind, x, y, r } = S.brush;
     S.brush = null; hint("");
-    if (kind) { S.samples.push({ kind, x, y, r }); renderSamples(); commit(); drawOverlay(); if (S.dropper) $("#btn-solve").onclick(); }
-    else doProbe({ x, y, r });
+    addPoint({ kind, x, y, r });
   }
   if (S.sampleMove) {
     const M = S.sampleMove;
     S.sampleMove = null;
-    if (M.moved) M.probe ? refreshProbes() : commit();
-    else if (M.hovered) deleteMark({ type: M.probe ? "probe" : "sample", i: M.i });  // a plain click removes it
+    if (M.moved) commit();
+    else if (M.hovered) deleteMark({ type: "sample", i: M.i });  // a plain click removes it
   }
   if (S.rotDrag) { S.rotDrag = null; S.rotating = false; commit(); endDrag(); drawOverlay(); }
   if (S.levelLine) {
@@ -972,26 +959,29 @@ overlay.addEventListener("dblclick", (ev) => {
   if (S.view.scale > 1) fitView(); else zoomAt(ev.clientX - b.left, ev.clientY - b.top, 3);
 });
 
-// Probes stay pinned (up to 8) and update after every edit, so you can watch
-// several spots at once on the curves.
-const PROBE_COLORS = ["#ffffff", "#7fd4ff", "#ffb36b", "#b0ff7a", "#ff8ad8", "#fff27a", "#a8a8ff", "#7affd9"];
+// ---------------------------------------------------------------- points
+// One list of points on the image. Each has a role: just measured, or a Grey /
+// White / Black / Skin sample that Solve makes right; any of them can also get
+// an Adams zone, which Solve puts it in. Readings update after every edit.
+const ROLES = { measure: "Measure only", neutral: "Grey", white: "White", black: "Black", skin: "Skin" };
+const ZONE_NAMES = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+let ZONES = [];
+const selPoint = () => (S.samples.length ? clamp(S.sel ?? S.samples.length - 1, 0, S.samples.length - 1) : null);
+const solvable = () => S.samples.some((s) => s.kind !== "measure" || s.zone != null);
 
-async function doProbe(at) {
-  const pr = await api("probe", { params: S.params, at });
-  S.probes.push({ at, res: pr });
-  if (S.probes.length > PROBE_COLORS.length) S.probes.shift();
-  S.probeSel = S.probes.length - 1;
-  showProbe(); drawOverlay(); drawCurve();
+function addPoint(s) {
+  S.samples.push(s); S.sel = S.samples.length - 1;
+  commit(); renderPoints(); drawOverlay();
+  if (S.dropper) $("#btn-solve").onclick();
 }
 
-function refreshProbes() {
-  clearTimeout(refreshProbes.t);
-  if (!S.probes.length) return;
-  refreshProbes.t = setTimeout(async () => {
+function refreshReadings() {
+  clearTimeout(refreshReadings.t);
+  if (!S.samples.length) { S.readings = []; return; }
+  refreshReadings.t = setTimeout(async () => {
     try {
-      const r = await api("probes", { params: S.params, at: S.probes.map((p) => p.at) });
-      r.probes.forEach((res, i) => { if (S.probes[i]) S.probes[i].res = res; });
-      showProbe(); drawCurve();
+      const r = await api("probes", { params: S.params, at: S.samples.map(({ x, y, r }) => ({ x, y, r })) });
+      S.readings = r.probes; renderPoints(); drawCurve();
     } catch (e) { console.error(e); }
   }, 150);
 }
@@ -1009,69 +999,79 @@ function castWords(a, b) {
   return how + parts.join("-") + (c >= 0.03 ? " (a coloured object rather than a grey)" : "");
 }
 
-function showProbe() {
-  const box = $("#probe");
-  if (!S.probes.length) { box.innerHTML = "Measure tool: click a spot or drag an area. Each click pins a point (P1, P2, …); hover one and click it to remove it (or press Delete), drag it to move it."; return; }
-  const sel = clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1);
-  const rows = S.probes.map((q, i) => `<li data-type="probe" data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot" style="background:${PROBE_COLORS[i % PROBE_COLORS.length]}"></span>
-    <span>P${i + 1}</span><span class="res">${(q.res.tone * 100).toFixed(0)}%${q.zone != null ? (Math.abs(q.res.tone * 10 - q.zone) <= 0.5 ? ` (zone ${ZONE_NAMES[q.zone]})` : ` · wants ${ZONE_NAMES[q.zone]}`) : ""} · ${castWords(q.res.a, q.res.b).replace(/ \(.*\)/, "")}</span><button title="Remove">×</button></li>`).join("");
-  box.innerHTML = `<ul id="probe-list">${rows}</ul><div id="probe-detail"></div><button id="probe-clear">Clear probes</button>`;
-  box.querySelectorAll("li").forEach((li) => {
+// A row's short status: how far a sample still is from right, or what a measured point reads.
+function pointStatus(s, i) {
+  const q = S.readings[i], r = S.report[i];
+  const parts = [];
+  if (q) parts.push(`${(q.tone * 100).toFixed(0)}%`);
+  if (s.zone != null) parts.push(q && Math.abs(q.tone * 10 - s.zone) > 0.5 ? `wants zone ${ZONE_NAMES[s.zone]}` : `zone ${ZONE_NAMES[s.zone]}`);
+  let bad = false;
+  if (s.kind === "skin" && r) { parts.push(`hue ${fmt(r.hue_off, 0)}°`); bad = Math.abs(r.hue_off) > 8; }
+  else if (s.kind !== "measure" && r) { parts.push(Math.hypot(r.da, r.db) < 4 ? "right" : `off ${fmt(r.db, 0)} / ${fmt(r.da, 0)}`); bad = Math.hypot(r.da, r.db) > 4; }
+  else if (q) parts.push(castWords(q.a, q.b).replace(/ \(.*\)/, ""));
+  return { text: parts.join(" · "), bad };
+}
+
+function renderPoints() {
+  renderCasts();
+  const ul = $("#samples"), sel = selPoint();
+  $("#samples-empty").hidden = S.samples.length > 0;
+  $("#points-actions").hidden = !S.samples.length;
+  ul.innerHTML = S.samples.map((s, i) => {
+    const st = pointStatus(s, i);
+    return `<li data-type="sample" data-i="${i}" class="${i === sel ? "sel" : ""}">
+      <span class="dot${s.kind === "measure" ? " sq" : ""}" style="background:${KIND_COLOR[s.kind]}"></span><span class="pn">${i + 1}</span>
+      <span class="role">${ROLES[s.kind]}</span><span class="res${st.bad ? " bad" : ""}">${st.text}</span><button title="Remove">×</button></li>`;
+  }).join("");
+  ul.querySelectorAll("li").forEach((li) => {
     const i = +li.dataset.i;
-    li.onclick = () => { S.probeSel = i; showProbe(); };
-    li.onmouseenter = () => setHighlight({ type: "probe", i });
+    li.onclick = () => { S.sel = i; renderPoints(); drawCurve(); };
+    li.onmouseenter = () => setHighlight({ type: "sample", i });
     li.onmouseleave = () => setHighlight(null);
-    li.querySelector("button").onclick = (e) => { e.stopPropagation(); deleteMark({ type: "probe", i }); };
+    li.querySelector("button").onclick = (e) => { e.stopPropagation(); deleteMark({ type: "sample", i }); };
   });
-  $("#probe-clear").onclick = () => { S.probes = []; showProbe(); drawOverlay(); drawCurve(); };
-  showProbeDetail(S.probes[sel].res, "P" + (sel + 1));
+  $("#btn-solve").disabled = !solvable();
+  showPointDetail();
 }
 
-function showProbeDetail(p, name) {
+function showPointDetail() {
+  const box = $("#point-detail"), i = selPoint(), s = S.samples[i], p = S.readings[i];
+  if (s == null) { box.innerHTML = ""; return; }
   const rgb = (v) => v.map((x) => Math.round(x * 255)).join(" / ");
-  const zone = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"][Math.round(p.tone * 10)];
-  const skin = Math.abs(p.skin_hue_off) < 5 ? "matches typical skin" :
-    `${Math.abs(p.skin_hue_off).toFixed(0)}° ${p.skin_hue_off > 0 ? "more yellow" : "more red/pink"} than typical skin`;
-  $("#probe-detail").innerHTML = `<div class="muted small">${name}:</div><table>
-    <tr><td>original</td><td>R/G/B ${rgb(p.input)} (as scanned)</td></tr>
-    <tr><td>now</td><td>R/G/B ${rgb(p.output)} (with your edits)</td></tr>
-    <tr><td>brightness</td><td>${(p.tone * 100).toFixed(0)}% · about zone ${zone} · marked on the curves</td></tr>
-    <tr><td>colour</td><td>${castWords(p.a, p.b)}<br><span class="muted">yellow↔blue ${fmt(p.b * 1000, 0)}, magenta↔green ${fmt(p.a * 1000, 0)} (0 = grey; under ±4 looks neutral)</span></td></tr>
-    <tr><td>if skin</td><td>${skin}</td></tr>
-    <tr><td>zone</td><td><select id="probe-zone" title="Where this should sit in Ansel Adams' zone system. The Light curve bends, as simply as it can, to put every point with a zone there">
-      <option value="">place in a zone…</option>${ZONES.map((z, i) => `<option value="${i}"${probeZone() === i ? " selected" : ""}>${z}</option>`).join("")}</select>${probeZone() != null && Math.abs(p.tone * 10 - probeZone()) > 0.5 ? `<div class="muted small">Not quite there: another point with a zone is too close in tone, so the curve stops at a gentle compromise.</div>` : ""}</td></tr>
-    <tr><td>correct</td><td><select id="probe-fix-kind" title="What this spot should be"><option value="neutral">to grey</option><option value="skin"${probeFix() && probeFix().kind === "skin" ? " selected" : ""}>as skin</option></select></td></tr>
-    ${(probeFix() && probeFix().kind === "skin" ? [["warmth", "toward skin", ""]] : [["warmth", "yellow↔blue", "track-warm"], ["tint", "magenta↔green", "track-tint"]]).map(([n, label, cls]) => `
-    <tr><td class="muted">${label}</td><td class="probe-fix"><input data-fix="${n}" class="${cls}" type="range" min="0" max="1" step="0.01" value="${probeFixAmount()[n]}"
-      title="Takes this much of the ${label} cast away, by bending the Colour by tone curves around this brightness. Width as for Shift colour ([ ])">
-      <span data-fix-num="${n}" class="num ro">${Math.round(probeFixAmount()[n] * 100)}%</span></td></tr>`).join("")}</table>`;
+  const skinOff = p && (Math.abs(p.skin_hue_off) < 5 ? "like typical skin" :
+    `${Math.abs(p.skin_hue_off).toFixed(0)}° ${p.skin_hue_off > 0 ? "more yellow" : "more red/pink"} than typical skin`);
+  const fix = s.kind === "skin" ? [["warmth", "Toward skin", ""]] : [["warmth", "Yellow ↔ blue", "track-warm"], ["tint", "Magenta ↔ green", "track-tint"]];
+  const amt = probeFixAmount();
+  box.innerHTML = `
+    <div class="pop-row"><label>Point ${i + 1} is</label><select id="point-role" title="Measure only, or a sample Solve makes right">
+      ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}"${k === s.kind ? " selected" : ""}>${v}</option>`).join("")}</select></div>
+    <div class="pop-row"><label>Zone</label><select id="point-zone" title="Where it should sit in Ansel Adams' zone system; Solve bends the Light curve, as simply as it can, to put it there">
+      <option value="">none</option>${ZONES.map((z, k) => `<option value="${k}"${s.zone === k ? " selected" : ""}>${z}</option>`).join("")}</select></div>
+    ${p ? `<table class="reading">
+      <tr><td>Now</td><td>R/G/B ${rgb(p.output)} · ${(p.tone * 100).toFixed(0)}%, about zone ${ZONE_NAMES[Math.round(p.tone * 10)]}</td></tr>
+      <tr><td>Colour</td><td>${castWords(p.a, p.b)} <span class="muted">(yellow ${fmt(p.b * 1000, 0)}, magenta ${fmt(p.a * 1000, 0)})</span></td></tr>
+      ${s.kind === "skin" || s.kind === "measure" ? `<tr><td>As skin</td><td>${skinOff}</td></tr>` : ""}
+      <tr><td>Scanned</td><td class="muted">R/G/B ${rgb(p.input)}</td></tr></table>` : ""}
+    <div class="range-title" title="Bends the Colour by tone curves around this point's brightness only. Width as for Shift colour ([ ])">Correct just here</div>
+    ${fix.map(([n, label, cls]) => `<div class="slider compact"><label>${label}</label><input data-fix="${n}" class="${cls}" type="range" min="0" max="1" step="0.01" value="${amt[n]}"
+      title="How much of this point's ${label.toLowerCase()} cast to take away"><span data-fix-num="${n}" class="num ro">${Math.round(amt[n] * 100)}%</span></div>`).join("")}`;
+  $("#point-role").onchange = (e) => { s.kind = e.target.value; commit(); renderPoints(); drawOverlay(); };
+  $("#point-zone").onchange = (e) => {
+    s.zone = e.target.value === "" ? undefined : +e.target.value;
+    if (s.zone === undefined) delete s.zone;
+    commit(); renderPoints();
+    if (s.zone != null) $("#btn-solve").onclick();
+  };
   wireProbeFix();
-  $("#probe-zone").onchange = (e) => placeZones(e.target.value === "" ? null : +e.target.value);
 }
 
-// ---- zones: give measured points an Adams zone, the Light curve puts them there
-const probeZone = () => { const q = S.probes[S.probeSel ?? S.probes.length - 1]; return q ? q.zone ?? null : null; };
-const ZONE_NAMES = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
-function placeZones(zone) {
-  const q = S.probes[clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1)];
-  if (q) q.zone = zone;
-  const points = S.probes.filter((p) => p.zone != null).map((p) => ({ at: p.at, zone: p.zone }));
-  if (!points.length) { showProbe(); return; }
-  guard("Place zones", async () => {
-    S.params = (await api("zones", { params: S.params, points })).params;
-    syncControls(); render(); drawCurve(); commit();
-    hint("Light curve: " + S.probes.map((p, i) => (p.zone != null ? `P${i + 1} → zone ${ZONE_NAMES[p.zone]}` : "")).filter(Boolean).join(", "));
-  });
-}
-
-let ZONES = [];
-
-// ---- "correct" slider: pull the curves around a measured point's brightness so
-// it reads neutral (or on the skin hue line). The full correction is worked out
-// once when you grab the slider; the slider then dials in a part of it. It keeps
-// its place as long as the curves weren't changed some other way meanwhile.
-const probeFix = () => { const q = S.probes[S.probeSel ?? S.probes.length - 1]; return q && q.fix; };
-// each slider brings in its own correction (yellow/blue only, magenta/green only)
+// ---- "correct just here": pull the curves around a point's brightness so it reads
+// neutral (or, for a skin point, onto the skin hue line). The full correction is
+// worked out once when you grab a slider; the sliders then dial in a part of it,
+// yellow/blue and magenta/green each on their own. They keep their place as long
+// as the curves weren't changed some other way meanwhile.
+const FIXES = new WeakMap();  // point -> its correction
+const probeFix = () => { const s = S.samples[selPoint()]; return s && FIXES.get(s); };
 function fixCurves(F) {
   const out = { warmth: [...F.base.warmth], tint: [...F.base.tint] };
   for (const k of ["warmth", "tint"]) {
@@ -1080,7 +1080,6 @@ function fixCurves(F) {
   }
   return out;
 }
-// How much of each correction is in, or none if the curves were changed some other way since.
 function probeFixAmount() {
   const F = probeFix(), none = { warmth: 0, tint: 0 };
   if (!F) return none;
@@ -1089,15 +1088,19 @@ function probeFixAmount() {
   return same ? F.f : none;
 }
 function wireProbeFix() {
-  const kind = $("#probe-fix-kind"), q = S.probes[clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1)];
-  if (!kind || !q) return;
+  const s = S.samples[selPoint()];
+  if (!s) return;
+  const kind = s.kind === "skin" ? "skin" : "neutral";
   let ready = null;
   const grab = () => {
     startDrag();
-    if (q.fix && q.fix.delta.warmth && probeFixAmount() === q.fix.f && q.fix.kind === kind.value) { ready = Promise.resolve(q.fix); return; }
+    const F = FIXES.get(s);
+    if (F && F.kind === kind && probeFixAmount() === F.f) { ready = Promise.resolve(F); return; }
     const base = { warmth: [...S.params.curves.warmth], tint: [...S.params.curves.tint] };
-    ready = api("neutralize", { params: S.params, at: q.at, kind: kind.value, sigma: S.width })
-      .then((r) => (q.fix = { kind: kind.value, base, delta: r.b ? { warmth: r.b, tint: r.a } : { warmth: r.full }, f: { warmth: 0, tint: 0 } }));
+    ready = api("neutralize", { params: S.params, at: { x: s.x, y: s.y, r: s.r }, kind, sigma: S.width }).then((r) => {
+      const F = { kind, base, delta: r.b ? { warmth: r.b, tint: r.a } : { warmth: r.full }, f: { warmth: 0, tint: 0 } };
+      FIXES.set(s, F); return F;
+    });
   };
   $$("[data-fix]").forEach((el) => {
     const n = el.dataset.fix;
@@ -1112,12 +1115,11 @@ function wireProbeFix() {
     });
     el.addEventListener("change", () => { ready = null; commit(); endDrag(); });
   });
-  kind.onchange = () => { q.fix = kind.value === "skin" ? { kind: "skin", base: clone(S.params.curves), delta: {}, f: { warmth: 0, tint: 0 } } : null; showProbe(); };
 }
 
-// ---------------------------------------------------------------- samples
 function renderCasts() {
   const C = S.casts, box = $("#casts");
+  $("#casts-head").hidden = !C;
   if (!C) { box.innerHTML = ""; return; }
   // one short line per band; where the judgement comes from is in the tooltip
   box.innerHTML = C.lines.map((l) =>
@@ -1125,32 +1127,11 @@ function renderCasts() {
     + `<div class="cast-summary muted small">${C.summary}</div>`;
 }
 
-function renderSamples() {
-  renderCasts();
-  const ul = $("#samples");
-  ul.innerHTML = "";
-  $("#samples-empty").hidden = S.samples.length > 0;
-  S.samples.forEach((s, i) => {
-    const r = S.report[i];
-    let txt = "", bad = false;
-    if (r) {
-      if (s.kind === "skin") { txt = `hue ${fmt(r.hue_off, 0)}°`; bad = Math.abs(r.hue_off) > 8; }
-      else { txt = `a ${fmt(r.da)} · b ${fmt(r.db)}  L ${(r.L * 100).toFixed(0)}`; bad = Math.hypot(r.da, r.db) > 4; }
-    }
-    const li = document.createElement("li");
-    li.dataset.type = "sample"; li.dataset.i = i;
-    li.onmouseenter = () => setHighlight({ type: "sample", i });
-    li.onmouseleave = () => setHighlight(null);
-    li.innerHTML = `<span class="dot" style="background:${KIND_COLOR[s.kind]}"></span><span>${i + 1} ${s.kind}</span><span class="res ${bad ? "bad" : ""}">${txt}</span><button title="Remove">×</button>`;
-    li.querySelector("button").onclick = () => deleteMark({ type: "sample", i });
-    ul.appendChild(li);
-  });
-}
-
 async function refreshReport() {
+  refreshReadings();
   clearTimeout(refreshReport.t);
   refreshReport.t = setTimeout(async () => {
-    try { const r = await api("report", { params: S.params, samples: S.samples }); S.report = r.report; S.casts = r.casts; renderSamples(); }
+    try { const r = await api("report", { params: S.params, samples: S.samples }); S.report = r.report; S.casts = r.casts; renderPoints(); }
     catch (e) { console.error(e); }
   }, 300);
 }
@@ -1635,15 +1616,17 @@ function drawCurvePanel(P) {
     if (!g.classic) ctrl.forEach((v, i) => { ctx.beginPath(); ctx.arc(g.x(CTRL_POS[i]), g.y(v), 2, 0, 7); ctx.fill(); });
   }
 
-  // where each probe sits on the curve(s): its tone, or its channel value in R/G/B
+  // where each point sits on the curve(s): its tone, or its channel value in R/G/B
   ctx.font = "12px sans-serif"; ctx.textAlign = "center";
-  S.probes.forEach((q, i) => {
-    const t = P === TONE && ["r", "g", "b"].includes(S.curve) ? q.res.output["rgb".indexOf(S.curve)] : q.res.tone;
-    const col = PROBE_COLORS[i % PROBE_COLORS.length];
-    ctx.strokeStyle = col; ctx.setLineDash([4, 3]); ctx.lineWidth = i === S.probeSel ? 1.6 : 1;
+  S.samples.forEach((sm, i) => {
+    const q = S.readings[i];
+    if (!q) return;
+    const t = P === TONE && ["r", "g", "b"].includes(S.curve) ? q.output["rgb".indexOf(S.curve)] : q.tone;
+    const col = sm.kind === "black" ? "#bbb" : KIND_COLOR[sm.kind];
+    ctx.strokeStyle = col; ctx.setLineDash([4, 3]); ctx.lineWidth = i === selPoint() ? 1.6 : 1;
     const ly = 12 + (i % 3) * 13;  // stagger labels so neighbours stay readable
     ctx.beginPath(); ctx.moveTo(g.x(t), ly + 2); ctx.lineTo(g.x(t), g.H); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = col; ctx.fillText("P" + (i + 1), g.x(t), ly);
+    ctx.fillStyle = col; ctx.fillText(String(i + 1), g.x(t), ly);
   });
   if (S.push && S.push.tone != null) {
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
@@ -2213,7 +2196,7 @@ for (const k of SLIDERS) {
   el.addEventListener("change", () => { commit(); endDrag(); });
   el.addEventListener("dblclick", () => { S.params[k] = SLIDER_DEFAULTS[k]; syncControls(); render(); commit(); });
 }
-// ---- light the greys keep: what Solve samples aims for
+// ---- white balance: what Solve makes the greys look like
 let LIGHT_PRESETS = {};
 const PRESET_NAMES = { "overcast / shade": "Shade", neutral: "Neutral", daylight: "Daylight", "golden hour": "Golden hour", tungsten: "Tungsten" };
 
@@ -2231,7 +2214,7 @@ function syncLight() {
 // A changed light re-solves at once when there are samples, so you see its effect.
 function lightChanged() {
   syncLight(); commit();
-  if (S.samples.length) $("#btn-solve").onclick(); else refreshReport();
+  if (solvable()) $("#btn-solve").onclick(); else refreshReport();
 }
 
 function lightSlider(el, get, set) {
@@ -2369,7 +2352,6 @@ const ROTATE_CURSOR = `url("data:image/svg+xml,${encodeURIComponent('<svg xmlns=
 function setTool(t) {
   S.tool = t; S.dropper = false; markDroppers();
   if (["neutral", "white", "black", "skin"].includes(t)) setShown("samples", true);
-  if (t === "probe" && S.probes.length) setShown("probes", true);
   $$("[data-tool]").forEach((b) => b.classList.toggle("active", b.dataset.tool === t));
   overlay.style.cursor = t === "push" ? "move" : t === "light" ? "ns-resize" : "crosshair";
   if (t === "crop") fitView();
@@ -2391,10 +2373,10 @@ function setTool(t) {
 }
 // Eye buttons: show or hide samples / measured points on the image.
 function setShown(which, on) {
-  S[which === "samples" ? "showSamples" : "showProbes"] = on;
+  S.showSamples = on;
   const b = $(`[data-eye="${which}"]`);
   b.classList.toggle("off", !on);
-  b.title = (on ? "Hide " : "Show ") + (which === "samples" ? "samples" : "measured points") + " on the image";
+  b.title = (on ? "Hide " : "Show ") + "points on the image";
   drawOverlay();
 }
 $$("[data-eye]").forEach((b) => b.addEventListener("click", (ev) => {
@@ -2451,7 +2433,7 @@ try {
 
 $("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api("levels", { params: S.params })).params; syncControls(); render(); commit(); });
 $("#btn-solve").onclick = () => guard("Solve", async () => {
-  if (!S.samples.length) throw new Error("add some grey, white, black or skin samples first");
+  if (!solvable()) throw new Error("give a point a role (Grey, White, Black, Skin) or a zone first");
   const r = await api("solve", { params: S.params, samples: S.samples });
   S.params = r.params; S.report = r.report; S.casts = r.casts;
   // Solve bends the Colour by tone curves: widen that view if they no longer fit
@@ -2460,8 +2442,9 @@ $("#btn-solve").onclick = () => guard("Solve", async () => {
     const opt = [...$("#colour-zoom").options].find((o) => +o.value * 0.9 >= most) || [...$("#colour-zoom").options].pop();
     $("#colour-zoom").value = opt.value; S.colourZoom = +opt.value;
   }
-  syncControls(); render(); drawCurve(); drawLevels(); renderSamples(); commit();
+  syncControls(); render(); drawCurve(); drawLevels(); renderPoints(); commit();
 });
+$("#points-clear").onclick = () => { S.samples = []; S.sel = null; S.readings = []; S.report = []; commit(); renderPoints(); drawOverlay(); drawCurve(); };
 $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
 $("#btn-fit").onclick = fitView;
@@ -2519,7 +2502,7 @@ document.addEventListener("gesturestart", (ev) => ev.preventDefault());
 // ---------------------------------------------------------------- start
 async function load(name) {
   const d = await api("load", { name });
-  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.dust = d.dust; S.dustSel = null; S.dustVer = (S.dustVer || 0) + 1; S.versions = d.versions || []; S.undo = []; S.redo = []; S.probes = [];
+  S.doc = d; S.params = d.params; S.samples = d.samples || []; S.dust = d.dust; S.dustSel = null; S.dustVer = (S.dustVer || 0) + 1; S.versions = d.versions || []; S.undo = []; S.redo = []; S.sel = null; S.readings = [];
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
   LIGHT_PRESETS = d.light_presets; ZONES = d.zones || [];
@@ -2528,7 +2511,7 @@ async function load(name) {
   location.hash = encodeURIComponent(d.name);
   document.title = d.name + " · filmneg";
   S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; S.levelHist = null; S.levelHistKey = null;
-  syncControls(); setCurve(S.curve); setColourCurve(S.colourCurve); setLevelCh(S.levelCh); renderVersions(); setTool("probe"); renderSamples(); refreshReport();
+  syncControls(); setCurve(S.curve); setColourCurve(S.colourCurve); setLevelCh(S.levelCh); renderVersions(); setTool("probe"); renderPoints(); refreshReport();
   status(`${d.name} · ${d.width}×${d.height} · ${d.profile || "no profile, assuming sRGB"}`, 6000);
   render();
 }

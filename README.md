@@ -38,15 +38,16 @@ for Pixelmator.
    from the histogram. It runs by itself the first time you open a scan.
 2. Click a few **Grey** areas at different brightness (a wall in light, the
    same wall in shade, a dark grey), and **Skin** if there are people. Then
-   **Solve samples**. Each sample shows how far it still is from neutral, so
-   you can remove one that wasn't really grey. Solve changes only things you
-   can see and readjust by hand: greys and skin bend the **Colour by tone**
-   curves (gently, around the samples' brightness), **White** and **Black**
-   samples work like the eyedroppers in a classic Levels and set the R, G and
-   B input white / black points in **Levels** so that spot becomes neutral
-   white / black (anything brighter / darker clips). Base (exposure,
+   **Solve** (in the Points panel). Each sample shows how far it still is from
+   right, so you can remove one that wasn't really grey. Solve changes only
+   things you can see and readjust by hand: greys and skin bend the **Colour
+   by tone** curves (gently, around the samples' brightness), **White** and
+   **Black** samples work like the eyedroppers in a classic Levels and set the
+   R, G and B input white / black points in **Levels** so that spot becomes
+   neutral white / black (anything brighter / darker clips), and points with
+   a **zone** are put in it by the Light curve (see Points). Base (exposure,
    contrast, …) is never touched.
-3. Set the **White balance** (the panel under Samples): what Solve makes your
+3. Set the **White balance** (the panel under Points): what Solve makes your
    greys look like. Pure grey, or keeping the light the picture was taken
    in: the **Light** menu picks shade, daylight, golden hour or tungsten,
    **Warmth** sets anything in between (the menu then says Custom), **Tint**
@@ -60,7 +61,7 @@ for Pixelmator.
 
 | Key | Tool |
 |---|---|
-| P | Measure: click a spot or drag an area. Measured points stay pinned (P1, P2, …), update after every edit and are marked on the curves. hover one and click it to remove it (or press Delete), drag to move it |
+| P | Measure: click a spot or drag an area to pin a point that is only read (see Points). Points update after every edit and are marked on the curves. Hover one and click it to remove it (or press Delete), drag to move it |
 | C | Shift colour (the target button in Colour by tone): click a spot, drag towards a colour on the wheel. Bends warmth/tint gently at that brightness only; the further you drag, the stronger. Its bell shows in the Colour by tone panel while you drag |
 | L | Shift brightness (the target button in Curves): same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
@@ -72,12 +73,33 @@ for Pixelmator.
 | \\ (hold) | Before: the scan as the scanner delivered it |
 | ⌘Z / ⇧⌘Z or ⌘Y | Undo / redo (a short note on the image says what was undone) |
 
-Hover a sample or measured point (on the image or in its list) to highlight
-it: a small grey × badge appears, a click removes it (no modifier key), a drag
-moves it, and the Delete key works too. Under the
-samples, **Colour casts left** says in words what cast remains in the
-shadows, midtones and highlights (from your grey samples where there are
-some, otherwise from grey-ish areas of the picture) and what would fix it.
+Hover a point (on the image or in its list) to highlight it: a small grey ×
+badge appears, a click removes it (no modifier key), a drag moves it, and the
+Delete key works too.
+
+### Points
+
+Measured points and samples are one list in the **Points** panel, numbered 1,
+2, … on the image and on the curves. Click a row to see the point: change
+its role (*Measure only*, *Grey*, *White*, *Black*, *Skin*), give it a
+**zone**, and read what it is now (R/G/B, brightness and zone, colour in
+words, how it compares with skin). **Solve** makes every sample right and
+puts every point with a zone in it (see step 2). Under the list, **Casts
+left** says in words what cast remains in the shadows, midtones and
+highlights (from your grey samples where there are some, otherwise from
+grey-ish areas of the picture).
+
+**Correct just here** bends the Colour by tone curves around one point's
+brightness only: *Yellow ↔ blue* and *Magenta ↔ green* each take that much of
+the point's cast away (for a skin point, one slider pulls it onto the skin
+hue line). Its reach is the Shift colour width (`[` `]`).
+
+**Zones** are Ansel Adams' (each listed with what typically sits there: V
+grey card, grass, darker skin; VI light skin in sun; VIII textured snow, …).
+The Light curve bends, as simply and smoothly as it can, to put each point
+with a zone there (zone n at brightness n/10, as marked under the curves).
+The curve always keeps rising, so if two points are close in tone but far
+apart in zone, it stops at a gentle compromise and the point says *wants …*.
 
 The switch in the title of Base, Levels, Curves and Colour by tone turns
 that panel's adjustments off for a moment, to see what it does. It isn't
@@ -101,10 +123,9 @@ called "Before paste".
 **Versions.** *Save current as version* keeps the adjustments; click a version
 to switch to it (undo goes back), double-click its name to rename it.
 
-Click a panel's title to fold it away. The eye in the Samples and Measure
-panels hides those marks on the image. Samples are round with a numbered
-badge; measured points are square (a crosshair, or corner brackets for an
-area) and labelled P1, P2, …
+Click a panel's title to fold it away. The eye in the Points panel hides the
+points on the image. Samples are round with a numbered badge; points that are
+only measured are square (a crosshair, or corner brackets for an area).
 
 ### Levels
 
@@ -171,9 +192,9 @@ smooth ground (sky, walls, skin) score high; bright details in busy texture
 ### Vectorscope and colour wheels
 
 The **Vectorscope** panel plots the colour of every pixel like DaVinci's: hue
-round the circle, saturation outwards, faint colours behind it to show which
-way is which, small boxes for 75% red, yellow, green, cyan, blue, magenta and
-a dashed skin tone line. 2× (the default) or 4× magnify the middle, where
+round the circle, saturation outwards, each pixel glowing in its own colour,
+faint colours behind to show which way is which, corner brackets for 75% red,
+yellow, green, cyan, blue, magenta and a skin tone line. 2× (the default) or 4× magnify the middle, where
 most film colours live.
 
 Under it, three **colour wheels** (Shadows, Midtones, Highlights) are a
@@ -181,20 +202,6 @@ classic colour balance: drag the dot towards a colour (⌥ finer), double-click
 to centre it. They are another handle on the Colour by tone curves: the dot
 shows the curves' warmth and tint at that brightness, and dragging bends the
 curves there, so brightness stays where it is.
-
-**Correct** in the Measure panel does the same for one measured point: the
-slider bends the Colour by tone curves around that point's brightness until
-it reads neutral (*to grey*) or sits on the skin hue line (*as skin*); 50%
-takes half the cast away. Its reach is the Shift colour width (`[` `]`).
-
-**Zone** in the Measure panel does the same for brightness, with Ansel
-Adams' zones (each listed with what typically sits there: V grey card, grass,
-darker skin; VI light skin in sun; VIII textured snow, …). Give one or more
-measured points a zone and the Light curve bends, as simply and smoothly as
-it can, to put each of them there (zone n at brightness n/10, as marked
-under the curves). The curve always keeps rising, so if two points are close
-in tone but far apart in zone, it stops at a gentle compromise and the
-point says *wants …*.
 
 ### Curves and Colour by tone
 
@@ -242,10 +249,11 @@ let go. Crop, rotation and colour noise still render on the server.
 **Crossover.** The three dye layers of a colour film have slightly different
 contrast, so after inversion the cast changes with brightness: neutral mids,
 red shadows, cyan highlights. One white balance can't fix that. In the log
-domain each channel needs only an offset and a slope; *Solve samples* fits
-those for red and blue (green is the reference) by least squares through all
-your samples, with a penalty for moving far from where you are. With one
-sample it reduces to a white balance.
+domain each channel needs only an offset and a slope. Solve does the
+equivalent where you can see and change it: it bends the Colour by tone curves
+(warmth and tint by brightness) by least squares through all your samples,
+as smoothly and as little as it can. With one sample it reduces to a white
+balance.
 
 **Skin.** Skin hue is quite consistent across people; lightness and chroma
 vary much more. Skin samples are therefore a hue target, not a

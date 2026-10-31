@@ -329,10 +329,10 @@ def cast_report(rendered, colors, kinds, report, params, space: RGBSpace):
     else:
         spread = max(np.hypot(x[0] - y[0], x[1] - y[1]) for x in known for y in known)
         if spread < 6:
-            summary = "The same cast in all tones: one Grey sample and Solve samples (a white balance) fixes it."
+            summary = "The same cast in all tones: one Grey sample and Solve (a white balance) fixes it."
         else:
             summary = ("The cast changes with brightness: add Grey samples at several brightnesses "
-                       "and Solve samples.")
+                       "and Solve.")
     for i, (k, r) in enumerate(zip(kinds, report)):
         if k == "skin" and abs(r["hue_off"]) > 8:
             way = "too yellow" if r["hue_off"] > 0 else "too red/pink"

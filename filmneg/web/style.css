@@ -261,3 +261,20 @@ aside input.track-warm.mid::-webkit-slider-runnable-track { background: linear-g
 aside input.track-warm.mid::-moz-range-track { background: linear-gradient(90deg, #4f72ad, #55555a 50%, #b8913e); }
 aside input.track-tint::-webkit-slider-runnable-track { background: linear-gradient(90deg, #4f8f55, #55555a 50%, #a75aa7); }
 aside input.track-tint::-moz-range-track { background: linear-gradient(90deg, #4f8f55, #55555a 50%, #a75aa7); }
+/* points: one list for measured points and samples */
+#samples li { display: grid; grid-template-columns: 12px 18px 92px 1fr auto; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 5px; cursor: pointer; }
+#samples li.sel { background: #3478f6; color: #fff; }
+#samples li.sel .res, #samples li.sel .role { color: #e8eefc; }
+#samples .dot.sq { border-radius: 2px; }
+#samples .pn { font-variant-numeric: tabular-nums; color: var(--muted); }
+#samples .role { color: #ccc; }
+#samples .res { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#samples li button { background: none; box-shadow: none; padding: 0 4px; opacity: .6; }
+#point-detail { margin: 8px 0 4px; padding: 8px 10px; background: #2e2e30; border-radius: 8px; }
+#point-detail:empty { display: none; }
+#point-detail .reading { width: 100%; border-collapse: collapse; margin: 4px 0 2px; font-size: 12px; }
+#point-detail .reading td { padding: 1px 0; vertical-align: top; }
+#point-detail .reading td:first-child { width: 64px; color: var(--muted); }
+#points-actions button.primary { background: #3478f6; color: #fff; }
+#points-actions button:disabled { opacity: .45; cursor: default; }
+#point-detail .pop-row select { flex: 1; min-width: 0; max-width: 72%; text-overflow: ellipsis; }
