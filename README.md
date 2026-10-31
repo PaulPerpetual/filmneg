@@ -106,9 +106,10 @@ zone (V grey card, grass, darker skin; VI light skin in sun; VIII textured
 snow, …), with the numbers of the points in each zone now. Shaping the Light
 curve to put things where they belong is up to you; nothing is fitted.
 
-The switch in the title of Base, Levels, Curves and Colour by tone turns
-that panel's adjustments off for a moment, to see what it does. It isn't
-saved and doesn't touch the settings. Dust has its own *Repair here* switch.
+The switch in the title of Base, Levels, Curves, Colour by tone and Balance
+turns that panel's adjustments off for a moment, to see what it does (for
+Balance: the R, G and B channels' Levels, where it works). It isn't saved and
+doesn't touch the settings. The Vectorscope's switch just hides the scope. Dust has its own *Repair here* switch.
 The arrow next to it (also on Balance, and on the Vectorscope, where it centres
 the colour wheels) **reverts** that panel to its defaults. ⌘Z brings it back.
 
@@ -196,7 +197,10 @@ smooth ground (sky, walls, skin) score high; bright details in busy texture
 The **Vectorscope** panel plots the colour of every pixel like DaVinci's: hue
 round the circle, saturation outwards, each pixel glowing in its own colour,
 faint colours behind to show which way is which, corner brackets for 75% red,
-yellow, green, cyan, blue, magenta and a skin tone line. 2× (the default) or 4× magnify the middle, where
+yellow, green, cyan, blue, magenta and a skin tone line. **All / Shadows /
+Mids / Highlights** shows only pixels of that brightness: a cast that changes
+with brightness (film crossover) shows as the cloud moving off the centre in
+one of them. 2× (the default) or 4× magnify the middle, where
 most film colours live.
 
 Under it, three **colour wheels** (Shadows, Midtones, Highlights) are a

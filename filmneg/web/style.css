@@ -192,7 +192,7 @@ input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060,
 .tabs .target.active { background: #0a84ff; color: #fff; border-color: #0a84ff; }
 
 /* vectorscope and colour wheels */
-#scope { width: 100%; max-width: 300px; height: auto; display: block; margin: 6px auto; background: #000; border-radius: 10px; }
+#scope { width: 100%; max-width: 300px; height: auto; display: block; margin: 6px auto; }
 .scope-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .wheels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 6px 0; text-align: center; }
 .wheels canvas { width: 100%; max-width: 90px; height: auto; cursor: grab; display: block; margin: 0 auto; }

@@ -217,7 +217,7 @@
     </div>
 
     <div class="panel" id="light-panel">
-      <h3 title="Neutral balance from points: black, grey and white, like the eyedroppers of a classic Levels. Everything it sets is in Levels, where you can drag it on">Balance</h3>
+      <h3 title="Neutral balance from points: black, grey and white, like the eyedroppers of a classic Levels. Everything it sets is in Levels, where you can drag it on">Balance <button class="switch" data-power="balance" role="switch" aria-checked="true" title="Turn off for a moment to compare: the R, G and B channels' Levels (where Balance works) are left out. Not saved"><i></i></button></h3>
       <div id="balance-roles"></div>
       <div class="muted small" id="balance-hint">Pick measured points here, or click one with the eyedroppers in Levels (K, N, W). Black and white set each channel's end points, grey each channel's grey slider, all in Levels.</div>
       <div class="pop-row targets"><label title="Where black and white points land, 0–255. Not 0 and 255: a little density keeps them natural (Photoshop's usual 10 / 245)">Targets</label>
@@ -241,8 +241,8 @@
     </div>
 
     <div class="panel" id="scope-panel">
-      <h3>Vectorscope</h3>
-      <div class="scope-head"><span class="muted small">Hue round the circle, saturation outwards; the line is skin.</span>
+      <h3>Vectorscope <button class="switch" data-scope-power role="switch" aria-checked="true" title="Turn the scope off (it only shows, it doesn't change the picture)"><i></i></button></h3>
+      <div class="scope-head"><span class="tabs" id="scope-band" title="Show all pixels, or only the shadows, midtones or highlights: a cast that changes with brightness shows as the cloud moving"><button data-band="all" class="active">All</button><button data-band="0">Shadows</button><button data-band="1">Mids</button><button data-band="2">Highlights</button></span>
         <select id="scope-zoom" title="Magnify the middle of the scope">
           <option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option>
         </select></div>

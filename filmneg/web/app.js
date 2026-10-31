@@ -220,6 +220,7 @@ function viewParams() {
   if (S.tool === "crop") p.crop = [0, 0, 1, 1];
   if (OFF.has("base")) Object.assign(p, SLIDER_DEFAULTS, { slope: [1, 1, 1], offset: [0, 0, 0] });
   if (OFF.has("levels")) for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 });
+  if (OFF.has("balance")) for (const c of "rgb") Object.assign(p.levels[c], { lo: 0, gamma: 1, hi: 1 });  // where Balance works
   for (const n of OFF.has("curves") ? ["lightness", "r", "g", "b"] : []) p.curves[n] = Array(N_CTRL).fill(0);
   for (const n of OFF.has("colour") ? ["warmth", "tint"] : []) p.curves[n] = Array(N_CTRL).fill(0);
   // reviewing dust: the selected spot shows unrepaired until Return shows its repair
@@ -1436,13 +1437,26 @@ function hueDisc(size, alpha) {
   return (hueDisc.c[key] = c);
 }
 
+$$("#scope-band [data-band]").forEach((b) => (b.onclick = () => {
+  S.scopeBand = b.dataset.band;
+  $$("#scope-band [data-band]").forEach((x) => x.classList.toggle("active", x === b));
+  drawScope();
+}));
+$("[data-scope-power]").addEventListener("click", (ev) => {
+  ev.stopPropagation();  // the title click would fold the panel
+  const b = ev.currentTarget; S.scopeOff = !S.scopeOff;
+  b.setAttribute("aria-checked", String(!S.scopeOff));
+  $("#scope").hidden = S.scopeOff; $("#scope-band").hidden = S.scopeOff;
+  b.title = S.scopeOff ? "Turn the scope back on" : "Turn the scope off (it only shows, it doesn't change the picture)";
+  drawScope();
+});
+
 function drawScope() {
-  if (!scopeCanvas || !previewPx || $("#scope-panel").classList.contains("collapsed")) return;
+  if (!scopeCanvas || !previewPx || $("#scope-panel").classList.contains("collapsed") || S.scopeOff) return;
   const ctx = scopeCanvas.getContext("2d"), N = scopeCanvas.width, R = N / 2 - 10, cx = N / 2, cy = N / 2;
   const k = R / 0.5 * S.scopeZoom;  // screen px per unit of Cb/Cr
   ctx.clearRect(0, 0, N, N);
-  // DaVinci-style: black disc, grey graticule, the pixels glowing in their own colour
-  ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
+  // DaVinci-style graticule on the panel's own background, the pixels glowing in their own colour
   ctx.drawImage(hueDisc(256, 0.13), cx - R, cy - R, 2 * R, 2 * R);  // which way is which, faintly
   const GRAT = "rgba(150,150,150,.75)";  // graticule
   ctx.strokeStyle = GRAT; ctx.lineWidth = 1;
@@ -1471,7 +1485,9 @@ function drawScope() {
   // the pixels: density, each cell in the average colour of its pixels
   const G = 192, cnt = new Float32Array(G * G), sum = new Float32Array(G * G * 3), d = previewPx.data;
   let max = 0;
+  const band = S.scopeBand ?? "all", lim = [[0, 0.33], [0.33, 0.66], [0.66, 1.01]][band];
   for (let i = 0; i < d.length; i += 4) {
+    if (lim) { const y = (0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255; if (y < lim[0] || y >= lim[1]) continue; }
     const [b, r] = cbcr(d[i] / 255, d[i + 1] / 255, d[i + 2] / 255);
     const gx = Math.round((b * k / R + 1) * (G - 1) / 2), gy = Math.round((1 - r * k / R) * (G - 1) / 2);
     if (gx < 0 || gy < 0 || gx >= G || gy >= G) continue;
