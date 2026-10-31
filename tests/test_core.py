@@ -48,13 +48,15 @@ def test_solver_removes_crossover():
     worst = lambda rep: max(np.hypot(r["da"], r["db"]) for r in rep)
     assert worst(before) > 10
     assert worst(after) < 1.5
-    assert abs(p1["slope"][2] - 0.9) < 0.05
+    # only the Colour by tone curves were bent, the base stays as it was
+    assert p1["slope"] == p0["slope"] and p1["offset"] == p0["offset"] and p1["exposure"] == p0["exposure"]
 
 
 def test_single_sample_is_a_white_balance():
     scan = np.array([[0.6, 0.55, 0.45]], np.float32)
     p = analysis.solve(scan, ["neutral"], pipeline.default_params(), ADOBE_RGB)
-    assert abs(p["slope"][0] - 1) < 0.05 and abs(p["slope"][2] - 1) < 0.05
+    w = np.array(p["curves"]["warmth"])
+    assert w.max() - w.min() < 0.5 * np.abs(w).max()  # one sample: much the same shift at every tone
     rep = analysis.sample_report(scan, ["neutral"], p, ADOBE_RGB)[0]
     assert np.hypot(rep["da"], rep["db"]) < 1
 
@@ -64,7 +66,7 @@ def test_lighting_keeps_warmth():
     p = pipeline.default_params()
     p["light"]["warmth"] = 1.0  # golden hour
     p = analysis.solve(scan, ["neutral"], p, ADOBE_RGB)
-    rep = analysis.sample_report(scan, ["neutral"], pipeline.default_params() | {k: p[k] for k in ("slope", "offset")}, ADOBE_RGB)[0]
+    rep = analysis.sample_report(scan, ["neutral"], p | {"light": pipeline.default_params()["light"]}, ADOBE_RGB)[0]
     assert rep["db"] > 10  # the grey is left warm on purpose
 
 

@@ -110,26 +110,24 @@ def sample_report(colors, kinds, params, space: RGBSpace):
 
 
 def solve(colors, kinds, params, space: RGBSpace):
-    """Make the samples right with as small a change as possible.
+    """Make the samples right with as small and smooth a change as possible.
 
-    Grey and skin samples: a per-channel slope/offset in the log domain (see
-    _solve_grey). White and black samples work like the eyedroppers of a
+    Only Levels and the Colour by tone curves are changed, so everything Solve
+    does can be seen and readjusted by hand; the base (exposure, contrast, ...)
+    is left alone. White and black samples work like the eyedroppers of a
     classic Levels: they set the R, G and B input white / black points so the
-    sample becomes neutral white / black. Exposure and contrast are left alone.
+    sample becomes neutral white / black. Grey and skin samples then bend the
+    warmth and tint curves at their brightness (see _solve_curves); with greys
+    at several brightnesses that removes crossover, a cast that changes with tone.
     """
     colors = np.asarray(colors, dtype=np.float32)
     kinds = list(kinds)
     if not len(colors):
         return params
-    grey = [i for i, k in enumerate(kinds) if k not in ("white", "black")]
-    gc, gk = colors[grey], [kinds[i] for i in grey]
-    out = _solve_grey(gc, gk, params, space) if grey else dict(params)
-    if len(grey) == len(kinds):
-        return out
-    out = eyedrop(colors, kinds, out, space)
-    # pinning white and black moves the greys a little; the R and B grey sliders
-    # (levels gamma) bring them back, the way a grey eyedropper would
-    return _solve_gamma(gc, gk, out, space) if grey else out
+    out = eyedrop(colors, kinds, params, space)
+    if any(k not in ("white", "black") for k in kinds):
+        out = _solve_curves(colors, kinds, out, space)
+    return out
 
 
 def eyedrop(colors, kinds, params, space: RGBSpace):
@@ -151,21 +149,6 @@ def eyedrop(colors, kinds, params, space: RGBSpace):
     return {**params, "levels": levels}
 
 
-def _solve_gamma(colors, kinds, params, space: RGBSpace):
-    """Red and blue levels gamma that make grey and skin samples right (green stays)."""
-    levels = params["levels"]
-    g0 = np.log([levels["r"]["gamma"], levels["b"]["gamma"]])
-
-    def unpack(x):
-        lv = {ch: dict(v) for ch, v in levels.items()}
-        lv["r"]["gamma"], lv["b"]["gamma"] = [float(np.clip(np.exp(v), 0.1, 9.99)) for v in g0 + x]
-        return {**params, "levels": lv}
-
-    res = least_squares(lambda x: _grey_residuals(colors, kinds, unpack(x), params, space, 0.003 * x),
-                        np.zeros(2), jac=lambda x: _jac(lambda y: _grey_residuals(colors, kinds, unpack(y), params, space, 0.003 * y), x))
-    return unpack(res.x)
-
-
 def _grey_residuals(colors, kinds, p, params, space, reg):
     skin_n = np.array([-np.sin(SKIN_HUE), np.cos(SKIN_HUE)])  # normal to the skin hue ray
     lab = _oklab(render_pixels(colors, p, space), space)
@@ -185,33 +168,28 @@ def _jac(f, x, h=1e-3):
     return np.stack([(f(x + h * e) - f0) / h for e in np.eye(len(x))], axis=1)
 
 
-def _solve_grey(colors, kinds, params, space: RGBSpace):
-    """Smallest per-channel slope/offset change that makes grey and skin samples right.
-
-    Green is the reference; red and blue each get a slope and an offset in the
-    log domain. With samples at several brightnesses this removes crossover
-    (a cast that changes with tone); with one sample it reduces to a white
-    balance, because the slopes are held near 1 by regularisation.
-    """
-    base_slope = np.array(params["slope"], float)
-    base_offset = np.array(params["offset"], float)
+def _solve_curves(colors, kinds, params, space: RGBSpace):
+    """Smallest smooth change of the warmth and tint curves that makes the samples
+    neutral (or the light's target; skin: on the skin hue line). White and black
+    samples count as greys, so the ends stay neutral too."""
+    c0 = {n: np.asarray(params["curves"][n], float) for n in ("warmth", "tint")}
+    n = len(c0["warmth"])
+    grey_kinds = ["neutral" if k in ("white", "black") else k for k in kinds]
 
     def unpack(x):
-        p = dict(params)
-        p["slope"] = [base_slope[0] + x[0], base_slope[1], base_slope[2] + x[1]]
-        p["offset"] = [base_offset[0] + x[2], base_offset[1], base_offset[2] + x[3]]
-        return p
+        cv = dict(params["curves"])
+        cv["warmth"] = [float(v) for v in c0["warmth"] + x[:n]]
+        cv["tint"] = [float(v) for v in c0["tint"] + x[n:]]
+        return {**params, "curves": cv}
 
     def residuals(x):
-        # keep slopes near where they were, and offsets small
-        return _grey_residuals(colors, kinds, unpack(x), params, space,
-                               np.concatenate([0.01 * x[:2], 0.003 * x[2:4]]))
+        d = [x[:n], x[n:]]
+        # small and smooth: the change spreads gently between the samples' tones
+        reg = np.concatenate([0.005 * v for v in d] + [0.3 * np.diff(v, 2) for v in d])
+        return _grey_residuals(colors, grey_kinds, unpack(x), params, space, reg)
 
-    res = least_squares(residuals, np.zeros(4), jac=lambda x: _jac(residuals, x))
-    out = unpack(res.x)
-    out["slope"] = [float(v) for v in out["slope"]]
-    out["offset"] = [float(v) for v in out["offset"]]
-    return out
+    res = least_squares(residuals, np.zeros(2 * n), jac=lambda x: _jac(residuals, x))
+    return unpack(res.x)
 
 
 BANDS = (("Shadows", 0.0, 0.33), ("Midtones", 0.33, 0.66), ("Highlights", 0.66, 1.01))  # encoded luma

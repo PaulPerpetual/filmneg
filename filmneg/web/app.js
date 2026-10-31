@@ -218,7 +218,6 @@ function viewParams() {
   const p = clone(S.params);
   if (S.tool === "crop") p.crop = [0, 0, 1, 1];
   if (OFF.has("base")) Object.assign(p, SLIDER_DEFAULTS);
-  if (OFF.has("samples")) { p.slope = [1, 1, 1]; p.offset = [0, 0, 0]; }
   if (OFF.has("levels")) for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 });
   for (const n of OFF.has("curves") ? ["lightness", "r", "g", "b"] : []) p.curves[n] = Array(N_CTRL).fill(0);
   for (const n of OFF.has("colour") ? ["warmth", "tint"] : []) p.curves[n] = Array(N_CTRL).fill(0);
@@ -229,11 +228,10 @@ function viewParams() {
 }
 // Revert: a panel's adjustments back to their defaults (one undo step brings them back).
 const REVERT = {
-  base: ["Base", (p) => Object.assign(p, SLIDER_DEFAULTS)],
+  base: ["Base", (p) => { Object.assign(p, SLIDER_DEFAULTS); p.slope = [1, 1, 1]; p.offset = [0, 0, 0]; }],  // (older versions solved into slope/offset)
   levels: ["Levels", (p) => { for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 }); }],
   curves: ["Curves", (p) => { for (const n of ["lightness", "r", "g", "b"]) p.curves[n] = Array(N_CTRL).fill(0); }],
   colour: ["Colour by tone", (p) => { for (const n of ["warmth", "tint"]) p.curves[n] = Array(N_CTRL).fill(0); }],
-  samples: ["Solved colour", (p) => { p.slope = [1, 1, 1]; p.offset = [0, 0, 0]; }],
   light: ["Light", (p) => { p.light = { warmth: 0, tint: 0, shadows: [0, 0], midtones: [0, 0], highlights: [0, 0] }; }],
 };
 const REVERT_ICON = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8.5h8a4 4 0 0 1 0 8H9"/><path d="M8 5 4.5 8.5 8 12"/></svg>';
@@ -1820,6 +1818,24 @@ levelsCanvas.addEventListener("gesturechange", (ev) => {
 });
 levelsCanvas.addEventListener("gestureend", () => (levelGesture = null));
 
+// Auto: each channel's black and white point where its histogram begins and ends
+// (ignoring the last 0.01%, so a few hot pixels don't count), grey in the middle.
+$("#level-auto").onclick = () => {
+  const H = S.levelHist;
+  if (!H) return;
+  const lv = S.params.levels;
+  [0, 1, 2].forEach((c) => {
+    const h = H.hist[c], n = h.reduce((a, b) => a + b, 0), tail = n * 1e-4;
+    let lo = 0, hi = H.bins - 1, acc = 0;
+    while (lo < hi && (acc += h[lo]) <= tail) lo++;
+    acc = 0;
+    while (hi > lo && (acc += h[hi]) <= tail) hi--;
+    Object.assign(lv["rgb"[c]], { lo: lo / H.bins, hi: Math.max((hi + 1) / H.bins, lo / H.bins + 2 / 255), gamma: 1 });
+  });
+  Object.assign(lv.rgb, { lo: 0, hi: 1, gamma: 1 });
+  drawLevels(); render(); commit();
+};
+
 $("#level-magnify").onclick = () => {
   S.levelMagnify = !S.levelMagnify;
   $("#level-magnify").classList.toggle("active", S.levelMagnify);
@@ -2189,7 +2205,14 @@ $("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api
 $("#btn-solve").onclick = () => guard("Solve", async () => {
   if (!S.samples.length) throw new Error("add some grey, white, black or skin samples first");
   const r = await api("solve", { params: S.params, samples: S.samples });
-  S.params = r.params; S.report = r.report; S.casts = r.casts; syncControls(); render(); renderSamples(); commit();
+  S.params = r.params; S.report = r.report; S.casts = r.casts;
+  // Solve bends the Colour by tone curves: widen that view if they no longer fit
+  const most = Math.max(...["warmth", "tint"].flatMap((n) => S.params.curves[n].map(Math.abs)));
+  if (most > S.colourZoom * 0.9) {
+    const opt = [...$("#colour-zoom").options].find((o) => +o.value * 0.9 >= most) || [...$("#colour-zoom").options].pop();
+    $("#colour-zoom").value = opt.value; S.colourZoom = +opt.value;
+  }
+  syncControls(); render(); drawCurve(); drawLevels(); renderSamples(); commit();
 });
 $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
