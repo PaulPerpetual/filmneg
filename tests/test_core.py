@@ -303,3 +303,14 @@ def test_balance_starts_afresh_and_has_strengths():
     both["balance"]["strength"]["white"] = 0.0
     eff = pipeline.balance_levels(both)
     assert all(abs(eff[c]["hi"] - 1) < 1e-9 for c in "rgb")
+
+
+def test_preview_jpeg_is_srgb():
+    # the preview goes out already in sRGB (tagged), so every browser shows it right
+    import io
+    from PIL import Image, ImageCms
+    adobe = np.array([[[0.5, 0.35, 0.2]]], np.float32)
+    im = Image.open(io.BytesIO(imageio.to_jpeg(adobe, ADOBE_RGB)))
+    assert "sRGB" in ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(im.info["icc_profile"])))
+    want = imageio.to_srgb(adobe, ADOBE_RGB)[0, 0] * 255
+    assert np.abs(np.asarray(im)[0, 0] - want).max() < 3

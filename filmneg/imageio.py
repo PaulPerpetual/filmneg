@@ -9,7 +9,7 @@ import numpy as np
 import tifffile
 from PIL import Image, ImageCms
 
-from .color import RGBSpace, space_from_profile_name
+from .color import SRGB, RGBSpace, space_from_profile_name
 
 
 @dataclass
@@ -70,9 +70,24 @@ def downsample(rgb, long_side):
     return rgb[:h2, :w2].reshape(h2 // f, f, w2 // f, f, 3).mean(axis=(1, 3)).astype(np.float32)
 
 
-def to_jpeg(rgb, icc=None, quality=90):
-    """Preview JPEG. The scan's profile is embedded so the browser colour-manages it."""
+_SRGB_ICC = ImageCms.ImageCmsProfile(ImageCms.createProfile("sRGB")).tobytes()
+
+
+def to_srgb(rgb, space: RGBSpace):
+    """Encoded values in the scan's space -> encoded sRGB, in float (no banding)."""
+    if space is SRGB:
+        return rgb
+    lin = space.decode(np.clip(rgb, 0, 1)) @ (np.linalg.inv(SRGB.to_xyz) @ space.to_xyz).T
+    return SRGB.encode(np.clip(lin, 0, 1))
+
+
+def to_jpeg(rgb, space: RGBSpace | None = None, quality=90):
+    """Preview JPEG, already converted to sRGB and tagged as such. Browsers then
+    show it right however they handle profiles; Safari in particular doesn't
+    reliably colour-manage images drawn on a canvas, which the viewer does."""
+    if space is not None:
+        rgb = to_srgb(rgb, space)
     buf = io.BytesIO()
     im = Image.fromarray(np.round(np.clip(rgb, 0, 1) * 255).astype(np.uint8))
-    im.save(buf, "JPEG", quality=quality, **({"icc_profile": icc} if icc else {}))
+    im.save(buf, "JPEG", quality=quality, icc_profile=_SRGB_ICC)
     return buf.getvalue()
