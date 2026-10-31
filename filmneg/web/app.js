@@ -1912,7 +1912,7 @@ function drawLevels() {
       ctx.fillStyle = LC.fill; ctx.fill();
       ctx.beginPath();
       for (let px = 0; px < g.span; px++) (px ? ctx.lineTo : ctx.moveTo).call(ctx, g.pad + px + 0.5, top(px));
-      ctx.strokeStyle = LC.line; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+      ctx.strokeStyle = LC.line; ctx.lineWidth = 1.1; ctx.lineJoin = "round"; ctx.stroke();
     });
   }
 
