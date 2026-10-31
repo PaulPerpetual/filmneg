@@ -169,11 +169,15 @@ def _jac(f, x, h=1e-3):
 
 
 def neutralize(color, kind, params, space: RGBSpace, sigma=0.15):
-    """The warmth / tint curve change, as a soft bump around this colour's own
-    brightness, that makes it neutral (or the light's target; skin: on the skin
-    hue line). Returned as control-point deltas, so it can be dialled in partly."""
+    """Warmth / tint curve changes, as a soft bump around this colour's own
+    brightness, that correct it, returned as control-point deltas so they can be
+    dialled in partly. "b" takes the yellow/blue cast away and leaves
+    magenta/green as it is, "a" the other way round; "full" does both (to grey,
+    or the light's target; for skin: onto the skin hue line)."""
     color = np.asarray([color], np.float32)
     tone = float(luma(render_pixels(color, params, space))[0])
+    L0, a0, b0 = _oklab(render_pixels(color, params, space), space)[0]
+    ta, tb = target(params, L0)
 
     def unpack(x):
         cv = dict(params["curves"])
@@ -181,9 +185,20 @@ def neutralize(color, kind, params, space: RGBSpace, sigma=0.15):
             cv[n] = list(np.asarray(cv[n], float) + curves.bump(tone, x[i], sigma))
         return {**params, "curves": cv}
 
-    f = lambda x: _grey_residuals(color, [kind], unpack(x), params, space, 0.001 * x)
-    x = least_squares(f, np.zeros(2), jac=lambda x: _jac(f, x)).x
-    return {"tone": tone, **{n: [float(v) for v in curves.bump(tone, x[i], sigma)] for i, n in enumerate(("warmth", "tint"))}}
+    def axis(want_a, want_b):
+        def f(x):
+            _, a, b = _oklab(render_pixels(color, unpack(x), space), space)[0]
+            return np.array([a - want_a, b - want_b, *(0.001 * x)])
+        return f
+
+    out = {"tone": tone}
+    fits = {"full": lambda x: _grey_residuals(color, [kind], unpack(x), params, space, 0.001 * x)}
+    if kind != "skin":
+        fits.update(b=axis(a0, tb), a=axis(ta, b0))
+    for name, f in fits.items():
+        x = least_squares(f, np.zeros(2), jac=lambda x, f=f: _jac(f, x)).x
+        out[name] = {n: [float(v) for v in curves.bump(tone, x[i], sigma)] for i, n in enumerate(("warmth", "tint"))}
+    return out
 
 
 # Ansel Adams' zones: where things typically sit, from black to paper white.

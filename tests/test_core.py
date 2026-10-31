@@ -264,10 +264,14 @@ def test_neutralize_a_measured_point():
     col = np.array([0.55, 0.5, 0.42], np.float32)
     p = pipeline.default_params()
     r = analysis.neutralize(col, "neutral", p, ADOBE_RGB, sigma=0.12)
-    q = {**p, "curves": {**p["curves"], "warmth": r["warmth"], "tint": r["tint"]}}
-    rep = analysis.sample_report(col[None], ["neutral"], q, ADOBE_RGB)[0]
+    fix = lambda d: {**p, "curves": {**p["curves"], "warmth": d["warmth"], "tint": d["tint"]}}
+    rep = analysis.sample_report(col[None], ["neutral"], fix(r["full"]), ADOBE_RGB)[0]
     assert np.hypot(rep["da"], rep["db"]) < 1
-    w = np.abs(r["warmth"])
+    # yellow/blue alone: b goes, a stays where it was
+    before = analysis.sample_report(col[None], ["neutral"], p, ADOBE_RGB)[0]
+    rep = analysis.sample_report(col[None], ["neutral"], fix(r["b"]), ADOBE_RGB)[0]
+    assert abs(rep["db"]) < 1 and abs(rep["da"] - before["da"]) < 1
+    w = np.abs(r["full"]["warmth"])
     assert w[0] < 0.2 * w.max() and w[-1] < 0.2 * w.max()
 
 

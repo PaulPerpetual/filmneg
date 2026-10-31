@@ -1040,10 +1040,11 @@ function showProbeDetail(p, name) {
     <tr><td>if skin</td><td>${skin}</td></tr>
     <tr><td>zone</td><td><select id="probe-zone" title="Where this should sit in Ansel Adams' zone system. The Light curve bends, as simply as it can, to put every point with a zone there">
       <option value="">place in a zone…</option>${ZONES.map((z, i) => `<option value="${i}"${probeZone() === i ? " selected" : ""}>${z}</option>`).join("")}</select>${probeZone() != null && Math.abs(p.tone * 10 - probeZone()) > 0.5 ? `<div class="muted small">Not quite there: another point with a zone is too close in tone, so the curve stops at a gentle compromise.</div>` : ""}</td></tr>
-    <tr><td>correct</td><td class="probe-fix"><input id="probe-fix" type="range" min="0" max="1" step="0.01" value="${probeFixAmount()}"
-      title="Bends the Colour by tone curves around this brightness until this spot reads neutral (or like skin). Width as for Shift colour ([ ])">
-      <span id="probe-fix-num" class="num ro">${Math.round(probeFixAmount() * 100)}%</span>
-      <select id="probe-fix-kind" title="What this spot should be"><option value="neutral">to grey</option><option value="skin"${probeFix() && probeFix().kind === "skin" ? " selected" : ""}>as skin</option></select></td></tr></table>`;
+    <tr><td>correct</td><td><select id="probe-fix-kind" title="What this spot should be"><option value="neutral">to grey</option><option value="skin"${probeFix() && probeFix().kind === "skin" ? " selected" : ""}>as skin</option></select></td></tr>
+    ${(probeFix() && probeFix().kind === "skin" ? [["warmth", "toward skin", ""]] : [["warmth", "yellow↔blue", "track-warm"], ["tint", "magenta↔green", "track-tint"]]).map(([n, label, cls]) => `
+    <tr><td class="muted">${label}</td><td class="probe-fix"><input data-fix="${n}" class="${cls}" type="range" min="0" max="1" step="0.01" value="${probeFixAmount()[n]}"
+      title="Takes this much of the ${label} cast away, by bending the Colour by tone curves around this brightness. Width as for Shift colour ([ ])">
+      <span data-fix-num="${n}" class="num ro">${Math.round(probeFixAmount()[n] * 100)}%</span></td></tr>`).join("")}</table>`;
   wireProbeFix();
   $("#probe-zone").onchange = (e) => placeZones(e.target.value === "" ? null : +e.target.value);
 }
@@ -1070,38 +1071,48 @@ let ZONES = [];
 // once when you grab the slider; the slider then dials in a part of it. It keeps
 // its place as long as the curves weren't changed some other way meanwhile.
 const probeFix = () => { const q = S.probes[S.probeSel ?? S.probes.length - 1]; return q && q.fix; };
-function fixCurves(F, f) {
-  return { warmth: addTo(F.base.warmth, F.delta.warmth.map((v) => v * f)), tint: addTo(F.base.tint, F.delta.tint.map((v) => v * f)) };
+// each slider brings in its own correction (yellow/blue only, magenta/green only)
+function fixCurves(F) {
+  const out = { warmth: [...F.base.warmth], tint: [...F.base.tint] };
+  for (const k of ["warmth", "tint"]) {
+    const d = F.delta[k];
+    if (d) for (const n of ["warmth", "tint"]) out[n] = addTo(out[n], d[n].map((v) => v * F.f[k]));
+  }
+  return out;
 }
+// How much of each correction is in, or none if the curves were changed some other way since.
 function probeFixAmount() {
-  const F = probeFix();
-  if (!F) return 0;
-  const c = fixCurves(F, F.f), cur = S.params.curves;
+  const F = probeFix(), none = { warmth: 0, tint: 0 };
+  if (!F) return none;
+  const c = fixCurves(F), cur = S.params.curves;
   const same = ["warmth", "tint"].every((n) => c[n].every((v, i) => Math.abs(v - cur[n][i]) < 1e-9));
-  return same ? F.f : 0;
+  return same ? F.f : none;
 }
 function wireProbeFix() {
-  const el = $("#probe-fix"), kind = $("#probe-fix-kind"), q = S.probes[clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1)];
-  if (!el || !q) return;
+  const kind = $("#probe-fix-kind"), q = S.probes[clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1)];
+  if (!kind || !q) return;
   let ready = null;
   const grab = () => {
     startDrag();
-    if (q.fix && probeFixAmount() === q.fix.f && q.fix.kind === kind.value) { ready = Promise.resolve(q.fix); return; }
+    if (q.fix && q.fix.delta.warmth && probeFixAmount() === q.fix.f && q.fix.kind === kind.value) { ready = Promise.resolve(q.fix); return; }
     const base = { warmth: [...S.params.curves.warmth], tint: [...S.params.curves.tint] };
     ready = api("neutralize", { params: S.params, at: q.at, kind: kind.value, sigma: S.width })
-      .then((r) => (q.fix = { kind: kind.value, base, delta: { warmth: r.warmth, tint: r.tint }, f: 0 }));
+      .then((r) => (q.fix = { kind: kind.value, base, delta: r.b ? { warmth: r.b, tint: r.a } : { warmth: r.full }, f: { warmth: 0, tint: 0 } }));
   };
-  el.addEventListener("pointerdown", grab);
-  el.addEventListener("input", async () => {
-    if (!ready) grab();
-    const F = await ready, f = +el.value;
-    F.f = f;
-    Object.assign(S.params.curves, fixCurves(F, f));
-    $("#probe-fix-num").textContent = Math.round(f * 100) + "%";
-    render(); drawCurve();
+  $$("[data-fix]").forEach((el) => {
+    const n = el.dataset.fix;
+    el.addEventListener("pointerdown", grab);
+    el.addEventListener("input", async () => {
+      if (!ready) grab();
+      const F = await ready;
+      F.f[n] = +el.value;
+      Object.assign(S.params.curves, fixCurves(F));
+      $(`[data-fix-num="${n}"]`).textContent = Math.round(F.f[n] * 100) + "%";
+      render(); drawCurve();
+    });
+    el.addEventListener("change", () => { ready = null; commit(); endDrag(); });
   });
-  el.addEventListener("change", () => { ready = null; commit(); endDrag(); });
-  kind.onchange = () => { q.fix = null; el.value = 0; $("#probe-fix-num").textContent = "0%"; };
+  kind.onchange = () => { q.fix = kind.value === "skin" ? { kind: "skin", base: clone(S.params.curves), delta: {}, f: { warmth: 0, tint: 0 } } : null; showProbe(); };
 }
 
 // ---------------------------------------------------------------- samples

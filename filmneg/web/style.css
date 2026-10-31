@@ -206,7 +206,7 @@ input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060,
 .probe-fix input[type=range] { flex: 1; min-width: 60px; }
 #probe-detail select { max-width: 100%; }
 #probe-detail table { table-layout: fixed; width: 100%; }
-#probe-detail td:first-child { width: 64px; }
+#probe-detail td:first-child { width: 96px; }
 
 /* ---- Pixelmator Pro look: section headers with a switch, value above each slider */
 aside { background: #262628; border-left: 1px solid #1c1c1e; }
