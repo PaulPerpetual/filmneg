@@ -226,56 +226,72 @@ ZONES = [
 ]
 
 
+HANDLES = (0.25, 0.5, 0.75)  # shadows, midtones, highlights
+
+
+def three_handles(flat_ends):
+    """The only shapes the fits may use: three soft handles at shadows, mids and
+    highlights, like a curve with three points. Each is a tent reaching to its
+    neighbours (the B-spline rounds it off). flat_ends: the outer two keep their
+    value out to black / white (colour); otherwise they fade to 0 there, so the
+    black and white ends stay put (Light)."""
+    pos = curves.ctrl_positions(curves.N_CTRL)
+    basis = np.stack([np.clip(1 - np.abs(pos - c) / 0.25, 0, 1) for c in HANDLES])
+    if flat_ends:
+        basis[0, pos <= HANDLES[0]] = 1.0
+        basis[-1, pos >= HANDLES[-1]] = 1.0
+    return basis
+
+
 def place_zones(colors, zones, params, space: RGBSpace):
-    """Put each colour in its zone (brightness zone/10) with the smallest change of
-    the Light curve: it bends where the points sit and fades out around them, like
-    a soft drag there, so other tones stay where they were. The black and white
-    ends stay put, and the curve keeps rising (tones never swap places); a point
-    that would need that broken stops at a compromise."""
+    """Put each colour in its zone (brightness zone/10) by moving the Light curve's
+    three handles (shadows, mids, highlights) as little as possible. The black and
+    white ends stay put and the curve keeps rising (tones never swap places); a
+    point that would need more than that stops at a compromise."""
     colors = np.asarray(colors, np.float32)
     want = np.asarray(zones, float) / 10
     c0 = np.asarray(params["curves"]["lightness"], float)
+    basis = three_handles(flat_ends=False)
     grid = np.linspace(0, 1, 101)
 
     def unpack(x):
-        return {**params, "curves": {**params["curves"], "lightness": [float(v) for v in c0 + x]}}
+        return {**params, "curves": {**params["curves"], "lightness": [float(v) for v in c0 + x @ basis]}}
 
     def residuals(x):
         p = unpack(x)
         got = luma(render_pixels(colors, p, space))
         y = grid + curves.apply(np.asarray(p["curves"]["lightness"]), grid)
         rising = np.minimum(np.diff(y) * 100 - 0.15, 0)  # slope at least 0.15
-        # small (keeps far tones untouched) beats smooth here; a little smoothness
-        # only so the bend has soft shoulders
-        return np.concatenate([3 * (got - want), 0.08 * x, 0.01 * np.diff(x), 0.03 * np.diff(x, 2),
-                               3 * x[[0, -1]], rising])
+        return np.concatenate([3 * (got - want), 0.05 * x, rising])
 
-    x = least_squares(residuals, np.zeros(len(c0)), jac=lambda x: _jac(residuals, x), max_nfev=60).x
+    x = least_squares(residuals, np.zeros(len(HANDLES)), jac=lambda x: _jac(residuals, x), max_nfev=40).x
     return unpack(x)
 
 
 def _solve_curves(colors, kinds, params, space: RGBSpace):
-    """Smallest smooth change of the warmth and tint curves that makes the samples
-    neutral (or the light's target; skin: on the skin hue line). White and black
-    samples count as greys, so the ends stay neutral too."""
+    """Smallest change of the warmth and tint curves, using only their three
+    handles (shadows, mids, highlights, like a three-way colour balance), that
+    makes the samples neutral (or the light's target; skin: on the skin hue line).
+    White and black samples count as greys, so the ends stay neutral too. With so
+    few handles the curves stay simple and can't chase single samples."""
     c0 = {n: np.asarray(params["curves"][n], float) for n in ("warmth", "tint")}
-    n = len(c0["warmth"])
-    grey_kinds = ["neutral" if k in ("white", "black") else k for k in kinds]
+    basis = three_handles(flat_ends=True)
+    k = len(HANDLES)
+    grey_kinds = ["neutral" if q in ("white", "black") else q for q in kinds]
 
     def unpack(x):
         cv = dict(params["curves"])
-        cv["warmth"] = [float(v) for v in c0["warmth"] + x[:n]]
-        cv["tint"] = [float(v) for v in c0["tint"] + x[n:]]
+        cv["warmth"] = [float(v) for v in c0["warmth"] + x[:k] @ basis]
+        cv["tint"] = [float(v) for v in c0["tint"] + x[k:] @ basis]
         return {**params, "curves": cv}
 
     def residuals(x):
-        d = [x[:n], x[n:]]
-        # small and smooth: the change spreads gently between the samples' tones
-        # and stays level beyond them (no runaway at the ends)
-        reg = np.concatenate([0.005 * v for v in d] + [0.04 * np.diff(v) for v in d] + [0.3 * np.diff(v, 2) for v in d])
+        # the handles prefer to move together: one sample is a plain white balance,
+        # and only samples at other brightnesses make the cast differ by tone
+        reg = np.concatenate([0.002 * x, 0.03 * np.diff(x[:k]), 0.03 * np.diff(x[k:])])
         return _grey_residuals(colors, grey_kinds, unpack(x), params, space, reg)
 
-    res = least_squares(residuals, np.zeros(2 * n), jac=lambda x: _jac(residuals, x))
+    res = least_squares(residuals, np.zeros(2 * k), jac=lambda x: _jac(residuals, x))
     return unpack(res.x)
 
 

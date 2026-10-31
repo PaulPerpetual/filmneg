@@ -40,8 +40,9 @@ for Pixelmator.
    same wall in shade, a dark grey), and **Skin** if there are people. Then
    **Solve** (in the Points panel). Each sample shows how far it still is from
    right, so you can remove one that wasn't really grey. Solve changes only
-   things you can see and readjust by hand: greys and skin bend the **Colour
-   by tone** curves (gently, around the samples' brightness), **White** and
+   things you can see and readjust by hand: greys and skin move the **Colour
+   by tone** curves' three handles (shadows, mids, highlights, like a
+   three-way colour balance; one grey is a plain white balance), **White** and
    **Black** samples work like the eyedroppers in a classic Levels and set the
    R, G and B input white / black points in **Levels** so that spot becomes
    neutral white / black (anything brighter / darker clips). Brightness, the
@@ -103,9 +104,9 @@ snow, …). The Light curve bends, as simply and smoothly as it can, to put
 each point with a zone there (zone n at brightness n/10, as marked under the
 curves). Only brightness changes: colour stays as it is. The curve always
 keeps rising, so if two points are close in tone but far apart in zone, it
-stops at a gentle compromise and the point shows in orange. The change is
-kept to where the points are: shadows and highlights away from them stay put,
-and the black and white ends never move.
+stops at a gentle compromise and the point shows in orange. The fit only moves
+three soft handles on the curve (shadows, mids, highlights), so the curve stays
+simple; the black and white ends never move.
 
 The switch in the title of Base, Levels, Curves and Colour by tone turns
 that panel's adjustments off for a moment, to see what it does. It isn't

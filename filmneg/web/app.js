@@ -709,7 +709,7 @@ overlay.addEventListener("mousedown", async (ev) => {
     if (p.inside) S.dustMark = { sx: ev.offsetX, sy: ev.offsetY, x: p.x, y: p.y, r: 0 };
     return;
   }
-  if (S.hl) {  // the × next to a highlighted mark
+  if (S.hl && !S.dropper) {  // the × next to a highlighted mark
     const m = markOf(S.hl);
     if (m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10) { deleteMark(S.hl); return; }
     if (tool !== "crop" && S.hl) {  // a click removes the mark, a drag moves it, whatever the tool
@@ -749,7 +749,7 @@ overlay.addEventListener("mousedown", async (ev) => {
 
   if (["neutral", "white", "black", "skin", "probe"].includes(tool)) {
     const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - ev.offsetX, toScreen(s.x, s.y).y - ev.offsetY) < Math.max(radiusPx(s.r || 0), 8));
-    if (hit >= 0) { S.sel = hit; renderPoints(); S.sampleMove = { i: hit, sx: ev.clientX, sy: ev.clientY, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
+    if (hit >= 0 && !S.dropper) { S.sel = hit; renderPoints(); S.sampleMove = { i: hit, sx: ev.clientX, sy: ev.clientY, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
     // a click takes one point; dragging grows a circle from the click
     S.brush = { kind: tool === "probe" ? "measure" : tool, x: p.x, y: p.y, r: 0, sx: ev.clientX, sy: ev.clientY,
                 label: String(S.samples.length + 1) };
@@ -790,7 +790,7 @@ overlay.addEventListener("mousemove", (ev) => {
     return;
   }
   const m = S.hl && markOf(S.hl), onDel = m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10;
-  if (!onDel) setHighlight(markAt(ev.offsetX, ev.offsetY));
+  if (!onDel) setHighlight(S.dropper ? null : markAt(ev.offsetX, ev.offsetY));  // an eyedropper samples through points
   if (S.hl) hint("click to remove · drag to move");
   else if (hint.last === "click to remove · drag to move") hint("");
   overlay.style.cursor = onDel || S.hl ? "pointer" : S.tool === "push" ? "move" : S.tool === "light" ? "ns-resize" : "crosshair";
