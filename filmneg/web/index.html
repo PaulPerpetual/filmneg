@@ -213,17 +213,23 @@
     </div>
 
     <div class="panel" id="light-panel">
-      <h3 title="What your grey samples should look like after Solve samples: pure grey, or keeping the mood of the light">Light</h3>
+      <h3 title="The white balance Solve aims for: what your grey samples should look like afterwards. Pure grey, or keeping the mood of the light">White balance</h3>
+      <div class="pop-row"><label>Light</label><select id="light-preset" title="The light the picture was taken in; greys keep its warmth after Solve"></select></div>
       <div class="slider"><label>Warmth</label><input id="light-warmth" class="track-warm" type="range" min="-0.6" max="1.6" step="0.01" title="Double-click for neutral"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-      <div class="presets" id="light-presets"></div>
       <div class="slider"><label>Tint</label><input id="light-tint" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Green ← → magenta. Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
       <details id="light-ranges"><summary>By brightness</summary>
-        <div class="range-head"><span></span><span>warmth</span><span>tint</span></div>
-        <div class="range-row"><label>Highlights</label><input data-range="highlights" data-i="0" class="track-warm" type="range" min="-1" max="1" step="0.01"><input data-range="highlights" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01"></div>
-        <div class="range-row"><label>Midtones</label><input data-range="midtones" data-i="0" class="track-warm" type="range" min="-1" max="1" step="0.01"><input data-range="midtones" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01"></div>
-        <div class="range-row"><label>Shadows</label><input data-range="shadows" data-i="0" class="track-warm" type="range" min="-1" max="1" step="0.01"><input data-range="shadows" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01"></div>
-        <div class="muted small">Leans each range on top of the overall light, e.g. warm highlights with neutral shadows. Double-click a slider for 0.</div>
+        <div class="range-title">Highlights</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="highlights" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="highlights" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="range-title">Midtones</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="midtones" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="midtones" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="range-title">Shadows</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="shadows" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="shadows" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="muted small">Leans each range on top of the overall white balance, e.g. warm highlights with neutral shadows.</div>
       </details>
+      <div class="muted small">Solve makes your grey samples look like this: neutral, or keeping the warmth of the light.</div>
     </div>
 
     <div class="panel" id="scope-panel">

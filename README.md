@@ -46,12 +46,13 @@ for Pixelmator.
    B input white / black points in **Levels** so that spot becomes neutral
    white / black (anything brighter / darker clips). Base (exposure,
    contrast, …) is never touched.
-3. Set **Light** (the panel under Samples) if the picture should keep
-   its light: Warmth runs from shade through daylight and golden hour to
-   tungsten (the chips jump to those, anything in between works), Tint leans
-   green or magenta. **By brightness** leans highlights, midtones and shadows
-   on their own, e.g. warm highlights with neutral shadows. With samples
-   placed, every change solves again at once.
+3. Set the **White balance** (the panel under Samples): what Solve makes your
+   greys look like. Pure grey, or keeping the light the picture was taken
+   in: the **Light** menu picks shade, daylight, golden hour or tungsten,
+   **Warmth** sets anything in between (the menu then says Custom), **Tint**
+   leans green or magenta. **By brightness** leans highlights, midtones and
+   shadows on their own, e.g. warm highlights with neutral shadows. With
+   samples placed, every change solves again at once.
 4. Set black and white points in **Levels** if the scan needs it.
 5. Fine-tune by hand with **Shift colour**, **Shift brightness** or the curves.
 
@@ -81,7 +82,7 @@ some, otherwise from grey-ish areas of the picture) and what would fix it.
 The switch in the title of Base, Levels, Curves and Colour by tone turns
 that panel's adjustments off for a moment, to see what it does. It isn't
 saved and doesn't touch the settings. Dust has its own *Repair here* switch.
-The arrow next to it (also on Light, and on the Vectorscope, where it centres
+The arrow next to it (also on White balance, and on the Vectorscope, where it centres
 the colour wheels) **reverts** that panel to its defaults. ⌘Z brings it back.
 
 The numbers next to the Base sliders are fields: click one, then ↑/↓ steps

@@ -160,7 +160,7 @@ function restore(snap) {
 
 // What changed between two snapshots, in words, for the undo/redo flash.
 const PARAM_NAMES = {
-  exposure: "Exposure", contrast: "Contrast", angle: "Rotation", distortion: "Lens distortion", shoulder: "Highlight roll-off", toe: "Shadow roll-off", saturation: "Saturation", nr: "Colour noise", light: "Light",
+  exposure: "Exposure", contrast: "Contrast", angle: "Rotation", distortion: "Lens distortion", shoulder: "Highlight roll-off", toe: "Shadow roll-off", saturation: "Saturation", nr: "Colour noise", light: "White balance",
   crop: "Crop", levels: "Levels", black: "Auto levels", white: "Auto levels", slope: "Colour balance", offset: "Colour balance", mode: "Mode",
 };
 const CURVE_LABELS = { warmth: "Yellow/blue curve", tint: "Magenta/green curve", lightness: "Light curve", r: "Red curve", g: "Green curve", b: "Blue curve" };
@@ -233,7 +233,7 @@ const REVERT = {
   levels: ["Levels", (p) => { for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 }); }],
   curves: ["Curves", (p) => { for (const n of ["lightness", "r", "g", "b"]) p.curves[n] = Array(N_CTRL).fill(0); }],
   colour: ["Colour by tone", (p) => { for (const n of ["warmth", "tint"]) p.curves[n] = Array(N_CTRL).fill(0); }],
-  light: ["Light", (p) => { p.light = { warmth: 0, tint: 0, shadows: [0, 0], midtones: [0, 0], highlights: [0, 0] }; }],
+  light: ["White balance", (p) => { p.light = { warmth: 0, tint: 0, shadows: [0, 0], midtones: [0, 0], highlights: [0, 0] }; }],
   // centres all three (a few rounds, since neighbouring wheels overlap a little)
   scope: ["Colour wheels", () => { for (let k = 0; k < 6; k++) for (const [, , tone] of WHEELS) setWheel(tone, [0, 0], clone(S.params.curves)); }],
 };
@@ -1399,11 +1399,11 @@ function drawScope() {
   const ctx = scopeCanvas.getContext("2d"), N = scopeCanvas.width, R = N / 2 - 10, cx = N / 2, cy = N / 2;
   const k = R / 0.5 * S.scopeZoom;  // screen px per unit of Cb/Cr
   ctx.clearRect(0, 0, N, N);
-  // DaVinci-style: black disc, gold graticule, the pixels glowing in their own colour
+  // DaVinci-style: black disc, grey graticule, the pixels glowing in their own colour
   ctx.fillStyle = "#050505"; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
   ctx.drawImage(hueDisc(256, 0.13), cx - R, cy - R, 2 * R, 2 * R);  // which way is which, faintly
-  const GOLD = "rgba(196,170,96,.8)";
-  ctx.strokeStyle = GOLD; ctx.lineWidth = 1;
+  const GRAT = "rgba(150,150,150,.75)";  // graticule
+  ctx.strokeStyle = GRAT; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
   for (let a = 0; a < 360; a += 5) {  // ticks round the rim, longer every 10°
     const t = a * Math.PI / 180, l = a % 10 ? 5 : 10;
@@ -1411,9 +1411,9 @@ function drawScope() {
   }
   ctx.stroke();
   const skin = cbcr(0.87, 0.64, 0.52), sl = Math.hypot(...skin);
-  ctx.strokeStyle = "rgba(220,200,170,.45)";
+  ctx.strokeStyle = "rgba(200,200,200,.4)";
   ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + skin[0] / sl * R, cy - skin[1] / sl * R); ctx.stroke();
-  ctx.font = "11px -apple-system, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = GOLD;
+  ctx.font = "11px -apple-system, sans-serif"; ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.fillStyle = GRAT;
   for (const [name, rgb] of [["R", [1, 0, 0]], ["Y", [1, 1, 0]], ["G", [0, 1, 0]], ["C", [0, 1, 1]], ["B", [0, 0, 1]], ["M", [1, 0, 1]]]) {
     const [b, r] = cbcr(...rgb.map((v) => v * 0.75)), x = cx + b * k, y = cy - r * k, d = Math.hypot(x - cx, y - cy);
     if (d > R - 16) {  // zoomed in: the target is off the scope, so just name the direction at the rim
@@ -2221,8 +2221,9 @@ function syncLight() {
   const L = S.params.light;
   $("#light-warmth").value = L.warmth; $("#light-warmth").nextElementSibling.value = (+L.warmth).toFixed(2);
   $("#light-tint").value = L.tint; $("#light-tint").nextElementSibling.value = (+L.tint).toFixed(2);
-  $$("#light-ranges input[data-range]").forEach((el) => (el.value = L[el.dataset.range][+el.dataset.i]));
-  $$("#light-presets button").forEach((b) => b.classList.toggle("on", Math.abs(LIGHT_PRESETS[b.dataset.p] - L.warmth) < 0.005));
+  $$("#light-ranges input[data-range]").forEach((el) => { el.value = L[el.dataset.range][+el.dataset.i]; el.nextElementSibling.value = (+el.value).toFixed(2); });
+  const hit = Object.keys(LIGHT_PRESETS).find((k) => Math.abs(LIGHT_PRESETS[k] - L.warmth) < 0.005);
+  $("#light-preset").value = hit || "custom";
   const leaning = ["shadows", "midtones", "highlights"].some((r) => L[r][0] || L[r][1]);
   $("#light-ranges summary").textContent = "By brightness" + (leaning ? " •" : "");
 }
@@ -2248,6 +2249,7 @@ function lightSlider(el, get, set) {
   });
   num.addEventListener("blur", () => syncLight());
 }
+$("#light-preset").onchange = (e) => { if (e.target.value in LIGHT_PRESETS) { S.params.light.warmth = LIGHT_PRESETS[e.target.value]; lightChanged(); } };
 lightSlider($("#light-warmth"), () => S.params.light.warmth, (v) => (S.params.light.warmth = v));
 lightSlider($("#light-tint"), () => S.params.light.tint, (v) => (S.params.light.tint = v));
 $$("#light-ranges input[data-range]").forEach((el) =>
@@ -2521,8 +2523,8 @@ async function load(name) {
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
   LIGHT_PRESETS = d.light_presets; ZONES = d.zones || [];
-  $("#light-presets").innerHTML = Object.keys(LIGHT_PRESETS).map((k) => `<button data-p="${k}">${PRESET_NAMES[k] || k}</button>`).join("");
-  $$("#light-presets button").forEach((b) => (b.onclick = () => { S.params.light.warmth = LIGHT_PRESETS[b.dataset.p]; lightChanged(); }));
+  $("#light-preset").innerHTML = Object.keys(LIGHT_PRESETS).sort((a, b) => LIGHT_PRESETS[a] - LIGHT_PRESETS[b])
+    .map((k) => `<option value="${k}">${PRESET_NAMES[k] || k}</option>`).join("") + `<option value="custom" disabled>Custom</option>`;
   location.hash = encodeURIComponent(d.name);
   document.title = d.name + " · filmneg";
   S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; S.levelHist = null; S.levelHistKey = null;
