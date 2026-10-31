@@ -11,7 +11,7 @@ the image is rendered from the original every time:
       -> soft highlight shoulder -> encode
       -> levels, classic: input black/grey/white and output black/white,
          per channel and then for all three together
-      -> curves (lightness, per-channel, warmth/tint as a function of tone)
+      -> curves (per-channel; lightness on brightness only; warmth/tint as a function of tone)
       -> saturation (Oklab)
 
 Chroma noise reduction is spatial, so it is applied to the input once and
@@ -147,7 +147,7 @@ def channel_stages(enc, params, space: RGBSpace):
     c = params["curves"]
     for i, ch in enumerate("rgb"):
         x = out[..., i]
-        out[..., i] = x + curves.apply(c["lightness"], x) + curves.apply(c[ch], x)
+        out[..., i] = x + curves.apply(c[ch], x)
     return out
 
 
@@ -170,8 +170,14 @@ def render_pixels(enc, params, space: RGBSpace):
         out = channel_stages(enc, params, space)
 
     c = params["curves"]
+    # Both the Light and the Colour by tone curves read the tone here, after levels
+    # and the R/G/B curves ("curve tone"). So bending the Light curve never moves a
+    # pixel onto another part of the colour curves: it changes brightness only. It
+    # adds the same amount to R, G and B, so colours keep their hue and their
+    # difference from grey.
+    t = np.clip(luma(out), 0.0, 1.0).astype(np.float32)
+    out += curves.apply(c["lightness"], t)[..., None]
     y0 = luma(out)
-    t = np.clip(y0, 0.0, 1.0).astype(np.float32)
     w = curves.apply(c["warmth"], t)   # + yellow / - blue
     m = curves.apply(c["tint"], t)     # + magenta / - green
     out[..., 0] += w / 2 + m / 3
@@ -185,6 +191,12 @@ def render_pixels(enc, params, space: RGBSpace):
         out = space.encode(np.clip(space.oklab_to_lin(lab), 0, None)).astype(np.float32)
 
     return np.clip(out, 0.0, 1.0)
+
+
+def curve_tone(enc, params, space: RGBSpace):
+    """The tone the Light and Colour by tone curves see for these colours: their
+    brightness after levels and the R/G/B curves, before those two curves."""
+    return np.clip(luma(channel_stages(np.asarray(enc, np.float32), params, space)), 0.0, 1.0)
 
 
 def geometry(img, angle=0.0, distortion=0.0):

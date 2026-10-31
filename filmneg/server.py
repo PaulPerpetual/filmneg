@@ -352,23 +352,23 @@ def make_handler(session: Session):
             p["black"], p["white"] = analysis.auto_levels(pipeline.geometry(s.proxies["preview"], p["angle"], p["distortion"]), p, s.scan.space)
             return {"params": p}
         if route in ("solve", "report"):
-            # points with a role are samples; "measure" points are only read. A zone on
-            # any point is placed by the Light curve.
+            # points with a role are samples; "measure" points are only read
             samples = body.get("samples", [])
             active = [x for x in samples if x.get("kind", "neutral") != "measure"]
             colors = s.sample_colors(active, p)
             kinds = [x["kind"] for x in active]
-            if route == "solve":
-                # brightness first: the colour by tone curves then act on the final tones
-                zoned = [x for x in samples if x.get("zone") is not None]
-                if zoned:
-                    p = analysis.place_zones(s.sample_colors(zoned, p), [x["zone"] for x in zoned], p, s.scan.space)
-                if active:
-                    p = analysis.solve(colors, kinds, p, s.scan.space)
+            if route == "solve" and active:
+                p = analysis.solve(colors, kinds, p, s.scan.space)
             rep = iter(analysis.sample_report(colors, kinds, p, s.scan.space) if active else [])
             report = [None if x.get("kind", "neutral") == "measure" else next(rep) for x in samples]
             out = {"report": report, "casts": s.casts(colors, kinds, [r for r in report if r], p)}
             return {"params": p, **out} if route == "solve" else out
+        if route == "zones":
+            # the Light curve only: points with a zone go there, colour stays as it is
+            zoned = [x for x in body.get("samples", []) if x.get("zone") is not None]
+            if zoned:
+                p = analysis.place_zones(s.sample_colors(zoned, p), [x["zone"] for x in zoned], p, s.scan.space)
+            return {"params": p}
         if route == "probe":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)
@@ -413,8 +413,9 @@ def make_handler(session: Session):
             tone = ramp[:, 0]
             shifts = np.stack([curves.apply(p["curves"]["warmth"], tone),
                                curves.apply(p["curves"]["tint"], tone)], axis=1)
+            light = curves.apply(p["curves"]["lightness"], tone)
             pack = lambda a: base64.b64encode(np.ascontiguousarray(a, "<f4").tobytes()).decode()
-            return {"n": LUT_N, "table": pack(table), "shifts": pack(shifts), "space": s.space_info()}
+            return {"n": LUT_N, "table": pack(table), "shifts": pack(shifts), "light": pack(light), "space": s.space_info()}
         if route == "dust_find":
             manual = [d for d in s.dust["spots"] if d.get("manual")]
             found = dust.find(s.scan.rgb, _unrotated_box(p, s.scan.rgb.shape),

@@ -4,7 +4,7 @@ from scipy.optimize import least_squares
 
 from . import curves
 from .color import SKIN_HUE, RGBSpace, luma
-from .pipeline import crop, pre_levels, render_pixels, to_working_linear
+from .pipeline import crop, curve_tone, pre_levels, render_pixels, to_working_linear
 
 # What "neutral" should look like under the light the picture was taken in.
 # Warmth 0 is pure grey; 1 is golden hour, a grey that stays recognisably warm.
@@ -168,6 +168,9 @@ def _jac(f, x, h=1e-3):
     return np.stack([(f(x + h * e) - f0) / h for e in np.eye(len(x))], axis=1)
 
 
+UNIT = 0.01
+
+
 def neutralize(color, kind, params, space: RGBSpace, sigma=0.15):
     """Warmth / tint curve changes, as a soft bump around this colour's own
     brightness, that correct it, returned as control-point deltas so they can be
@@ -175,7 +178,7 @@ def neutralize(color, kind, params, space: RGBSpace, sigma=0.15):
     magenta/green as it is, "a" the other way round; "full" does both (to grey,
     or the light's target; for skin: onto the skin hue line)."""
     color = np.asarray([color], np.float32)
-    tone = float(luma(render_pixels(color, params, space))[0])
+    tone = float(curve_tone(color, params, space)[0])  # where the colour curves see it
     L0, a0, b0 = _oklab(render_pixels(color, params, space), space)[0]
     ta, tb = target(params, L0)
 
@@ -191,10 +194,15 @@ def neutralize(color, kind, params, space: RGBSpace, sigma=0.15):
             return np.array([a - want_a, b - want_b, *(0.001 * x)])
         return f
 
-    out = {"tone": tone}
+    hue = np.arctan2(b0, a0)
+    out = {"tone": tone, "cast": {"warmth": float(b0 - tb), "tint": float(a0 - ta),
+                                  "skin": float(np.degrees(np.arctan2(np.sin(hue - SKIN_HUE), np.cos(hue - SKIN_HUE))))}}
     fits = {"full": lambda x: _grey_residuals(color, [kind], unpack(x), params, space, 0.001 * x)}
     if kind != "skin":
         fits.update(b=axis(a0, tb), a=axis(ta, b0))
+        # one unit (0.01) more yellow, or more magenta, with the other kept: lets a
+        # slider put the cast anywhere, linearly, also when it is already small
+        fits.update(unit_b=axis(a0, b0 + UNIT), unit_a=axis(a0 + UNIT, b0))
     for name, f in fits.items():
         x = least_squares(f, np.zeros(2), jac=lambda x, f=f: _jac(f, x)).x
         out[name] = {n: [float(v) for v in curves.bump(tone, x[i], sigma)] for i, n in enumerate(("warmth", "tint"))}
@@ -350,7 +358,9 @@ def probe(rgb, rendered, s, params, space: RGBSpace):
         "input": [float(v) for v in src],
         "output": [float(v) for v in out],
         "tone": float(luma(out)),
+        "ctone": float(curve_tone(src, params, space)),  # where it sits on the Light / Colour by tone curves
         "L": float(L), "a": float(a), "b": float(b),
+        "target": [float(v) for v in target(params, float(L))],  # where neutral is (the light's)
         "chroma": float(np.hypot(a, b)),
         "skin_hue_off": float(np.degrees(np.arctan2(np.sin(hue - SKIN_HUE), np.cos(hue - SKIN_HUE)))),
     }

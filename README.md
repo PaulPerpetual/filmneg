@@ -44,9 +44,8 @@ for Pixelmator.
    by tone** curves (gently, around the samples' brightness), **White** and
    **Black** samples work like the eyedroppers in a classic Levels and set the
    R, G and B input white / black points in **Levels** so that spot becomes
-   neutral white / black (anything brighter / darker clips), and points with
-   a **zone** are put in it by the Light curve (see Points). Base (exposure,
-   contrast, …) is never touched.
+   neutral white / black (anything brighter / darker clips). Brightness, the
+   Light curve and Base (exposure, contrast, …) are never touched.
 3. Set the **White balance** (the panel under Points): what Solve makes your
    greys look like. Pure grey, or keeping the light the picture was taken
    in: the **Light** menu picks shade, daylight, golden hour or tungsten,
@@ -81,25 +80,30 @@ Delete key works too.
 
 Measured points and samples are one list in the **Points** panel, numbered 1,
 2, … on the image and on the curves. Click a row to see the point: change
-its role (*Measure only*, *Grey*, *White*, *Black*, *Skin*), give it a
-**zone**, and read what it is now (R/G/B, brightness and zone, colour in
-words, how it compares with skin). **Solve** makes every sample right and
-puts every point with a zone in it (see step 2). Under the list, **Casts
+its role (*Measure only*, *Grey*, *White*, *Black*, *Skin*) and read what it
+is now (R/G/B, brightness and zone, colour in words, how it compares with
+skin). **Solve** makes every sample right (see step 2). Under the list, **Casts
 left** says in words what cast remains in the shadows, midtones and
 highlights (from your grey samples where there are some, otherwise from
 grey-ish areas of the picture).
 
-**Correct just here** bends the Colour by tone curves around one point's
-brightness only: *Yellow ↔ blue* and *Magenta ↔ green* each take that much of
-the point's cast away (for a skin point, one slider pulls it onto the skin
-hue line). Its reach is the Shift colour width (`[` `]`).
+**Correct just here** has a slider per cast: *Blue ↔ yellow* and *Green ↔
+magenta* (for a skin point, *Pink ↔ yellow* against typical skin). The middle
+is neutral, and the knob sits where the point's cast is now, so drag it
+toward the middle to correct, or double-click to make it neutral. It bends
+the Colour by tone curves around that point's brightness only; its reach is
+the Shift colour width (`[` `]`).
 
-**Zones** are Ansel Adams' (each listed with what typically sits there: V
-grey card, grass, darker skin; VI light skin in sun; VIII textured snow, …).
-The Light curve bends, as simply and smoothly as it can, to put each point
-with a zone there (zone n at brightness n/10, as marked under the curves).
-The curve always keeps rising, so if two points are close in tone but far
-apart in zone, it stops at a gentle compromise and the point says *wants …*.
+### Zones
+
+Under **Curves**, on the **Light** tab, each point can be given the zone it
+belongs in. The zones are Ansel Adams' (each listed with what typically sits
+there: V grey card, grass, darker skin; VI light skin in sun; VIII textured
+snow, …). The Light curve bends, as simply and smoothly as it can, to put
+each point with a zone there (zone n at brightness n/10, as marked under the
+curves). Only brightness changes: colour stays as it is. The curve always
+keeps rising, so if two points are close in tone but far apart in zone, it
+stops at a gentle compromise and the point shows in orange.
 
 The switch in the title of Base, Levels, Curves and Colour by tone turns
 that panel's adjustments off for a moment, to see what it does. It isn't
@@ -226,6 +230,10 @@ curves there, so brightness stays where it is.
   off the curve, like NURBS in Rhino, so they can't kink. The faint hairlines
   are a curvature comb: bumps there mean bumps in the tones.
 - The x-axis is labelled in zones (I to IX).
+- The **Light** curve changes brightness only: it adds the same amount to R,
+  G and B, so colours keep their hue. The Light and Colour by tone curves both
+  read a pixel's tone *before* the Light curve, so brightening or darkening
+  something never moves it onto another part of the colour curves.
 
 ## How it works
 

@@ -342,7 +342,7 @@ const SRGB_ENC = (() => {  // linear 0..1 in 65536 steps -> sRGB 8-bit
 
 // The same steps as pipeline.render_pixels after the per-channel table, then on to sRGB.
 function paintLive(lut) {
-  const { w, h, data } = liveSrc, n = lut.n, T = f32(lut.table), Sh = f32(lut.shifts), sp = lut.space;
+  const { w, h, data } = liveSrc, n = lut.n, T = f32(lut.table), Sh = f32(lut.shifts), Li = f32(lut.light), sp = lut.space;
   const N1 = n - 1, sat = OFF.has("base") ? 1 : S.params.saturation, toS = sp.to_srgb.flat();
   const dec = new Float32Array(n);  // encoded (scan space) -> linear
   for (let i = 0; i < n; i++) { const v = i / N1; dec[i] = sp.gamma ? v ** sp.gamma : v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }
@@ -352,7 +352,9 @@ function paintLive(lut) {
   const q = (v) => (v <= 0 ? 0 : v >= 1 ? N1 : (v * N1 + 0.5) | 0);
   for (let p = 0, j = 0; p < data.length; p += 3, j += 4) {
     let r = T[(data[p] >> 4) * 3], g = T[(data[p + 1] >> 4) * 3 + 1], b = T[(data[p + 2] >> 4) * 3 + 2];
-    const y0 = 0.2126 * r + 0.7152 * g + 0.0722 * b, t = q(y0), wm = Sh[t * 2], m = Sh[t * 2 + 1];
+    const t = q(0.2126 * r + 0.7152 * g + 0.0722 * b), dl = Li[t];  // the curve tone; Light: brightness only
+    r += dl; g += dl; b += dl;
+    const y0 = 0.2126 * r + 0.7152 * g + 0.0722 * b, wm = Sh[t * 2], m = Sh[t * 2 + 1];
     r += wm / 2 + m / 3; g -= 2 * m / 3; b += -wm / 2 + m / 3;
     const dy = y0 - (0.2126 * r + 0.7152 * g + 0.0722 * b);  // colour only: keep brightness
     r += dy; g += dy; b += dy;
@@ -779,7 +781,7 @@ overlay.addEventListener("mousedown", async (ev) => {
     startDrag(); drawOverlay();
     if (tool === "light") setCurve("lightness");  // colour shifts show in the Colour by tone panel
     const pr = await api("probe", { params: S.params, at });
-    if (S.push) { S.push.tone = pr.tone; applyPush(ev.altKey); }
+    if (S.push) { S.push.tone = pr.ctone; applyPush(ev.altKey); }
   }
 });
 
@@ -961,13 +963,14 @@ overlay.addEventListener("dblclick", (ev) => {
 
 // ---------------------------------------------------------------- points
 // One list of points on the image. Each has a role: just measured, or a Grey /
-// White / Black / Skin sample that Solve makes right; any of them can also get
-// an Adams zone, which Solve puts it in. Readings update after every edit.
+// White / Black / Skin sample that Solve makes right. Any of them can also get
+// an Adams zone (under Curves, Light), which only the Light curve serves.
+// Readings update after every edit.
 const ROLES = { measure: "Measure only", neutral: "Grey", white: "White", black: "Black", skin: "Skin" };
 const ZONE_NAMES = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 let ZONES = [];
 const selPoint = () => (S.samples.length ? clamp(S.sel ?? S.samples.length - 1, 0, S.samples.length - 1) : null);
-const solvable = () => S.samples.some((s) => s.kind !== "measure" || s.zone != null);
+const solvable = () => S.samples.some((s) => s.kind !== "measure");
 
 function addPoint(s) {
   S.samples.push(s); S.sel = S.samples.length - 1;
@@ -1008,7 +1011,7 @@ function pointStatus(s, i) {
   let bad = false;
   if (s.kind === "skin" && r) { parts.push(`hue ${fmt(r.hue_off, 0)}°`); bad = Math.abs(r.hue_off) > 8; }
   else if (s.kind !== "measure" && r) { parts.push(Math.hypot(r.da, r.db) < 4 ? "right" : `off ${fmt(r.db, 0)} / ${fmt(r.da, 0)}`); bad = Math.hypot(r.da, r.db) > 4; }
-  else if (q) parts.push(castWords(q.a, q.b).replace(/ \(.*\)/, ""));
+  else if (q) { const c = castNow(q); parts.push(castWords(c.tint / 1000, c.warmth / 1000).replace(/ \(.*\)/, "")); }
   return { text: parts.join(" · "), bad };
 }
 
@@ -1032,6 +1035,7 @@ function renderPoints() {
   });
   $("#btn-solve").disabled = !solvable();
   showPointDetail();
+  renderZones();
 }
 
 function showPointDetail() {
@@ -1040,53 +1044,80 @@ function showPointDetail() {
   const rgb = (v) => v.map((x) => Math.round(x * 255)).join(" / ");
   const skinOff = p && (Math.abs(p.skin_hue_off) < 5 ? "like typical skin" :
     `${Math.abs(p.skin_hue_off).toFixed(0)}° ${p.skin_hue_off > 0 ? "more yellow" : "more red/pink"} than typical skin`);
-  const fix = s.kind === "skin" ? [["warmth", "Toward skin", ""]] : [["warmth", "Yellow ↔ blue", "track-warm"], ["tint", "Magenta ↔ green", "track-tint"]];
-  const amt = probeFixAmount();
+  const now = castNow(p);
+  const fix = s.kind === "skin" ? [["skin", "Pink ↔ yellow", "track-skin", "°", "how far its hue is from typical skin; the middle is typical skin"]]
+    : [["warmth", "Blue ↔ yellow", "track-warm mid", "", "its yellow/blue cast; the middle is neutral"],
+       ["tint", "Green ↔ magenta", "track-tint", "", "its magenta/green cast; the middle is neutral"]];
   box.innerHTML = `
     <div class="pop-row"><label>Point ${i + 1} is</label><select id="point-role" title="Measure only, or a sample Solve makes right">
       ${Object.entries(ROLES).map(([k, v]) => `<option value="${k}"${k === s.kind ? " selected" : ""}>${v}</option>`).join("")}</select></div>
-    <div class="pop-row"><label>Zone</label><select id="point-zone" title="Where it should sit in Ansel Adams' zone system; Solve bends the Light curve, as simply as it can, to put it there">
-      <option value="">none</option>${ZONES.map((z, k) => `<option value="${k}"${s.zone === k ? " selected" : ""}>${z}</option>`).join("")}</select></div>
     ${p ? `<table class="reading">
       <tr><td>Now</td><td>R/G/B ${rgb(p.output)} · ${(p.tone * 100).toFixed(0)}%, about zone ${ZONE_NAMES[Math.round(p.tone * 10)]}</td></tr>
-      <tr><td>Colour</td><td>${castWords(p.a, p.b)} <span class="muted">(yellow ${fmt(p.b * 1000, 0)}, magenta ${fmt(p.a * 1000, 0)})</span></td></tr>
+      <tr><td>Colour</td><td>${castWords(now.tint / 1000, now.warmth / 1000)} <span class="muted">(yellow ${fmt(now.warmth, 0)}, magenta ${fmt(now.tint, 0)})</span></td></tr>
       ${s.kind === "skin" || s.kind === "measure" ? `<tr><td>As skin</td><td>${skinOff}</td></tr>` : ""}
       <tr><td>Scanned</td><td class="muted">R/G/B ${rgb(p.input)}</td></tr></table>` : ""}
-    <div class="range-title" title="Bends the Colour by tone curves around this point's brightness only. Width as for Shift colour ([ ])">Correct just here</div>
-    ${fix.map(([n, label, cls]) => `<div class="slider compact"><label>${label}</label><input data-fix="${n}" class="${cls}" type="range" min="0" max="1" step="0.01" value="${amt[n]}"
-      title="How much of this point's ${label.toLowerCase()} cast to take away"><span data-fix-num="${n}" class="num ro">${Math.round(amt[n] * 100)}%</span></div>`).join("")}`;
+    <div class="range-title" title="The knob shows where this point is now; the middle is neutral (for skin: typical skin). Drag toward the middle to correct it. This bends the Colour by tone curves around this point's brightness only; width as for Shift colour ([ ])">Correct just here</div>
+    ${fix.map(([n, label, cls, unit, what]) => { const R = fixRange(now[n]); return `<div class="slider compact"><label>${label}</label><input data-fix="${n}" class="${cls}" type="range" min="${-R}" max="${R}" step="0.5" value="${now[n].toFixed(1)}"
+      title="Where the point is now: ${what}. Drag toward the middle to correct, double-click to make it neutral"><span data-fix-num="${n}" class="num ro">${fmt(now[n], 0)}${unit}</span></div>`; }).join("")}`;
   $("#point-role").onchange = (e) => { s.kind = e.target.value; commit(); renderPoints(); drawOverlay(); };
-  $("#point-zone").onchange = (e) => {
-    s.zone = e.target.value === "" ? undefined : +e.target.value;
-    if (s.zone === undefined) delete s.zone;
-    commit(); renderPoints();
-    if (s.zone != null) $("#btn-solve").onclick();
-  };
   wireProbeFix();
 }
 
-// ---- "correct just here": pull the curves around a point's brightness so it reads
-// neutral (or, for a skin point, onto the skin hue line). The full correction is
-// worked out once when you grab a slider; the sliders then dial in a part of it,
-// yellow/blue and magenta/green each on their own. They keep their place as long
-// as the curves weren't changed some other way meanwhile.
-const FIXES = new WeakMap();  // point -> its correction
-const probeFix = () => { const s = S.samples[selPoint()]; return s && FIXES.get(s); };
+// ---- zones (Curves, Light): each point can be given the zone it belongs in; the
+// Light curve then bends to put it there. Brightness only, colour stays.
+function renderZones() {
+  const box = $("#zones-box");
+  box.hidden = S.curve !== "lightness";
+  if (box.hidden) return;
+  $("#zones-empty").hidden = S.samples.length > 0;
+  const sel = selPoint();
+  $("#zones-list").innerHTML = S.samples.map((s, i) => {
+    const q = S.readings[i];
+    const now = q ? `${(q.tone * 100).toFixed(0)}% · ${ZONE_NAMES[clamp(Math.round(q.tone * 10), 0, 10)]}` : "";
+    const off = q && s.zone != null && Math.abs(q.tone * 10 - s.zone) > 0.5;
+    return `<li data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot${s.kind === "measure" ? " sq" : ""}" style="background:${KIND_COLOR[s.kind]}"></span><span class="pn">${i + 1}</span>
+      <span class="res${off ? " bad" : ""}" title="${off ? "Can't get there without bending the curve too far, or other points ask for the opposite" : "Brightness now, and its zone"}">${now}</span>
+      <select title="The zone this point belongs in"><option value="">no zone</option>${ZONES.map((z, k) => `<option value="${k}"${s.zone === k ? " selected" : ""}>${z}</option>`).join("")}</select></li>`;
+  }).join("");
+  $$("#zones-list li").forEach((li) => {
+    const i = +li.dataset.i, s = S.samples[i];
+    li.onmouseenter = () => setHighlight({ type: "sample", i });
+    li.onmouseleave = () => setHighlight(null);
+    li.querySelector("select").onchange = (e) => {
+      if (e.target.value === "") delete s.zone; else s.zone = +e.target.value;
+      S.sel = i; placeZones();
+    };
+  });
+}
+
+const placeZones = () => guard("Zones", async () => {
+  if (S.samples.some((s) => s.zone != null)) S.params = (await api("zones", { params: S.params, samples: S.samples })).params;
+  syncControls(); render(); drawCurve(); renderPoints(); commit();
+});
+
+// ---- "correct just here": a slider per cast axis whose knob shows where the point
+// is now (the middle is neutral, for skin: the typical skin hue). Moving it bends the
+// Colour by tone curves around the point's brightness to put the point there. The
+// server gives, once per grab, the curve change for one unit more yellow / magenta
+// (skin: the change onto the skin line), and the slider scales it linearly.
+const FIXES = new WeakMap();  // point -> {kind, base curves, delta per axis, f per axis, cast at grab}
+const castNow = (p) => {
+  if (!p) return { warmth: 0, tint: 0, skin: 0 };
+  const [ta, tb] = p.target || [0, 0];
+  return { warmth: (p.b - tb) * 1000, tint: (p.a - ta) * 1000, skin: p.skin_hue_off };
+};
+const fixRange = (v) => Math.max(30, Math.ceil((Math.abs(v) * 1.3) / 10) * 10);
 function fixCurves(F) {
   const out = { warmth: [...F.base.warmth], tint: [...F.base.tint] };
-  for (const k of ["warmth", "tint"]) {
-    const d = F.delta[k];
-    if (d) for (const n of ["warmth", "tint"]) out[n] = addTo(out[n], d[n].map((v) => v * F.f[k]));
+  for (const [k, d] of Object.entries(F.delta)) {
+    if (d && F.f[k]) for (const n of ["warmth", "tint"]) out[n] = addTo(out[n], d[n].map((v) => v * F.f[k]));
   }
   return out;
 }
-function probeFixAmount() {
-  const F = probeFix(), none = { warmth: 0, tint: 0 };
-  if (!F) return none;
+const fixStillOn = (F) => {
   const c = fixCurves(F), cur = S.params.curves;
-  const same = ["warmth", "tint"].every((n) => c[n].every((v, i) => Math.abs(v - cur[n][i]) < 1e-9));
-  return same ? F.f : none;
-}
+  return ["warmth", "tint"].every((n) => c[n].every((v, i) => Math.abs(v - cur[n][i]) < 1e-9));
+};
 function wireProbeFix() {
   const s = S.samples[selPoint()];
   if (!s) return;
@@ -1095,25 +1126,41 @@ function wireProbeFix() {
   const grab = () => {
     startDrag();
     const F = FIXES.get(s);
-    if (F && F.kind === kind && probeFixAmount() === F.f) { ready = Promise.resolve(F); return; }
+    if (F && F.kind === kind && fixStillOn(F)) { ready = Promise.resolve(F); return; }
     const base = { warmth: [...S.params.curves.warmth], tint: [...S.params.curves.tint] };
     ready = api("neutralize", { params: S.params, at: { x: s.x, y: s.y, r: s.r }, kind, sigma: S.width }).then((r) => {
-      const F = { kind, base, delta: r.b ? { warmth: r.b, tint: r.a } : { warmth: r.full }, f: { warmth: 0, tint: 0 } };
+      const F = { kind, base, cast: { warmth: r.cast.warmth * 1000, tint: r.cast.tint * 1000, skin: r.cast.skin },
+        delta: kind === "skin" ? { skin: r.full } : { warmth: r.unit_b, tint: r.unit_a }, f: {} };
       FIXES.set(s, F); return F;
     });
   };
-  $$("[data-fix]").forEach((el) => {
+  const unit = kind === "skin" ? "°" : "";
+  const setTo = async (el, v) => {
     const n = el.dataset.fix;
+    if (!ready) grab();
+    const F = await ready;
+    if (n === "skin") F.f.skin = Math.abs(F.cast.skin) > 0.3 ? 1 - v / F.cast.skin : 0;  // the change is linear in the hue
+    else F.f[n] = (v - F.cast[n]) / 10;  // the deltas are for 10 units (0.01 in Oklab)
+    Object.assign(S.params.curves, fixCurves(F));
+    $(`[data-fix-num="${n}"]`).textContent = fmt(v, 0) + unit;
+    render(); drawCurve();
+  };
+  // the curves don't answer quite linearly for big moves: on letting go, measure
+  // again from where it landed and step the rest of the way (twice at most)
+  const settle = async (el, v) => {
+    for (let k = 0; k < 2; k++) {
+      ready = null; grab();
+      const F = await ready, n = el.dataset.fix;
+      if (Math.abs(F.cast[n] - v) < 1) break;
+      await setTo(el, v);
+    }
+    ready = null; commit(); endDrag();
+  };
+  $$("[data-fix]").forEach((el) => {
     el.addEventListener("pointerdown", grab);
-    el.addEventListener("input", async () => {
-      if (!ready) grab();
-      const F = await ready;
-      F.f[n] = +el.value;
-      Object.assign(S.params.curves, fixCurves(F));
-      $(`[data-fix-num="${n}"]`).textContent = Math.round(F.f[n] * 100) + "%";
-      render(); drawCurve();
-    });
-    el.addEventListener("change", () => { ready = null; commit(); endDrag(); });
+    el.addEventListener("input", () => setTo(el, +el.value));
+    el.addEventListener("change", () => guard("Correct", () => settle(el, +el.value)));
+    el.addEventListener("dblclick", () => guard("Correct", async () => { el.value = 0; grab(); await setTo(el, 0); await settle(el, 0); }));
   });
 }
 
@@ -1621,7 +1668,7 @@ function drawCurvePanel(P) {
   S.samples.forEach((sm, i) => {
     const q = S.readings[i];
     if (!q) return;
-    const t = P === TONE && ["r", "g", "b"].includes(S.curve) ? q.output["rgb".indexOf(S.curve)] : q.tone;
+    const t = P === TONE && ["r", "g", "b"].includes(S.curve) ? q.output["rgb".indexOf(S.curve)] : q.ctone;
     const col = sm.kind === "black" ? "#bbb" : KIND_COLOR[sm.kind];
     ctx.strokeStyle = col; ctx.setLineDash([4, 3]); ctx.lineWidth = i === selPoint() ? 1.6 : 1;
     const ly = 12 + (i % 3) * 13;  // stagger labels so neighbours stay readable
@@ -2407,7 +2454,7 @@ function setCurve(c) {
   if (!["lightness", "r", "g", "b"].includes(c)) c = "lightness";  // e.g. "colour" from an older version
   S.curve = c;
   $$("#curve-tabs [data-curve]").forEach((b) => b.classList.toggle("active", b.dataset.curve === c));
-  drawCurve();
+  drawCurve(); renderZones();
 }
 function setColourCurve(c) {
   S.colourCurve = c;
@@ -2433,7 +2480,7 @@ try {
 
 $("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api("levels", { params: S.params })).params; syncControls(); render(); commit(); });
 $("#btn-solve").onclick = () => guard("Solve", async () => {
-  if (!solvable()) throw new Error("give a point a role (Grey, White, Black, Skin) or a zone first");
+  if (!solvable()) throw new Error("give a point a role first: Grey, White, Black or Skin");
   const r = await api("solve", { params: S.params, samples: S.samples });
   S.params = r.params; S.report = r.report; S.casts = r.casts;
   // Solve bends the Colour by tone curves: widen that view if they no longer fit

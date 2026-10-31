@@ -278,3 +278,16 @@ aside input.track-tint::-moz-range-track { background: linear-gradient(90deg, #4
 #points-actions button.primary { background: #3478f6; color: #fff; }
 #points-actions button:disabled { opacity: .45; cursor: default; }
 #point-detail .pop-row select { flex: 1; min-width: 0; max-width: 72%; text-overflow: ellipsis; }
+
+/* zones under the Light curve */
+#zones-list { list-style: none; margin: 4px 0 0; padding: 0; }
+#zones-list li { display: flex; align-items: center; gap: 6px; padding: 2px 4px; border-radius: 5px; font-size: 12px; }
+#zones-list li.sel { background: rgba(255, 255, 255, 0.06); }
+#zones-list .res { flex: 1; color: var(--muted); white-space: nowrap; }
+#zones-list .res.bad { color: #e0a050; }
+#zones-list select { flex: 0 1 62%; min-width: 0; font-size: 12px; text-overflow: ellipsis; }
+#zones-list .dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #888; flex: none; }
+#zones-list .dot.sq { border-radius: 2px; }
+#zones-list .pn { width: 14px; color: #d8d8d8; }
+aside input.track-skin::-webkit-slider-runnable-track { background: linear-gradient(90deg, #b06a80, #55555a 50%, #b8913e); }
+aside input.track-skin::-moz-range-track { background: linear-gradient(90deg, #b06a80, #55555a 50%, #b8913e); }
