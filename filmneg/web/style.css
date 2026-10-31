@@ -204,3 +204,6 @@ input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060,
 .wheels .num { font-size: 11px; color: #999; }
 .probe-fix { display: flex; align-items: center; gap: 6px; }
 .probe-fix input[type=range] { flex: 1; min-width: 60px; }
+#probe-detail select { max-width: 100%; }
+#probe-detail table { table-layout: fixed; width: 100%; }
+#probe-detail td:first-child { width: 64px; }

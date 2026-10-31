@@ -1012,7 +1012,7 @@ function showProbe() {
   if (!S.probes.length) { box.innerHTML = "Measure tool: click a spot or drag an area. Each click pins a point (P1, P2, …); hover one and click it to remove it (or press Delete), drag it to move it."; return; }
   const sel = clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1);
   const rows = S.probes.map((q, i) => `<li data-type="probe" data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot" style="background:${PROBE_COLORS[i % PROBE_COLORS.length]}"></span>
-    <span>P${i + 1}</span><span class="res">${(q.res.tone * 100).toFixed(0)}% · ${castWords(q.res.a, q.res.b).replace(/ \(.*\)/, "")}</span><button title="Remove">×</button></li>`).join("");
+    <span>P${i + 1}</span><span class="res">${(q.res.tone * 100).toFixed(0)}%${q.zone != null ? (Math.abs(q.res.tone * 10 - q.zone) <= 0.5 ? ` (zone ${ZONE_NAMES[q.zone]})` : ` · wants ${ZONE_NAMES[q.zone]}`) : ""} · ${castWords(q.res.a, q.res.b).replace(/ \(.*\)/, "")}</span><button title="Remove">×</button></li>`).join("");
   box.innerHTML = `<ul id="probe-list">${rows}</ul><div id="probe-detail"></div><button id="probe-clear">Clear probes</button>`;
   box.querySelectorAll("li").forEach((li) => {
     const i = +li.dataset.i;
@@ -1036,12 +1036,32 @@ function showProbeDetail(p, name) {
     <tr><td>brightness</td><td>${(p.tone * 100).toFixed(0)}% · about zone ${zone} · marked on the curves</td></tr>
     <tr><td>colour</td><td>${castWords(p.a, p.b)}<br><span class="muted">yellow↔blue ${fmt(p.b * 1000, 0)}, magenta↔green ${fmt(p.a * 1000, 0)} (0 = grey; under ±4 looks neutral)</span></td></tr>
     <tr><td>if skin</td><td>${skin}</td></tr>
+    <tr><td>zone</td><td><select id="probe-zone" title="Where this should sit in Ansel Adams' zone system. The Light curve bends, as simply as it can, to put every point with a zone there">
+      <option value="">place in a zone…</option>${ZONES.map((z, i) => `<option value="${i}"${probeZone() === i ? " selected" : ""}>${z}</option>`).join("")}</select>${probeZone() != null && Math.abs(p.tone * 10 - probeZone()) > 0.5 ? `<div class="muted small">Not quite there: another point with a zone is too close in tone, so the curve stops at a gentle compromise.</div>` : ""}</td></tr>
     <tr><td>correct</td><td class="probe-fix"><input id="probe-fix" type="range" min="0" max="1" step="0.01" value="${probeFixAmount()}"
       title="Bends the Colour by tone curves around this brightness until this spot reads neutral (or like skin). Width as for Shift colour ([ ])">
       <span id="probe-fix-num" class="num ro">${Math.round(probeFixAmount() * 100)}%</span>
       <select id="probe-fix-kind" title="What this spot should be"><option value="neutral">to grey</option><option value="skin"${probeFix() && probeFix().kind === "skin" ? " selected" : ""}>as skin</option></select></td></tr></table>`;
   wireProbeFix();
+  $("#probe-zone").onchange = (e) => placeZones(e.target.value === "" ? null : +e.target.value);
 }
+
+// ---- zones: give measured points an Adams zone, the Light curve puts them there
+const probeZone = () => { const q = S.probes[S.probeSel ?? S.probes.length - 1]; return q ? q.zone ?? null : null; };
+const ZONE_NAMES = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
+function placeZones(zone) {
+  const q = S.probes[clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1)];
+  if (q) q.zone = zone;
+  const points = S.probes.filter((p) => p.zone != null).map((p) => ({ at: p.at, zone: p.zone }));
+  if (!points.length) { showProbe(); return; }
+  guard("Place zones", async () => {
+    S.params = (await api("zones", { params: S.params, points })).params;
+    syncControls(); render(); drawCurve(); commit();
+    hint("Light curve: " + S.probes.map((p, i) => (p.zone != null ? `P${i + 1} → zone ${ZONE_NAMES[p.zone]}` : "")).filter(Boolean).join(", "));
+  });
+}
+
+let ZONES = [];
 
 // ---- "correct" slider: pull the curves around a measured point's brightness so
 // it reads neutral (or on the skin hue line). The full correction is worked out
@@ -2462,7 +2482,7 @@ async function load(name) {
   S.doc = d; S.params = d.params; S.samples = d.samples || []; S.dust = d.dust; S.dustSel = null; S.dustVer = (S.dustVer || 0) + 1; S.versions = d.versions || []; S.undo = []; S.redo = []; S.probes = [];
   S.lastCommitted = snapshot();
   $("#file").innerHTML = d.files.map((f) => `<option${f === d.name ? " selected" : ""}>${f}</option>`).join("");
-  LIGHT_PRESETS = d.light_presets;
+  LIGHT_PRESETS = d.light_presets; ZONES = d.zones || [];
   $("#light-presets").innerHTML = Object.keys(LIGHT_PRESETS).map((k) => `<button data-p="${k}">${PRESET_NAMES[k] || k}</button>`).join("");
   $$("#light-presets button").forEach((b) => (b.onclick = () => { S.params.light.warmth = LIGHT_PRESETS[b.dataset.p]; lightChanged(); }));
   location.hash = encodeURIComponent(d.name);

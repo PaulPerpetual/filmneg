@@ -186,6 +186,47 @@ def neutralize(color, kind, params, space: RGBSpace, sigma=0.15):
     return {"tone": tone, **{n: [float(v) for v in curves.bump(tone, x[i], sigma)] for i, n in enumerate(("warmth", "tint"))}}
 
 
+# Ansel Adams' zones: where things typically sit, from black to paper white.
+# Zone n is drawn at brightness n/10 on the curves.
+ZONES = [
+    "0 · pure black, no detail (film rebate)",
+    "I · near black, slight tone but no texture",
+    "II · first hint of texture in deep shadows",
+    "III · dark materials with full texture: dark fabric, shadows with detail",
+    "IV · dark foliage, dark stone, open shade in a landscape, dark skin",
+    "V · middle grey: grey card, grass, weathered wood, darker skin, clear north sky",
+    "VI · average light skin in sun, light stone, shadows on snow",
+    "VII · very light skin, light grey objects, sidelit snow",
+    "VIII · whites with texture: textured snow, white shirt, light walls",
+    "IX · white without texture, glaring snow",
+    "X · paper white, specular highlights, light sources",
+]
+
+
+def place_zones(colors, zones, params, space: RGBSpace):
+    """The simplest smooth change of the Light curve that puts each colour in its
+    zone (brightness zone/10). The curve stays rising, so tones never swap places."""
+    colors = np.asarray(colors, np.float32)
+    want = np.asarray(zones, float) / 10
+    c0 = np.asarray(params["curves"]["lightness"], float)
+    grid = np.linspace(0, 1, 41)
+
+    def unpack(x):
+        return {**params, "curves": {**params["curves"], "lightness": [float(v) for v in c0 + x]}}
+
+    def residuals(x):
+        p = unpack(x)
+        got = luma(render_pixels(colors, p, space))
+        y = grid + curves.apply(np.asarray(p["curves"]["lightness"]), grid)
+        rising = np.minimum(np.diff(y) * 40 - 0.2, 0)  # slope at least 0.2
+        return np.concatenate([got - want, 0.003 * x, 0.03 * np.diff(x), 0.3 * np.diff(x, 2), rising])
+
+    # a few dozen steps are plenty for points that can be placed; ones that can't
+    # (asked for an order the curve can't give) then stop at a fair compromise
+    x = least_squares(residuals, np.zeros(len(c0)), jac=lambda x: _jac(residuals, x), max_nfev=30).x
+    return unpack(x)
+
+
 def _solve_curves(colors, kinds, params, space: RGBSpace):
     """Smallest smooth change of the warmth and tint curves that makes the samples
     neutral (or the light's target; skin: on the skin hue line). White and black

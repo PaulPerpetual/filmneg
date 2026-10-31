@@ -187,6 +187,15 @@ slider bends the Colour by tone curves around that point's brightness until
 it reads neutral (*to grey*) or sits on the skin hue line (*as skin*); 50%
 takes half the cast away. Its reach is the Shift colour width (`[` `]`).
 
+**Zone** in the Measure panel does the same for brightness, with Ansel
+Adams' zones (each listed with what typically sits there: V grey card, grass,
+darker skin; VI light skin in sun; VIII textured snow, …). Give one or more
+measured points a zone and the Light curve bends, as simply and smoothly as
+it can, to put each of them there (zone n at brightness n/10, as marked
+under the curves). The curve always keeps rising, so if two points are close
+in tone but far apart in zone, it stops at a gentle compromise and the
+point says *wants …*.
+
 ### Curves and Colour by tone
 
 - **Curves** (Light, R, G, B) shows the classic view by default: output over

@@ -269,3 +269,14 @@ def test_neutralize_a_measured_point():
     assert np.hypot(rep["da"], rep["db"]) < 1
     w = np.abs(r["warmth"])
     assert w[0] < 0.2 * w.max() and w[-1] < 0.2 * w.max()
+
+
+def test_place_zones_bends_the_light_curve():
+    # a dark and a light point placed in zones III and VII; the curve stays rising
+    from filmneg.color import luma
+    cols = np.array([[0.2, 0.2, 0.2], [0.6, 0.6, 0.6]], np.float32)
+    p = analysis.place_zones(cols, [3, 7], pipeline.default_params(), ADOBE_RGB)
+    got = luma(pipeline.render_pixels(cols, p, ADOBE_RGB))
+    assert np.abs(got - [0.3, 0.7]).max() < 0.02
+    t = np.linspace(0, 1, 101)
+    assert np.all(np.diff(t + curves.apply(np.asarray(p["curves"]["lightness"]), t)) > 0)

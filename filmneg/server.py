@@ -76,7 +76,7 @@ class Session:
         doc["dust"] = self.dust_view(doc["params"])
         doc.update(name=name, width=w, height=h, profile=self.scan.profile_name,
                    space=self.scan.space.name, files=self.files(),
-                   light_presets=analysis.LIGHT_PRESETS)
+                   light_presets=analysis.LIGHT_PRESETS, zones=analysis.ZONES)
         return doc
 
     def source(self, size, params, nr=True):
@@ -369,6 +369,12 @@ def make_handler(session: Session):
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)
             return analysis.probe(src, out, body["at"], p, s.scan.space)
+        if route == "zones":  # measured points placed in Adams' zones: bend the Light curve
+            src = s.source("preview", p)
+            pts = [q for q in body.get("points", []) if q.get("zone") is not None]
+            if pts:
+                p = analysis.place_zones([analysis.sample_color(src, q["at"]) for q in pts], [q["zone"] for q in pts], p, s.scan.space)
+            return {"params": p}
         if route == "neutralize":
             col = analysis.sample_color(s.source("preview", p), body["at"])
             return analysis.neutralize(col, body.get("kind", "neutral"), p, s.scan.space, float(body.get("sigma", 0.15)))
