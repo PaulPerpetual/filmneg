@@ -562,9 +562,9 @@ function drawOverlay() {
   }
 
   if (S.tool === "dust") { drawDust(ctx); return; }
-  if (S.showSamples) S.samples.forEach((s, i) => (s.kind === "measure" ? drawMeasure : drawSample)(ctx, s, KIND_COLOR[s.kind], String(i + 1)));
+  if (S.showSamples) S.samples.forEach((s, i) => drawPoint(ctx, s, KIND_COLOR[s.kind], String(i + 1), i));
   if (S.hl) drawHighlight(ctx);
-  if (S.brush) (S.brush.kind === "measure" ? drawMeasure : drawSample)(ctx, S.brush, KIND_COLOR[S.brush.kind], S.brush.label);
+  if (S.brush) drawPoint(ctx, S.brush, KIND_COLOR[S.brush.kind], S.brush.label);
 
   if (S.push) S.push.kind === "light" ? drawLightBar(ctx) : drawWheel(ctx);
 }
@@ -586,7 +586,7 @@ function drawHighlight(ctx) {
   // hovered: a soft white ring and a macOS-style remove badge (grey disc, white ×)
   const r = Math.max(m.rad, 9) + 5;
   ctx.save();
-  ctx.strokeStyle = "rgba(255,255,255,.95)"; ctx.lineWidth = 2; ctx.shadowColor = "rgba(0,0,0,.6)"; ctx.shadowBlur = 4;
+  ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.lineWidth = 1.5; ctx.shadowColor = "rgba(0,0,0,.5)"; ctx.shadowBlur = 3;
   ctx.beginPath(); ctx.arc(m.p.x, m.p.y, r, 0, 7); ctx.stroke();
   ctx.fillStyle = "rgba(72,72,74,.95)"; ctx.shadowBlur = 3; ctx.shadowOffsetY = 1;
   ctx.beginPath(); ctx.arc(m.del.x, m.del.y, 8.5, 0, 7); ctx.fill();
@@ -618,51 +618,36 @@ function deleteMark(hl) {
   S.hl = null; drawOverlay();
 }
 
-// Samples are round: a circle for an area, a dot for a point, with a numbered badge
-// in the sample's colour.
-function drawSample(ctx, s, color, label) {
-  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0), outline = color === "#000" ? "#fff" : "#000";
+// Points are drawn quietly, like the colour samplers in macOS apps: a thin white
+// ring with a soft shadow (no hard outline), and a small translucent label pill
+// with the number. A sample's role shows as a little coloured dot in the pill;
+// measure-only points have none. The selected point gets the system accent.
+const SYS_FONT = '600 10px -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif';
+function drawPoint(ctx, s, color, label, i) {
+  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0), sel = i != null && i === selPoint();
+  const measure = s.kind === "measure";
   ctx.save();
-  if (rad < 4) {
-    ctx.fillStyle = color; ctx.strokeStyle = outline; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(p.x, p.y, 4.5, 0, 7); ctx.fill(); ctx.stroke();
-  } else {
-    for (const [c, w] of [[outline, 3.5], [color, 1.6]]) {
-      ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.stroke();
-    }
-  }
+  ctx.shadowColor = "rgba(0,0,0,.55)"; ctx.shadowBlur = 2.5;
+  ctx.strokeStyle = sel ? "#fff" : "rgba(255,255,255,.85)"; ctx.lineWidth = sel ? 1.5 : 1;
+  const r = rad < 4 ? 5 : rad;
+  ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.stroke();
+  if (rad < 4) { ctx.beginPath(); ctx.arc(p.x, p.y, 0.9, 0, 7); ctx.fillStyle = "#fff"; ctx.fill(); }
   if (label) {
-    const d = Math.max(rad, 5) * 0.72, bx = p.x + d + 7, by = p.y - d - 7;
-    ctx.fillStyle = color; ctx.strokeStyle = outline; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(bx, by, 7, 0, 7); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = outline; ctx.font = "bold 10px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(label, bx, by + 0.5);
-  }
-  ctx.restore();
-}
-
-// Measured points are square: a crosshair with an open centre for a point,
-// corner brackets for an area, and a plain coloured label.
-function drawMeasure(ctx, s, color, label) {
-  const p = toScreen(s.x, s.y), rad = radiusPx(s.r || 0);
-  ctx.save();
-  const path = () => {
-    ctx.beginPath();
-    if (rad < 4) {
-      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { ctx.moveTo(p.x + dx * 3, p.y + dy * 3); ctx.lineTo(p.x + dx * 10, p.y + dy * 10); }
-    } else {
-      const k = Math.min(rad * 0.45, 12);
-      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-        const cx = p.x + sx * rad, cy = p.y + sy * rad;
-        ctx.moveTo(cx, cy - sy * k); ctx.lineTo(cx, cy); ctx.lineTo(cx - sx * k, cy);
-      }
+    ctx.font = SYS_FONT;
+    const tw = ctx.measureText(label).width, dot = measure ? 0 : 9, h = 15, w = tw + 10 + dot;
+    const d = r * 0.71, bx = p.x + d + 3, by = p.y - d - 3 - h;
+    ctx.shadowBlur = 3; ctx.shadowOffsetY = 0.5;
+    ctx.fillStyle = sel ? "rgba(10,132,255,.92)" : "rgba(28,28,30,.72)";
+    ctx.beginPath(); ctx.roundRect(bx, by, w, h, h / 2); ctx.fill();
+    ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+    ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 0.5; ctx.stroke();
+    if (dot) {
+      ctx.fillStyle = color === "#000" ? "#1c1c1e" : color;
+      ctx.beginPath(); ctx.arc(bx + 7.5, by + h / 2, 3, 0, 7); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,.6)"; ctx.lineWidth = 0.75; ctx.stroke();
     }
-  };
-  for (const [c, w] of [["rgba(0,0,0,.85)", 4], [color, 2]]) { ctx.strokeStyle = c; ctx.lineWidth = w; path(); ctx.stroke(); }
-  if (label) {
-    const d = Math.max(rad, 10);
-    ctx.font = "bold 11px sans-serif"; ctx.lineWidth = 3; ctx.strokeStyle = "rgba(0,0,0,.85)"; ctx.fillStyle = color;
-    ctx.strokeText(label, p.x + d + 3, p.y - d + 2); ctx.fillText(label, p.x + d + 3, p.y - d + 2);
+    ctx.fillStyle = "#fff"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillText(label, bx + 5 + dot, by + h / 2 + 0.5);
   }
   ctx.restore();
 }
@@ -1028,7 +1013,7 @@ function renderPoints() {
   }).join("");
   ul.querySelectorAll("li").forEach((li) => {
     const i = +li.dataset.i;
-    li.onclick = () => { S.sel = i; renderPoints(); drawCurve(); };
+    li.onclick = () => { S.sel = i; renderPoints(); drawCurve(); drawOverlay(); };
     li.onmouseenter = () => setHighlight({ type: "sample", i });
     li.onmouseleave = () => setHighlight(null);
     li.querySelector("button").onclick = (e) => { e.stopPropagation(); deleteMark({ type: "sample", i }); };
@@ -1664,16 +1649,17 @@ function drawCurvePanel(P) {
   }
 
   // where each point sits on the curve(s): its tone, or its channel value in R/G/B
-  ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+  // quiet: a thin hairline and a small grey number, the selected point in the accent
+  ctx.font = SYS_FONT.replace("10px", "11px"); ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
   S.samples.forEach((sm, i) => {
     const q = S.readings[i];
     if (!q) return;
     const t = P === TONE && ["r", "g", "b"].includes(S.curve) ? q.output["rgb".indexOf(S.curve)] : q.ctone;
-    const col = sm.kind === "black" ? "#bbb" : KIND_COLOR[sm.kind];
-    ctx.strokeStyle = col; ctx.setLineDash([4, 3]); ctx.lineWidth = i === selPoint() ? 1.6 : 1;
-    const ly = 12 + (i % 3) * 13;  // stagger labels so neighbours stay readable
-    ctx.beginPath(); ctx.moveTo(g.x(t), ly + 2); ctx.lineTo(g.x(t), g.H); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = col; ctx.fillText(String(i + 1), g.x(t), ly);
+    const sel = i === selPoint(), col = sel ? "rgba(10,132,255,.95)" : "rgba(235,235,245,.38)";
+    const ly = 13 + (i % 3) * 13;  // stagger labels so neighbours stay readable
+    ctx.strokeStyle = col; ctx.lineWidth = sel ? 1 : 0.75;
+    ctx.beginPath(); ctx.moveTo(g.x(t), ly + 3); ctx.lineTo(g.x(t), g.H); ctx.stroke();
+    ctx.fillStyle = sel ? col : "rgba(235,235,245,.6)"; ctx.fillText(String(i + 1), g.x(t), ly);
   });
   if (S.push && S.push.tone != null) {
     ctx.strokeStyle = "#fff"; ctx.lineWidth = 1.5;
