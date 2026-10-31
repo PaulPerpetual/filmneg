@@ -369,6 +369,9 @@ def make_handler(session: Session):
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)
             return analysis.probe(src, out, body["at"], p, s.scan.space)
+        if route == "neutralize":
+            col = analysis.sample_color(s.source("preview", p), body["at"])
+            return analysis.neutralize(col, body.get("kind", "neutral"), p, s.scan.space, float(body.get("sigma", 0.15)))
         if route == "probes":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)

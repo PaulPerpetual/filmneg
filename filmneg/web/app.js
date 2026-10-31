@@ -14,7 +14,8 @@ const S = {
   curve: "lightness", // the Curves panel's channel
   zoom: 0.04,         // magnified curve view shows ±zoom (encoded units)
   curveView: "classic", // "classic" (diagonal) or "zoom" (the change, magnified)
-  colourZoom: 0.04,   // the Colour by tone panel always shows the change, ±colourZoom
+  colourZoom: 0.04,
+  scopeZoom: 2,       // vectorscope magnification (film is rarely very saturated)   // the Colour by tone panel always shows the change, ±colourZoom
   width: 0.12,        // soft-edit width on the tone axis (push tools and curves)
   probes: [],         // pinned probes: {at, res}
   colourCurve: "warmth", // which curve the Colour by tone panel edits
@@ -217,7 +218,7 @@ const OFF = new Set();
 function viewParams() {
   const p = clone(S.params);
   if (S.tool === "crop") p.crop = [0, 0, 1, 1];
-  if (OFF.has("base")) Object.assign(p, SLIDER_DEFAULTS);
+  if (OFF.has("base")) Object.assign(p, SLIDER_DEFAULTS, { slope: [1, 1, 1], offset: [0, 0, 0] });
   if (OFF.has("levels")) for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 });
   for (const n of OFF.has("curves") ? ["lightness", "r", "g", "b"] : []) p.curves[n] = Array(N_CTRL).fill(0);
   for (const n of OFF.has("colour") ? ["warmth", "tint"] : []) p.curves[n] = Array(N_CTRL).fill(0);
@@ -403,6 +404,7 @@ function readPreview() {
   }
   S.hist = hist;
   S.maskCache = null;
+  drawScope();
 }
 
 function baseFit() {
@@ -1007,7 +1009,7 @@ function castWords(a, b) {
 
 function showProbe() {
   const box = $("#probe");
-  if (!S.probes.length) { box.innerHTML = "Measure tool: click a spot or drag an area. Each click pins a point (P1, P2, …); hover one for a red × to remove it (or press Delete), drag it to move it."; return; }
+  if (!S.probes.length) { box.innerHTML = "Measure tool: click a spot or drag an area. Each click pins a point (P1, P2, …); hover one and click it to remove it (or press Delete), drag it to move it."; return; }
   const sel = clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1);
   const rows = S.probes.map((q, i) => `<li data-type="probe" data-i="${i}" class="${i === sel ? "sel" : ""}"><span class="dot" style="background:${PROBE_COLORS[i % PROBE_COLORS.length]}"></span>
     <span>P${i + 1}</span><span class="res">${(q.res.tone * 100).toFixed(0)}% · ${castWords(q.res.a, q.res.b).replace(/ \(.*\)/, "")}</span><button title="Remove">×</button></li>`).join("");
@@ -1033,7 +1035,51 @@ function showProbeDetail(p, name) {
     <tr><td>now</td><td>R/G/B ${rgb(p.output)} (with your edits)</td></tr>
     <tr><td>brightness</td><td>${(p.tone * 100).toFixed(0)}% · about zone ${zone} · marked on the curves</td></tr>
     <tr><td>colour</td><td>${castWords(p.a, p.b)}<br><span class="muted">yellow↔blue ${fmt(p.b * 1000, 0)}, magenta↔green ${fmt(p.a * 1000, 0)} (0 = grey; under ±4 looks neutral)</span></td></tr>
-    <tr><td>if skin</td><td>${skin}</td></tr></table>`;
+    <tr><td>if skin</td><td>${skin}</td></tr>
+    <tr><td>correct</td><td class="probe-fix"><input id="probe-fix" type="range" min="0" max="1" step="0.01" value="${probeFixAmount()}"
+      title="Bends the Colour by tone curves around this brightness until this spot reads neutral (or like skin). Width as for Shift colour ([ ])">
+      <span id="probe-fix-num" class="num ro">${Math.round(probeFixAmount() * 100)}%</span>
+      <select id="probe-fix-kind" title="What this spot should be"><option value="neutral">to grey</option><option value="skin"${probeFix() && probeFix().kind === "skin" ? " selected" : ""}>as skin</option></select></td></tr></table>`;
+  wireProbeFix();
+}
+
+// ---- "correct" slider: pull the curves around a measured point's brightness so
+// it reads neutral (or on the skin hue line). The full correction is worked out
+// once when you grab the slider; the slider then dials in a part of it. It keeps
+// its place as long as the curves weren't changed some other way meanwhile.
+const probeFix = () => { const q = S.probes[S.probeSel ?? S.probes.length - 1]; return q && q.fix; };
+function fixCurves(F, f) {
+  return { warmth: addTo(F.base.warmth, F.delta.warmth.map((v) => v * f)), tint: addTo(F.base.tint, F.delta.tint.map((v) => v * f)) };
+}
+function probeFixAmount() {
+  const F = probeFix();
+  if (!F) return 0;
+  const c = fixCurves(F, F.f), cur = S.params.curves;
+  const same = ["warmth", "tint"].every((n) => c[n].every((v, i) => Math.abs(v - cur[n][i]) < 1e-9));
+  return same ? F.f : 0;
+}
+function wireProbeFix() {
+  const el = $("#probe-fix"), kind = $("#probe-fix-kind"), q = S.probes[clamp(S.probeSel ?? S.probes.length - 1, 0, S.probes.length - 1)];
+  if (!el || !q) return;
+  let ready = null;
+  const grab = () => {
+    startDrag();
+    if (q.fix && probeFixAmount() === q.fix.f && q.fix.kind === kind.value) { ready = Promise.resolve(q.fix); return; }
+    const base = { warmth: [...S.params.curves.warmth], tint: [...S.params.curves.tint] };
+    ready = api("neutralize", { params: S.params, at: q.at, kind: kind.value, sigma: S.width })
+      .then((r) => (q.fix = { kind: kind.value, base, delta: { warmth: r.warmth, tint: r.tint }, f: 0 }));
+  };
+  el.addEventListener("pointerdown", grab);
+  el.addEventListener("input", async () => {
+    if (!ready) grab();
+    const F = await ready, f = +el.value;
+    F.f = f;
+    Object.assign(S.params.curves, fixCurves(F, f));
+    $("#probe-fix-num").textContent = Math.round(f * 100) + "%";
+    render(); drawCurve();
+  });
+  el.addEventListener("change", () => { ready = null; commit(); endDrag(); });
+  kind.onchange = () => { q.fix = null; el.value = 0; $("#probe-fix-num").textContent = "0%"; };
 }
 
 // ---------------------------------------------------------------- samples
@@ -1279,6 +1325,147 @@ for (const id of ["#dust-min", "#dust-max"]) {
   el.addEventListener("change", apply);
 }
 
+// ---------------------------------------------------------------- vectorscope and colour wheels
+// The vectorscope plots every pixel's colour (Rec. 709 Cb/Cr, like DaVinci's):
+// the angle is the hue, the distance from the centre the saturation. Faint
+// colours behind it show which way is which. The three wheels below are a
+// classic colour balance for shadows, midtones and highlights; they are another
+// handle on the Colour by tone curves: the puck shows the curves' warmth and
+// tint at that brightness, dragging it bends them there.
+const scopeCanvas = $("#scope");
+const WHEELS = [["shadows", "Shadows", 0.15], ["midtones", "Midtones", 0.5], ["highlights", "Highlights", 0.85]];
+const WHEEL_RANGE = 0.08;   // a puck at the rim: ±20 (in 0..255 steps) of warmth or tint
+const WHEEL_SIGMA = 0.2;    // how far along the tones a wheel reaches
+
+// RGB (0..1) -> Cb, Cr (Rec. 709); and back at a given luma, for the background colours
+const cbcr = (r, g, b) => [-0.1146 * r - 0.3854 * g + 0.5 * b, 0.5 * r - 0.4542 * g - 0.0458 * b];
+const fromCbcr = (y, cb, cr) => [y + 1.5748 * cr, y - 0.1873 * cb - 0.4681 * cr, y + 1.8556 * cb];
+// what a warmth / tint push does on the scope (mirrors render_pixels: brightness kept)
+const pushDir = (dr, dg, db) => { const y = 0.2126 * dr + 0.7152 * dg + 0.0722 * db; return cbcr(dr - y, dg - y, db - y); };
+const WARM_DIR = pushDir(0.5, 0, -0.5), TINT_DIR = pushDir(1 / 3, -2 / 3, 1 / 3);
+
+// A faint hue disc (cached per size): the background of the scope and the wheels.
+function hueDisc(size, alpha) {
+  hueDisc.c = hueDisc.c || {};
+  const key = size + ":" + alpha;
+  if (hueDisc.c[key]) return hueDisc.c[key];
+  const c = document.createElement("canvas"); c.width = c.height = size;
+  const ctx = c.getContext("2d"), im = ctx.createImageData(size, size), R = size / 2;
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const dx = (x + 0.5 - R) / R, dy = (R - y - 0.5) / R, d = Math.hypot(dx, dy);
+    if (d > 1) continue;
+    const rgb = fromCbcr(0.5, dx * 0.3, dy * 0.3), i = (y * size + x) * 4;
+    im.data.set([...rgb.map((v) => clamp(v, 0, 1) * 255), 255 * alpha * Math.min(1, d * 1.6)], i);
+  }
+  ctx.putImageData(im, 0, 0);
+  return (hueDisc.c[key] = c);
+}
+
+function drawScope() {
+  if (!scopeCanvas || !previewPx || $("#scope-panel").classList.contains("collapsed")) return;
+  const ctx = scopeCanvas.getContext("2d"), N = scopeCanvas.width, R = N / 2 - 10, cx = N / 2, cy = N / 2;
+  const k = R / 0.5 * S.scopeZoom;  // screen px per unit of Cb/Cr
+  ctx.clearRect(0, 0, N, N);
+  ctx.drawImage(hueDisc(256, 0.38), cx - R, cy - R, 2 * R, 2 * R);
+  // graticule: rim, centre cross, the 75% colour targets and the skin tone line
+  ctx.strokeStyle = "rgba(255,255,255,.18)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R); ctx.stroke();
+  const skin = cbcr(0.87, 0.64, 0.52), sl = Math.hypot(...skin);
+  ctx.strokeStyle = "rgba(233,163,122,.45)"; ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + skin[0] / sl * R, cy - skin[1] / sl * R); ctx.stroke(); ctx.setLineDash([]);
+  ctx.font = "11px -apple-system, sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (const [name, rgb] of [["R", [1, 0, 0]], ["Yl", [1, 1, 0]], ["G", [0, 1, 0]], ["Cy", [0, 1, 1]], ["B", [0, 0, 1]], ["Mg", [1, 0, 1]]]) {
+    const [b, r] = cbcr(...rgb.map((v) => v * 0.75)), x = cx + b * k, y = cy - r * k, d = Math.hypot(x - cx, y - cy);
+    ctx.fillStyle = "rgba(255,255,255,.6)";
+    if (d > R - 12) {  // zoomed in: the target is off the scope, so just name the direction at the rim
+      ctx.fillText(name, cx + (x - cx) / d * (R - 9), cy + (y - cy) / d * (R - 9));
+      continue;
+    }
+    ctx.strokeStyle = "rgba(255,255,255,.4)"; ctx.strokeRect(x - 4, y - 4, 8, 8);
+    ctx.fillText(name, x + (x - cx) / d * 12, y + (y - cy) / d * 12);
+  }
+  // the pixels: a density plot
+  const G = 192, cnt = new Float32Array(G * G), d = previewPx.data;
+  let max = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    const [b, r] = cbcr(d[i] / 255, d[i + 1] / 255, d[i + 2] / 255);
+    const gx = Math.round((b * k / R + 1) * (G - 1) / 2), gy = Math.round((1 - r * k / R) * (G - 1) / 2);
+    if (gx < 0 || gy < 0 || gx >= G || gy >= G) continue;
+    const v = ++cnt[gy * G + gx];
+    if (v > max) max = v;
+  }
+  const dots = drawScope.c || (drawScope.c = document.createElement("canvas"));
+  dots.width = dots.height = G;
+  const dctx = dots.getContext("2d"), im = dctx.createImageData(G, G), lm = Math.log1p(max);
+  for (let i = 0; i < G * G; i++) if (cnt[i]) im.data.set([235, 240, 235, 60 + 195 * Math.log1p(cnt[i]) / lm], i * 4);
+  dctx.putImageData(im, 0, 0);
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.clip();
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(dots, cx - R, cy - R, 2 * R, 2 * R); ctx.restore();
+  drawWheels();
+}
+
+// ---- colour wheels
+const wheelValue = (tone) => [splineAt(S.params.curves.warmth, tone), splineAt(S.params.curves.tint, tone)];
+const wheelXY = ([w, t]) => [w * WARM_DIR[0] + t * TINT_DIR[0], w * WARM_DIR[1] + t * TINT_DIR[1]];
+function wheelFromXY(x, y) {  // inverse of wheelXY
+  const [a, c] = WARM_DIR, [b, d] = TINT_DIR, det = a * d - b * c;
+  return [(x * d - b * y) / det, (a * y - c * x) / det];
+}
+const WHEEL_SCALE = Math.hypot(...wheelXY([WHEEL_RANGE, 0]));  // Cb/Cr at the rim
+
+function drawWheels() {
+  if (!S.params) return;
+  for (const [key, name, tone] of WHEELS) {
+    const c = $(`#wheel-${key}`), ctx = c.getContext("2d"), N = c.width, R = N / 2 - 6, m = N / 2;
+    ctx.clearRect(0, 0, N, N);
+    ctx.drawImage(hueDisc(128, 0.55), m - R, m - R, 2 * R, 2 * R);
+    ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(m, m, R, 0, 7); ctx.moveTo(m - 5, m); ctx.lineTo(m + 5, m); ctx.moveTo(m, m - 5); ctx.lineTo(m, m + 5); ctx.stroke();
+    const v = wheelValue(tone), [x, y] = wheelXY(v), px = m + clamp(x / WHEEL_SCALE, -1.2, 1.2) * R, py = m - clamp(y / WHEEL_SCALE, -1.2, 1.2) * R;
+    ctx.strokeStyle = "rgba(255,255,255,.5)"; ctx.beginPath(); ctx.moveTo(m, m); ctx.lineTo(px, py); ctx.stroke();
+    for (const [col, w] of [["rgba(0,0,0,.7)", 3.5], ["#fff", 1.6]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); ctx.arc(px, py, 6, 0, 7); ctx.stroke();
+    }
+    $(`#wheel-${key}-num`).textContent = `${fmt(v[0] * 255, 0)} · ${fmt(v[1] * 255, 0)}`;
+  }
+}
+
+// Drag a puck: the curves move at that brightness to put it there (relative to
+// where you grabbed it, so a click doesn't jump). Double-click centres it.
+let wheelDrag = null;
+for (const [key, , tone] of WHEELS) {
+  const c = $(`#wheel-${key}`);
+  const at = (ev) => { const b = c.getBoundingClientRect(), R = b.width / 2 - 6 * b.width / c.width; return [(ev.clientX - b.left - b.width / 2) / R, (b.top + b.height / 2 - ev.clientY) / R]; };
+  c.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    wheelDrag = { tone, key, start: at(ev), from: wheelXY(wheelValue(tone)), base: clone(S.params.curves), at, fine: ev.altKey };
+    startDrag();
+  });
+  c.addEventListener("dblclick", () => { setWheel(tone, [0, 0], clone(S.params.curves)); drawWheels(); drawCurve(); render(); commit(); });
+}
+function setWheel(tone, target, base) {
+  const unit = splineAt(bump(tone, 1, WHEEL_SIGMA), tone);
+  ["warmth", "tint"].forEach((n, i) => {
+    const delta = (target[i] - splineAt(base[n], tone)) / unit;
+    S.params.curves[n] = addTo(base[n], bump(tone, delta, WHEEL_SIGMA));
+  });
+}
+window.addEventListener("mousemove", (ev) => {
+  const D = wheelDrag;
+  if (!D) return;
+  if (ev.altKey !== D.fine) { D.fine = ev.altKey; D.start = D.at(ev); D.from = wheelXY(wheelValue(D.tone)); D.base = clone(S.params.curves); }
+  const p = D.at(ev), f = WHEEL_SCALE * (D.fine ? 0.2 : 1);
+  const x = D.from[0] + (p[0] - D.start[0]) * f, y = D.from[1] + (p[1] - D.start[1]) * f;
+  setWheel(D.tone, wheelFromXY(x, y), D.base);
+  const v = wheelValue(D.tone);
+  hint(`${D.key}: warmth ${fmt(v[0] * 255)}, tint ${fmt(v[1] * 255)} · ⌥ finer · double-click centres`);
+  drawWheels(); drawCurve(); render();
+});
+window.addEventListener("mouseup", () => { if (wheelDrag) { wheelDrag = null; commit(); endDrag(); } });
+
+$("#scope-zoom").onchange = (e) => { S.scopeZoom = +e.target.value; drawScope(); };
+
 // ---------------------------------------------------------------- curve panels
 // Two panels share this code: Curves (Light, R, G, B; output over input with the
 // diagonal, or the change magnified) and Colour by tone (warmth and tint as a
@@ -1308,7 +1495,7 @@ const CURVE_DIRECTIONS = {
   r: ["#ff4040", "#30e0e0"], g: ["#40e040", "#e040e0"], b: ["#4070ff", "#ffe040"],
 };
 
-function drawCurve() { CURVE_PANELS.forEach(drawCurvePanel); }
+function drawCurve() { CURVE_PANELS.forEach(drawCurvePanel); drawWheels(); }
 
 function drawCurvePanel(P) {
   if (!S.params) return;
@@ -1869,6 +2056,7 @@ $$("aside .panel").forEach((panel, i) => {
   try { if (localStorage.getItem(key) === "1") panel.classList.add("collapsed"); } catch (e) { /* ignore */ }
   panel.querySelector("h3").addEventListener("click", () => {
     panel.classList.toggle("collapsed");
+    if (panel.id === "scope-panel") drawScope();
     try { localStorage.setItem(key, panel.classList.contains("collapsed") ? "1" : "0"); } catch (e) { /* ignore */ }
   });
 });

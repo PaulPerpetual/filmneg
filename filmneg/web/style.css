@@ -194,3 +194,13 @@ input.track-tint::-moz-range-track { background: linear-gradient(90deg, #5aa060,
 /* the on-image adjustment tools live in their panels, like Lightroom's targeted adjustment */
 .tabs .target { padding: 2px 6px; margin-right: 4px; }
 .tabs .target.active { background: #0a84ff; color: #fff; border-color: #0a84ff; }
+
+/* vectorscope and colour wheels */
+#scope { width: 100%; max-width: 280px; height: auto; display: block; margin: 4px auto; background: #1e1e1e; border-radius: 50%; }
+.scope-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.wheels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 6px 0; text-align: center; }
+.wheels canvas { width: 100%; max-width: 90px; height: auto; cursor: grab; display: block; margin: 0 auto; }
+.wheels label { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.wheels .num { font-size: 11px; color: #999; }
+.probe-fix { display: flex; align-items: center; gap: 6px; }
+.probe-fix input[type=range] { flex: 1; min-width: 60px; }

@@ -168,6 +168,24 @@ def _jac(f, x, h=1e-3):
     return np.stack([(f(x + h * e) - f0) / h for e in np.eye(len(x))], axis=1)
 
 
+def neutralize(color, kind, params, space: RGBSpace, sigma=0.15):
+    """The warmth / tint curve change, as a soft bump around this colour's own
+    brightness, that makes it neutral (or the light's target; skin: on the skin
+    hue line). Returned as control-point deltas, so it can be dialled in partly."""
+    color = np.asarray([color], np.float32)
+    tone = float(luma(render_pixels(color, params, space))[0])
+
+    def unpack(x):
+        cv = dict(params["curves"])
+        for i, n in enumerate(("warmth", "tint")):
+            cv[n] = list(np.asarray(cv[n], float) + curves.bump(tone, x[i], sigma))
+        return {**params, "curves": cv}
+
+    f = lambda x: _grey_residuals(color, [kind], unpack(x), params, space, 0.001 * x)
+    x = least_squares(f, np.zeros(2), jac=lambda x: _jac(f, x)).x
+    return {"tone": tone, **{n: [float(v) for v in curves.bump(tone, x[i], sigma)] for i, n in enumerate(("warmth", "tint"))}}
+
+
 def _solve_curves(colors, kinds, params, space: RGBSpace):
     """Smallest smooth change of the warmth and tint curves that makes the samples
     neutral (or the light's target; skin: on the skin hue line). White and black
@@ -185,7 +203,8 @@ def _solve_curves(colors, kinds, params, space: RGBSpace):
     def residuals(x):
         d = [x[:n], x[n:]]
         # small and smooth: the change spreads gently between the samples' tones
-        reg = np.concatenate([0.005 * v for v in d] + [0.3 * np.diff(v, 2) for v in d])
+        # and stays level beyond them (no runaway at the ends)
+        reg = np.concatenate([0.005 * v for v in d] + [0.04 * np.diff(v) for v in d] + [0.3 * np.diff(v, 2) for v in d])
         return _grey_residuals(colors, grey_kinds, unpack(x), params, space, reg)
 
     res = least_squares(residuals, np.zeros(2 * n), jac=lambda x: _jac(residuals, x))

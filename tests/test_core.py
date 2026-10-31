@@ -257,3 +257,15 @@ def test_white_and_black_samples_set_channel_levels():
     assert np.abs(out[0] - 1).max() < 0.01 and np.abs(out[1]).max() < 0.01
     rep = analysis.sample_report(scan, kinds, p, ADOBE_RGB)[2]
     assert np.hypot(rep["da"], rep["db"]) < 2
+
+
+def test_neutralize_a_measured_point():
+    # the full correction makes the spot neutral; it only bends the curves near its tone
+    col = np.array([0.55, 0.5, 0.42], np.float32)
+    p = pipeline.default_params()
+    r = analysis.neutralize(col, "neutral", p, ADOBE_RGB, sigma=0.12)
+    q = {**p, "curves": {**p["curves"], "warmth": r["warmth"], "tint": r["tint"]}}
+    rep = analysis.sample_report(col[None], ["neutral"], q, ADOBE_RGB)[0]
+    assert np.hypot(rep["da"], rep["db"]) < 1
+    w = np.abs(r["warmth"])
+    assert w[0] < 0.2 * w.max() and w[-1] < 0.2 * w.max()

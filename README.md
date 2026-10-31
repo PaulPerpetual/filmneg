@@ -39,13 +39,13 @@ for Pixelmator.
 2. Click a few **Grey** areas at different brightness (a wall in light, the
    same wall in shade, a dark grey), and **Skin** if there are people. Then
    **Solve samples**. Each sample shows how far it still is from neutral, so
-   you can remove one that wasn't really grey. Solve changes only the
-   *solved colour* (a per-channel balance before Levels, shown under Samples).
-   **White** and **Black** samples work like the eyedroppers in a classic
-   Levels: Solve sets the R, G and B input white / black points in **Levels**
-   so that spot becomes neutral white / black (anything brighter / darker
-   clips). With greys as well, the R and B grey sliders keep the greys
-   neutral. Exposure and contrast are never touched.
+   you can remove one that wasn't really grey. Solve changes only things you
+   can see and readjust by hand: greys and skin bend the **Colour by tone**
+   curves (gently, around the samples' brightness), **White** and **Black**
+   samples work like the eyedroppers in a classic Levels and set the R, G and
+   B input white / black points in **Levels** so that spot becomes neutral
+   white / black (anything brighter / darker clips). Base (exposure,
+   contrast, …) is never touched.
 3. Set **Light** (the panel under Samples) if the picture should keep
    its light: Warmth runs from shade through daylight and golden hour to
    tungsten (the chips jump to those, anything in between works), Tint leans
@@ -108,6 +108,10 @@ area) and labelled P1, P2, …
 
 ### Levels
 
+**Auto** (in the panel) sets each channel's black and white point where its
+histogram begins and ends (the last 0.01% is ignored, so a few hot pixels
+don't count), with the grey point in the middle.
+
 Classic levels, like Pixelmator Pro's: a histogram of the image before levels
 and curves, black / grey / white input triangles under it, and output black and
 white on the bar below. **RGB** moves all three channels, **R**, **G**, **B**
@@ -163,6 +167,25 @@ smooth ground (sky, walls, skin) score high; bright details in busy texture
   Repair tool. Untick **Repair here** to only mark spots for the mask.
 - Spots are stored in the sidecar in unrotated scan coordinates, so they stay
   put when you change the crop or angle. The exported TIFF includes the repairs.
+
+### Vectorscope and colour wheels
+
+The **Vectorscope** panel plots the colour of every pixel like DaVinci's: hue
+round the circle, saturation outwards, faint colours behind it to show which
+way is which, small boxes for 75% red, yellow, green, cyan, blue, magenta and
+a dashed skin tone line. 2× (the default) or 4× magnify the middle, where
+most film colours live.
+
+Under it, three **colour wheels** (Shadows, Midtones, Highlights) are a
+classic colour balance: drag the dot towards a colour (⌥ finer), double-click
+to centre it. They are another handle on the Colour by tone curves: the dot
+shows the curves' warmth and tint at that brightness, and dragging bends the
+curves there, so brightness stays where it is.
+
+**Correct** in the Measure panel does the same for one measured point: the
+slider bends the Colour by tone curves around that point's brightness until
+it reads neutral (*to grey*) or sits on the skin hue line (*as skin*); 50%
+takes half the cast away. Its reach is the Shift colour width (`[` `]`).
 
 ### Curves and Colour by tone
 
