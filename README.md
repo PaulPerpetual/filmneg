@@ -36,28 +36,21 @@ for Pixelmator.
 
 1. **Auto** sets each channel's black and white point (crop is detected on first open; Reset in crop mode re-detects it)
    from the histogram. It runs by itself the first time you open a scan.
-2. **Balance** (the panel right above Levels): with **Black**, **Grey** and
-   **White** in the toolbar (or the eyedroppers in Levels, keys K, N, W)
-   click something that should be black (with detail, zone II), neutral grey
-   and white (with texture, zone VIII, never a highlight or a lamp); or pick
-   measured points with the + pop-ups, and take one out with its ×. Then press
-   **Balance**. It is worked out afresh from the points there are now, so a
-   point you took out leaves nothing behind (the button shows a dot when the
-   points changed since). Balance is its own step, right before Levels, like
-   the eyedroppers of Photoshop's Levels or DaVinci's lift / gamma / gain:
-   black and white points set each channel's black / white so they land
-   neutral at the **targets** (10 and 245, not 0 and 255, so they keep a little
-   density and look natural); greys bring red and blue to green (green keeps
-   the brightness), mostly with the gamma, and greys at several brightnesses
-   also take out a cast that changes with brightness (film crossover). A
-   **strength** slider under each row dials that part in, live. Levels,
-   curves and Base stay yours.
-3. Under **Light** in Balance, the menu says what neutral means: pure grey, or
-   keeping the light the picture was taken in (shade, daylight, golden hour,
-   tungsten); **Warmth** sets anything in between, **Tint** leans green or
-   magenta, **By brightness** leans highlights, midtones and shadows on their
-   own. Press Balance again after changing it.
-4. Set black and white points in **Levels** if the scan needs it.
+2. Set **Light** (its own panel, right above Levels): what neutral means.
+   Pure grey, or keeping the light the picture was taken in (shade, daylight,
+   golden hour, tungsten); **Warmth** sets anything in between, **Tint** leans
+   green or magenta, **By brightness** leans highlights, midtones and shadows
+   on their own. It doesn't change the picture by itself: it is what the
+   points (their colour and *Correct just here*) and the grey eyedropper aim
+   for.
+3. The **eyedroppers in Levels** (keys K, N, W), like Photoshop's: one click
+   on something that should be black (with detail, zone II), neutral grey or
+   white (with texture, zone VIII, never a highlight or a lamp) sets Levels
+   straight away. Black and white land neutral at 10 and 245 (not 0 and 255,
+   so they keep a little density and look natural); grey brings red and blue
+   to green (green keeps the brightness), or to the Light's colour. Each
+   click is one undo step, and the sliders stay yours to readjust.
+4. Fine-tune black and white points in **Levels** if the scan needs it.
 5. Fine-tune by hand with **Shift colour**, **Shift brightness** or the curves.
 
 ### Tools and keys
@@ -69,7 +62,8 @@ for Pixelmator.
 | L | Shift brightness (the target button in Curves): same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
-| K / N / W / S | Black / Grey / White point for Balance (the same as the eyedroppers in Levels), or a Skin point: click for one point, click and drag for an area (dust specks inside are ignored). Drag a point to move it; hover it and click to remove it (or press Delete) |
+| K / N / W | The black / grey / white eyedroppers of Levels: click (or drag over an area) to set Levels; no point is left behind |
+| S | Skin point: click for one point, click and drag for an area (dust specks inside are ignored). Drag a point to move it; hover it and click to remove it (or press Delete) |
 | R | Crop & straighten: the sidebar shows angle, *Level by line* (draw along a horizon or wall edge), aspect ratio (6×7, 4×5, …), lens distortion and *Reset*. Drag the corners or edges to fine-tune, inside to move; a press outside the crop pulls the nearest edge there, ⇧-drag draws a new crop, dragging outside the picture rotates (⌥ finer). Leave with Done |
 | D | Dust: find dust and hairs, review the ranked list, repair (see below) |
 | right-click | Background colour around the picture (white, mid grey, dark), fit |
@@ -84,14 +78,14 @@ Delete key works too.
 
 Measured points and samples are one list in the **Points** panel, numbered 1,
 2, … on the image and on the curves. Click a row to see the point: change
-its role (*Measure only*, *Black / Grey / White point* of Balance, *Skin*)
+its role (*Measure* or *Skin*)
 and read what it is now (R/G/B, brightness and zone, colour in words, how it
 compares with skin). Drag a point to move it; hover it and click to remove it
 (or press Delete).
 
 **Correct just here** has a slider per cast: *Blue ↔ yellow* and *Green ↔
 magenta* (for a skin point, *Pink ↔ yellow* against typical skin). The middle
-is neutral, and the knob sits where the point's cast is now, so drag it
+is neutral (in the colour of the **Light**, if one is set), and the knob sits where the point's cast is now, so drag it
 toward the middle to correct, or double-click to make it neutral. It bends
 the Colour by tone curves around that point's brightness only; its reach is
 the **width** (the little bell slider next to Smooth / Reset, or `[` `]`).
@@ -108,10 +102,10 @@ zone (V grey card, grass, darker skin; VI light skin in sun; VIII textured
 snow, …), with the numbers of the points in each zone now. Shaping the Light
 curve to put things where they belong is up to you; nothing is fitted.
 
-The switch in the title of Base, Levels, Curves, Colour by tone and Balance
+The switch in the title of Base, Levels, Curves and Colour by tone
 turns that panel's adjustments off for a moment, to see what it does. It isn't saved and
 doesn't touch the settings. The Vectorscope's switch just hides the scope. Dust has its own *Repair here* switch.
-The arrow next to it (also on Balance, and on the Vectorscope, where it centres
+The arrow next to it (also on Light, and on the Vectorscope, where it centres
 the colour wheels) **reverts** that panel to its defaults. ⌘Z brings it back.
 
 The numbers next to the Base sliders are fields: click one, then ↑/↓ steps
@@ -260,11 +254,10 @@ let go. Crop, rotation and colour noise still render on the server.
 **Crossover.** The three dye layers of a colour film have slightly different
 contrast, so after inversion the cast changes with brightness: neutral mids,
 red shadows, cyan highlights. One white balance can't fix that. In the log
-domain each channel needs only an offset and a slope. Balance does the
-equivalent where you can see and change it: per-channel grey sliders in Levels
-(a best fit through all greys), and for what is left, the Colour by tone
-curves' three handles, by least squares. With one grey it is a plain white
-balance in Levels.
+domain each channel needs only an offset and a slope. Here you fix it where
+you can see it: the Levels eyedroppers and per-channel sliders for the ends
+and the middle, then *Correct just here* on grey points at other
+brightnesses, which bends the Colour by tone curves only around each point.
 
 **Skin.** Skin hue is quite consistent across people; lightness and chroma
 vary much more. Skin samples are therefore a hue target, not a
@@ -289,5 +282,5 @@ pytest
 ```
 
 Code map: `filmneg/pipeline.py` (render), `analysis.py` (auto crop/levels,
-balance, probe), `curves.py`
+eyedroppers, probe), `curves.py`
 (B-splines), `server.py` (local HTTP API), `web/` (UI, plain JS, no build step).

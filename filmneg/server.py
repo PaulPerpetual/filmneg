@@ -347,20 +347,10 @@ def make_handler(session: Session):
         if route == "levels":
             p["black"], p["white"] = analysis.auto_levels(pipeline.geometry(s.proxies["preview"], p["angle"], p["distortion"]), p, s.scan.space)
             return {"params": p}
-        if route in ("balance", "report"):
-            # points marked Black / Grey / White balance the picture (in Levels); skin
-            # points are only compared with skin; plain points are only read
-            samples = body.get("samples", [])
-            active = [x for x in samples if x.get("kind") in ("neutral", "white", "black", "skin")]
-            colors = s.sample_colors(active, p)
-            kinds = [x["kind"] for x in active]
-            if route == "balance":
-                used = [(c, k) for c, k in zip(colors, kinds) if k != "skin"]
-                # always afresh from the points there are now (none: no balance)
-                p = analysis.balance([c for c, _ in used], [k for _, k in used], p, s.scan.space)
-            rep = iter(analysis.sample_report(colors, kinds, p, s.scan.space) if active else [])
-            report = [next(rep) if x.get("kind") in ("neutral", "white", "black", "skin") else None for x in samples]
-            return {"params": p, "report": report} if route == "balance" else {"report": report}
+        if route == "eyedrop":
+            # the Levels eyedroppers: one click sets Levels (black / grey / white)
+            col = s.sample_colors([body["at"]], p)[0]
+            return {"params": analysis.levels_eyedrop(col, body.get("kind", "neutral"), p, s.scan.space)}
         if route == "probe":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)

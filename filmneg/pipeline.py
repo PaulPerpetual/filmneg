@@ -49,9 +49,9 @@ DEFAULTS = {
     "levels": {ch: {"lo": 0.0, "gamma": 1.0, "hi": 1.0, "out_lo": 0.0, "out_hi": 1.0}
                for ch in LEVEL_CHANNELS},  # encoded values, like Pixelmator's Levels
     "nr": 0.0,                     # chroma noise reduction strength 0..1
-    "targets": {"black": 10, "white": 245},  # where Balance puts black / white samples (0..255)
-    # Balance: its own per-channel black / grey / white step before Levels, worked
-    # out from the points (analysis.balance); strength dials each part in
+    "targets": {"black": 10, "white": 245},  # where the Levels eyedroppers put black / white (0..255)
+    # Balance (no longer in the app): a per-channel step before Levels that older
+    # edits may carry; kept so they look the same, cleared by reverting Levels
     "balance": {"r": {"lo": 0.0, "gamma": 1.0, "hi": 1.0}, "g": {"lo": 0.0, "gamma": 1.0, "hi": 1.0},
                 "b": {"lo": 0.0, "gamma": 1.0, "hi": 1.0},
                 "strength": {"black": 1.0, "grey": 1.0, "white": 1.0}},

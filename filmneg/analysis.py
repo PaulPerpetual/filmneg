@@ -4,7 +4,7 @@ from scipy.optimize import least_squares
 
 from . import curves
 from .color import SKIN_HUE, RGBSpace, luma
-from .pipeline import crop, curve_tone, pre_balance, render_pixels, to_working_linear
+from .pipeline import crop, curve_tone, pre_balance, pre_levels, render_pixels, to_working_linear
 
 # What "neutral" should look like under the light the picture was taken in.
 # Warmth 0 is pure grey; 1 is golden hour, a grey that stays recognisably warm.
@@ -109,74 +109,42 @@ def sample_report(colors, kinds, params, space: RGBSpace):
     return out
 
 
-def balance(colors, kinds, params, space: RGBSpace):
-    """Neutral balance from black / grey / white points, worked out afresh from the
-    points given (earlier results don't carry over), into Balance's own
-    per-channel black / grey / white step before Levels, like the eyedroppers of
-    Photoshop's Levels or DaVinci's lift / gamma / gain:
+def levels_eyedrop(color, kind, params, space: RGBSpace):
+    """The eyedroppers of a classic Levels (Photoshop's): one click sets Levels.
 
-    - black and white points set each channel's black / white so they land
-      neutral at the targets (10 and 245 by default, not 0 and 255, so they keep
-      a little density and look natural);
-    - greys bring red and blue to green (green keeps the brightness, like
-      Photoshop's grey eyedropper), mostly with the gamma; several greys at
-      different brightnesses: a lift / gamma / gain fit, which also takes out
-      a cast that changes with brightness (film crossover).
-    Strengths (params["balance"]["strength"]) dial each part in afterwards.
+    - white / black: each channel's input white / black point so the spot lands
+      neutral at the target (245 / 10 by default, not 255 / 0, so it keeps a
+      little density and looks natural);
+    - grey: red's and blue's grey sliders so the spot comes out as bright on
+      them as on green (green keeps the brightness), i.e. neutral, or in the
+      colour of the Light if one is set.
     """
-    colors = np.asarray(colors, np.float32)
-    kinds = list(kinds)
-    pre = pre_balance(colors, params, space) if len(colors) else np.zeros((0, 3), np.float32)
+    v = pre_levels(np.asarray([color], np.float32), params, space)[0]
+    levels = {ch: dict(L) for ch, L in params["levels"].items()}
     tg = params.get("targets", {"black": 10, "white": 245})
-    pick = lambda kind: np.mean([pre[i] for i, k in enumerate(kinds) if k == kind], axis=0) if kind in kinds else None
-    vw, vb = pick("white"), pick("black")
-    greys = np.asarray([pre[i] for i, k in enumerate(kinds) if k == "neutral"], np.float32)
     tb, tw = tg["black"] / 255, tg["white"] / 255
-    # green sets the brightness, like Photoshop's grey eyedropper: it only takes
-    # the black / white points (plain end points, no gamma) ...
-    gi = 1
-    lo_g, hi_g = 0.0, 1.0
-    if vw is not None and vb is not None and vw[gi] - vb[gi] > 0.02:
-        span = (vw[gi] - vb[gi]) / (tw - tb)
-        lo_g = float(vb[gi] - tb * span); hi_g = lo_g + span
-    elif vw is not None:
-        hi_g = float(max(vw[gi], 0.05) / tw)
-    elif vb is not None:
-        lo_g = float(min((vb[gi] - tb) / (1 - tb), 0.95))
-    B = {"g": {"lo": lo_g, "gamma": 1.0, "hi": hi_g}}
-    # ... and red and blue follow it: each grey should come out as bright on them
-    # as on green (or in the light's colour, if one is set), black and white at
-    # their targets; per channel a small lift / gamma / gain fit
-    grey_out = np.clip((greys[:, gi] - lo_g) / max(hi_g - lo_g, 1e-3), 1e-3, 1) if len(greys) else np.zeros(0)
-    ratio = np.ones((len(greys), 3))
-    if len(greys):
-        lab = _oklab(np.repeat(grey_out[:, None], 3, axis=1).astype(np.float32), space)
-        tab = np.array([target(params, float(L)) for L in lab[:, 0]])
-        if np.abs(tab).max() > 1e-6:  # golden hour etc.: greys stay a little warm
-            lab[:, 1:] = tab
-            rgb = space.encode(np.clip(space.oklab_to_lin(lab), 0, None))
-            ratio = rgb / np.maximum(rgb[:, [gi]], 1e-4)
+    if kind in ("white", "black"):
+        for i, ch in enumerate("rgb"):
+            L, g = levels[ch], levels[ch]["gamma"]
+            if kind == "white":  # (v - lo) / (hi - lo) = tw ** g, after the channel's grey slider
+                L["hi"] = float(np.clip(L["lo"] + (v[i] - L["lo"]) / tw ** g, L["lo"] + 0.02, 4.0))
+            else:
+                t = tb ** g
+                L["lo"] = float(np.clip((v[i] - t * L["hi"]) / (1 - t), -1.0, L["hi"] - 0.02))
+        return {**params, "levels": levels}
+    y = [float(np.clip((v[i] - levels[ch]["lo"]) / max(levels[ch]["hi"] - levels[ch]["lo"], 1e-3), 1e-3, 1 - 1e-3))
+         for i, ch in enumerate("rgb")]
+    out_g = y[1] ** (1 / levels["g"]["gamma"])
+    want = np.array([out_g, out_g, out_g])
+    lab = _oklab(np.array([[out_g] * 3], np.float32), space)[0]
+    ta, tb_ = target(params, float(lab[0]))
+    if abs(ta) + abs(tb_) > 1e-6:  # keep the light's colour
+        rgb = space.encode(np.clip(space.oklab_to_lin(np.array([lab[0], ta, tb_])), 0, None))
+        want = out_g * rgb / max(rgb[1], 1e-4)
     for i, ch in ((0, "r"), (2, "b")):
-        x, y, w = greys[:, i].astype(float), grey_out * ratio[:, i], np.ones(len(greys))
-        for v, aim in ((vb, tb), (vw, tw)):
-            if v is not None:
-                x, y, w = np.append(x, v[i]), np.append(y, aim), np.append(w, 3.0)  # the end points are firm
-
-        def res(q, x=x, y=y, w=w):
-            lo, hi, lg = q
-            f = np.clip((x - lo) / max(hi - lo, 1e-3), 1e-4, None) ** np.exp(-lg)
-            # few points: change as little as possible, and prefer the gamma
-            return np.concatenate([w * (f - y), [0.05 * lo, 0.05 * (hi - 1), 0.01 * lg]])
-
-        # start from identity and from green's end points; keep the better fit
-        lo0 = 0.0 if vb is None else vb[i] - tb * ((1.0 if vw is None else vw[i]) - vb[i]) / ((1.0 if vw is None else tw) - tb)
-        hi0 = 1.0 if vw is None else lo0 + (vw[i] - lo0) / tw
-        starts = ([0.0, 1.0, 0.0], [lo_g, hi_g, 0.0], [lo0, max(hi0, lo0 + 0.05), 0.0])
-        fits = [least_squares(res, q0) for q0 in starts] if len(x) else []
-        lo, hi, lg = min(fits, key=lambda r: r.cost).x if fits else (0.0, 1.0, 0.0)
-        B[ch] = {"lo": float(lo), "gamma": float(np.clip(np.exp(lg), 0.2, 5.0)), "hi": float(hi)}
-    B = {ch: B[ch] for ch in "rgb"}
-    return {**params, "balance": {**B, "strength": dict(params["balance"]["strength"])}}
+        w = float(np.clip(want[i], 1e-3, 1 - 1e-3))
+        levels[ch]["gamma"] = float(np.clip(np.log(y[i]) / np.log(w), 0.2, 5.0))  # y ** (1/g) = w
+    return {**params, "levels": levels}
 
 
 def _grey_residuals(colors, kinds, p, params, space, reg):

@@ -29,49 +29,6 @@ def test_lut_path_matches_direct_path():
     assert np.abs(big[:10, :10] - small).max() < 2e-4
 
 
-def test_solver_removes_crossover():
-    """A cast that changes with brightness is fixed from greys at different tones."""
-    truth = pipeline.default_params()
-    truth.update(slope=[1.08, 1.0, 0.9], offset=[0.15, 0.0, -0.25])
-    greys = grey_ramp(3)
-    # Find the scan values that the "true" correction would turn into these greys,
-    # by inverting the per-channel log transform.
-    log = np.log2(ADOBE_RGB.decode(greys))
-    s, o = np.array(truth["slope"]), np.array(truth["offset"])
-    scan = ADOBE_RGB.encode(np.exp2((log - pipeline.PIVOT - o) / s + pipeline.PIVOT)).astype(np.float32)
-
-    p0 = pipeline.default_params()
-    before = analysis.sample_report(scan, ["neutral"] * 3, p0, ADOBE_RGB)
-    p1 = analysis.balance(scan, ["neutral"] * 3, p0, ADOBE_RGB)
-    after = analysis.sample_report(scan, ["neutral"] * 3, p1, ADOBE_RGB)
-
-    worst = lambda rep: max(np.hypot(r["da"], r["db"]) for r in rep)
-    assert worst(before) > 10
-    assert worst(after) < 1.5
-    # only the Colour by tone curves were bent, the base stays as it was
-    assert p1["slope"] == p0["slope"] and p1["offset"] == p0["offset"] and p1["exposure"] == p0["exposure"]
-
-
-def test_single_sample_is_a_white_balance():
-    scan = np.array([[0.6, 0.55, 0.45]], np.float32)
-    p = analysis.balance(scan, ["neutral"], pipeline.default_params(), ADOBE_RGB)
-    # one grey: Balance's own grey points per channel; Levels and curves untouched
-    d = pipeline.default_params()
-    assert p["curves"] == d["curves"] and p["levels"] == d["levels"]
-    assert len({round(p["balance"][c]["gamma"], 3) for c in "rgb"}) == 3
-    rep = analysis.sample_report(scan, ["neutral"], p, ADOBE_RGB)[0]
-    assert np.hypot(rep["da"], rep["db"]) < 1
-
-
-def test_lighting_keeps_warmth():
-    scan = np.array([[0.6, 0.6, 0.6]], np.float32)
-    p = pipeline.default_params()
-    p["light"]["warmth"] = 1.0  # golden hour
-    p = analysis.balance(scan, ["neutral"], p, ADOBE_RGB)
-    rep = analysis.sample_report(scan, ["neutral"], p | {"light": pipeline.default_params()["light"]}, ADOBE_RGB)[0]
-    assert rep["db"] > 10  # the grey is left warm on purpose
-
-
 def test_light_by_range_and_old_sidecars():
     p = pipeline.normalize({"lighting": "golden hour"})
     assert p["light"]["warmth"] == 1.0 and "lighting" not in p
@@ -247,22 +204,6 @@ def test_dust_decisions_update_source_locally(tmp_path):
         s.dust["spots"][0]["on"] = None
 
 
-def test_white_and_black_samples_set_channel_levels():
-    # like Levels' eyedroppers: the samples become neutral white and black,
-    # exposure and contrast stay; a grey sample is still solved alongside
-    scan = np.array([[0.9, 0.85, 0.75], [0.1, 0.12, 0.16], [0.5, 0.47, 0.42]], np.float32)
-    kinds = ["white", "black", "neutral"]
-    p0 = pipeline.default_params()
-    p = analysis.balance(scan, kinds, p0, ADOBE_RGB)
-    assert p["exposure"] == p0["exposure"] and p["contrast"] == p0["contrast"]
-    out = pipeline.render_pixels(scan, p, ADOBE_RGB)
-    # neutral, at the targets (245 / 10), not clipped to pure white / black
-    assert np.ptp(out[0]) < 0.012 and np.ptp(out[1]) < 0.01
-    assert abs(out[0].mean() - 245 / 255) < 0.015 and abs(out[1].mean() - 10 / 255) < 0.015
-    rep = analysis.sample_report(scan, kinds, p, ADOBE_RGB)[2]
-    assert np.hypot(rep["da"], rep["db"]) < 2
-
-
 def test_neutralize_a_measured_point():
     # the full correction makes the spot neutral; it only bends the curves near its tone
     col = np.array([0.55, 0.5, 0.42], np.float32)
@@ -291,20 +232,6 @@ def test_light_curve_moves_brightness_only():
     assert np.all(b.mean(axis=1) > a.mean(axis=1) + 0.01)
 
 
-def test_balance_starts_afresh_and_has_strengths():
-    # taking a white point out and balancing again is as if it had never been there
-    cols = np.array([[0.5, 0.47, 0.42], [0.9, 0.85, 0.75]], np.float32)
-    p0 = pipeline.default_params()
-    only_grey = analysis.balance(cols[:1], ["neutral"], p0, ADOBE_RGB)
-    both = analysis.balance(cols, ["neutral", "white"], p0, ADOBE_RGB)
-    again = analysis.balance(cols[:1], ["neutral"], both, ADOBE_RGB)
-    assert again["balance"] == only_grey["balance"]
-    # strength 0 for white leaves the white end where it was
-    both["balance"]["strength"]["white"] = 0.0
-    eff = pipeline.balance_levels(both)
-    assert all(abs(eff[c]["hi"] - 1) < 1e-9 for c in "rgb")
-
-
 def test_preview_jpeg_is_srgb():
     # the preview goes out already in sRGB (tagged), so every browser shows it right
     import io
@@ -314,3 +241,35 @@ def test_preview_jpeg_is_srgb():
     assert "sRGB" in ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(im.info["icc_profile"])))
     want = imageio.to_srgb(adobe, ADOBE_RGB)[0, 0] * 255
     assert np.abs(np.asarray(im)[0, 0] - want).max() < 3
+
+
+def test_levels_eyedroppers():
+    p = pipeline.default_params()
+    grey = np.array([0.5, 0.45, 0.38], np.float32)
+    q = analysis.levels_eyedrop(grey, "neutral", p, ADOBE_RGB)
+    out = pipeline.render_pixels(grey[None], q, ADOBE_RGB)[0]
+    assert np.ptp(out) < 0.01 and q["levels"]["g"] == p["levels"]["g"]  # green keeps the brightness
+    white = np.array([0.9, 0.85, 0.78], np.float32)
+    q = analysis.levels_eyedrop(white, "white", q, ADOBE_RGB)
+    out = pipeline.render_pixels(white[None], q, ADOBE_RGB)[0]
+    assert np.ptp(out) < 0.01 and abs(out.mean() - 245 / 255) < 0.01
+    # with a warm light, grey keeps a little warmth
+    p["light"]["warmth"] = 1.0
+    q = analysis.levels_eyedrop(grey, "neutral", p, ADOBE_RGB)
+    out = pipeline.render_pixels(grey[None], q, ADOBE_RGB)[0]
+    assert out[0] > out[2] + 0.02
+
+
+def test_points_neutral_follows_the_light():
+    # with a warm Light, "neutral" for a point is the light's warmth: Correct just
+    # here's full correction leaves the spot warm, by as much as the light says
+    col = np.array([0.55, 0.5, 0.42], np.float32)
+    p = pipeline.default_params()
+    p["light"]["warmth"] = 1.0
+    r = analysis.neutralize(col, "neutral", p, ADOBE_RGB, sigma=0.12)
+    q = {**p, "curves": {**p["curves"], "warmth": r["full"]["warmth"], "tint": r["full"]["tint"]}}
+    neutral = {**q, "light": pipeline.default_params()["light"]}
+    rep = analysis.sample_report(col[None], ["neutral"], neutral, ADOBE_RGB)[0]
+    assert rep["db"] > 10  # warm on purpose
+    rep = analysis.sample_report(col[None], ["neutral"], q, ADOBE_RGB)[0]
+    assert np.hypot(rep["da"], rep["db"]) < 1  # and right on the light's colour
