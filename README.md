@@ -92,7 +92,10 @@ magenta* (for a skin point, *Pink ↔ yellow* against typical skin). The middle
 is neutral, and the knob sits where the point's cast is now, so drag it
 toward the middle to correct, or double-click to make it neutral. It bends
 the Colour by tone curves around that point's brightness only; its reach is
-the Shift colour width (`[` `]`).
+the **width** (the little bell slider next to Smooth / Reset, or `[` `]`).
+While you hover or drag these sliders, the bell they act with shows on the
+Colour by tone curve. The point's details sit at the top of the Points
+panel, right under the curves.
 
 ### Zones
 

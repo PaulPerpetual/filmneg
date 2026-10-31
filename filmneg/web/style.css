@@ -298,3 +298,7 @@ aside input.track-skin::-moz-range-track { background: linear-gradient(90deg, #b
 #balance-roles select { width: 46px; min-width: 0; font-size: 13px; }
 .pop-row.targets span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
 .pop-row.targets input { width: 46px; min-width: 0; background: #262626; color: #e8e8ea; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* width control next to Smooth / Reset: a small bell and a short slider */
+.width-ctl { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+.width-ctl input { width: 96px; }

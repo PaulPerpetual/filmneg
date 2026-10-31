@@ -176,6 +176,7 @@
       <div class="row">
         <button data-act="smooth" title="Smooth the shown curve, like Rhino's Smooth. Click again for more">Smooth</button>
         <button data-act="reset" title="Reset the shown curve">Reset curve</button>
+        <label class="width-ctl" title="Width: how far around a tone Shift colour, Shift brightness and Correct just here reach. Hover to see it on the curve ([ ])"><svg viewBox="0 0 20 12" width="18" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 11C5 11 6.5 1.5 10 1.5S15 11 19 11"/></svg><input data-width type="range" min="0.03" max="0.5" step="0.005"></label>
       </div>
       <div class="muted small">Drag up or down. Press right on the curve for a narrow change, further away from it for a broader one; the shaded bell shows what will move. The Light curve changes brightness only, never colour.</div>
       <details id="zones-box">
@@ -202,15 +203,16 @@
       <div class="row">
         <button data-act="smooth" title="Smooth the shown curve, like Rhino's Smooth. Click again for more">Smooth</button>
         <button data-act="reset" title="Reset the shown curve">Reset</button>
+        <label class="width-ctl" title="Width: how far around a tone Shift colour, Shift brightness and Correct just here reach. Hover to see it on the curve ([ ])"><svg viewBox="0 0 20 12" width="18" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 11C5 11 6.5 1.5 10 1.5S15 11 19 11"/></svg><input data-width type="range" min="0.03" max="0.5" step="0.005"></label>
       </div>
       <div class="muted small">Shifts colour at one brightness only, e.g. warmer highlights or greener shadows. Shift colour on the image edits these curves too.</div>
     </div>
 
     <div class="panel" id="points-panel">
       <h3>Points <button class="eye" data-eye="samples" title="Hide samples on the image"><svg class="open" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/></svg><svg class="shut" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/><path d="M3 17 17 3"/></svg></button></h3>
+      <div id="point-detail"></div>
       <ul id="samples"></ul>
       <div class="muted small" id="samples-empty">Measure (P) pins a point: click, or drag over an area. Each shows what it reads and where it sits on the curves, and can be corrected right there. Points can balance the picture (see Balance).</div>
-      <div id="point-detail"></div>
       <div class="row" id="points-actions"><button id="points-clear">Clear all</button></div>
     </div>
 

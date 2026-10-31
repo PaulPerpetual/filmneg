@@ -133,6 +133,7 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function setWidth(w) {
   S.width = clamp(w, 0.03, 1.0);
+  $$("[data-width]").forEach((el) => { if (document.activeElement !== el) el.value = S.width; });
   if (S.push) applyPush(false);
   drawCurve(); drawOverlay();
 }
@@ -1174,7 +1175,12 @@ function wireProbeFix() {
     }
     ready = null; commit(); endDrag();
   };
+  const bellOn = () => { const q = S.readings[selPoint()]; if (q) { S.bell = { tone: q.ctone, panel: "colour" }; drawCurve(); } };
+  const bellOff = () => { S.bell = null; drawCurve(); };
   $$("[data-fix]").forEach((el) => {
+    el.addEventListener("pointerenter", bellOn);
+    el.addEventListener("pointerleave", () => { if (!S.dragging) bellOff(); });
+    el.addEventListener("change", () => setTimeout(() => { if (!el.matches(":hover")) bellOff(); }, 0));
     el.addEventListener("pointerdown", grab);
     el.addEventListener("input", () => setTo(el, +el.value));
     el.addEventListener("change", () => guard("Correct", () => settle(el, +el.value)));
@@ -1629,6 +1635,10 @@ function drawCurvePanel(P) {
   // falloff preview: where a drag from here would act and how wide, as a bell
   // that follows the curve itself
   let shown = (S.curveDrag && S.curveDrag.panel === P) ? S.curveDrag : P.hover;
+  if (S.bell && (P === COLOUR) === (S.bell.panel === "colour")) {
+    // the width control or a point's correction: its bell at that tone
+    shown = { name: P === COLOUR ? S.colourCurve : S.curve, t: S.bell.tone, width: S.width };
+  }
   if (S.push && S.push.tone != null && (P === COLOUR) === (S.push.kind === "colour")) {
     // a shift on the image: its bell, along the curve it bends
     const name = P === COLOUR ? (Math.abs(S.push.tint || 0) > Math.abs(S.push.warm || 0) ? "tint" : "warmth") : "lightness";
@@ -2458,6 +2468,19 @@ $$("[data-surround]").forEach((b) => (b.onclick = () => { setSurround(b.dataset.
 $("#menu [data-action=fit]").onclick = () => { fitView(); closeMenu(); };
 window.addEventListener("mousedown", (ev) => { if (!$("#menu").contains(ev.target)) closeMenu(); }, true);
 try { setSurround(localStorage.getItem("filmneg.surround") || "#808080"); } catch (e) { setSurround("#808080"); }
+
+// width controls (Curves and Colour by tone): hovering shows the bell at the
+// selected point's tone, or mid-grey
+const bellTone = () => { const q = S.readings[selPoint()]; return q ? q.ctone : 0.5; };
+$$("[data-width]").forEach((el) => {
+  el.value = S.width;
+  const panel = el.closest(".panel").querySelector("#colour-tabs") ? "colour" : "tone";
+  el.addEventListener("pointerenter", () => { S.bell = { tone: bellTone(), panel }; drawCurve(); });
+  el.addEventListener("pointerleave", () => { if (!el.matches(":active")) { S.bell = null; drawCurve(); } });
+  el.addEventListener("input", () => { S.bell = { tone: bellTone(), panel }; setWidth(+el.value); });
+  el.addEventListener("change", () => { S.bell = null; drawCurve(); try { localStorage.setItem("filmneg.width", S.width); } catch (e) { /* ignore */ } });
+});
+try { const w = +localStorage.getItem("filmneg.width"); if (w) setWidth(w); } catch (e) { /* ignore */ }
 
 function setCurve(c) {
   if (!["lightness", "r", "g", "b"].includes(c)) c = "lightness";  // e.g. "colour" from an older version
