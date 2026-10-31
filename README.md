@@ -78,11 +78,11 @@ samples, **Colour casts left** says in words what cast remains in the
 shadows, midtones and highlights (from your grey samples where there are
 some, otherwise from grey-ish areas of the picture) and what would fix it.
 
-The switch in the title of Base, Levels, Curves, Colour by tone and
+The switch in the title of Base, Levels, Curves and Colour by tone
 Samples turns that panel's adjustments off for a moment (Samples: the
 solved colour), to see what it does. It isn't saved and doesn't touch the
 settings. Dust has its own *Repair here* switch. The arrow next to it
-(also on Light) **reverts** that panel to its defaults; for Samples that is
+(also on Light and the Vectorscope, where it centres the colour wheels) **reverts** that panel to its defaults; for Samples that is
 the solved colour, the samples themselves stay. ⌘Z brings it back.
 
 The numbers next to the Base sliders are fields: click one, then ↑/↓ steps

@@ -234,10 +234,12 @@ const REVERT = {
   curves: ["Curves", (p) => { for (const n of ["lightness", "r", "g", "b"]) p.curves[n] = Array(N_CTRL).fill(0); }],
   colour: ["Colour by tone", (p) => { for (const n of ["warmth", "tint"]) p.curves[n] = Array(N_CTRL).fill(0); }],
   light: ["Light", (p) => { p.light = { warmth: 0, tint: 0, shadows: [0, 0], midtones: [0, 0], highlights: [0, 0] }; }],
+  // centres all three (a few rounds, since neighbouring wheels overlap a little)
+  scope: ["Colour wheels", () => { for (let k = 0; k < 6; k++) for (const [, , tone] of WHEELS) setWheel(tone, [0, 0], clone(S.params.curves)); }],
 };
 const REVERT_ICON = '<svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 8.5h8a4 4 0 0 1 0 8H9"/><path d="M8 5 4.5 8.5 8 12"/></svg>';
 for (const [k, [name]] of Object.entries(REVERT)) {
-  const h3 = (k === "light" ? $("#light-panel") : $(`[data-power="${k}"]`).closest(".panel")).querySelector("h3");
+  const h3 = ({ light: $("#light-panel"), scope: $("#scope-panel") }[k] || $(`[data-power="${k}"]`).closest(".panel")).querySelector("h3");
   const b = document.createElement("button");
   b.className = "revert"; b.dataset.revert = k; b.innerHTML = REVERT_ICON;
   b.title = `Revert ${name} to its defaults (⌘Z brings it back)`;
