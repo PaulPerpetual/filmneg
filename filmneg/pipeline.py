@@ -50,6 +50,11 @@ DEFAULTS = {
                for ch in LEVEL_CHANNELS},  # encoded values, like Pixelmator's Levels
     "nr": 0.0,                     # chroma noise reduction strength 0..1
     "targets": {"black": 10, "white": 245},  # where Balance puts black / white samples (0..255)
+    # Balance: its own per-channel black / grey / white step before Levels, worked
+    # out from the points (analysis.balance); strength dials each part in
+    "balance": {"r": {"lo": 0.0, "gamma": 1.0, "hi": 1.0}, "g": {"lo": 0.0, "gamma": 1.0, "hi": 1.0},
+                "b": {"lo": 0.0, "gamma": 1.0, "hi": 1.0},
+                "strength": {"black": 1.0, "grey": 1.0, "white": 1.0}},
     "light": {"warmth": 0.0, "tint": 0.0,  # what greys should look like (see analysis.target)
               "shadows": [0.0, 0.0], "midtones": [0.0, 0.0], "highlights": [0.0, 0.0]},
     "curves": {name: curves.zero_curve() for name in curves.CURVE_NAMES},
@@ -72,6 +77,11 @@ def normalize(params):
             out["light"].update(v)
         elif k == "targets":
             out["targets"].update(v)
+        elif k == "balance":
+            for ch in ("r", "g", "b", "strength"):
+                out["balance"][ch].update(v.get(ch, {}))
+            if "key" in v:  # which points it was worked out from (the UI's "changed since" hint)
+                out["balance"]["key"] = v["key"]
         elif k == "lighting":  # older sidecars: a named light
             out["light"]["warmth"] = {"overcast / shade": -0.27, "daylight": 0.27, "golden hour": 1.0,
                                       "tungsten": 1.36}.get(v, 0.0)
@@ -129,8 +139,29 @@ def to_working_linear(enc, params, space: RGBSpace):
     return (lin - black) / np.maximum(white - black, _EPS)
 
 
+def balance_levels(params):
+    """Balance's effective per-channel black / grey / white, its strengths applied."""
+    B = params["balance"]
+    s = B["strength"]
+    out = {}
+    for ch in "rgb":
+        L = B[ch]
+        out[ch] = {"lo": s["black"] * L["lo"], "hi": 1.0 + s["white"] * (L["hi"] - 1.0),
+                   "gamma": float(L["gamma"] ** s["grey"]), "out_lo": 0.0, "out_hi": 1.0}
+    return out
+
+
 def pre_levels(enc, params, space: RGBSpace):
-    """The image as the Levels panel sees it: after the base stages, before levels and curves."""
+    """The image as the Levels panel sees it: after the base stages and Balance."""
+    out = pre_balance(enc, params, space)
+    for i, L in enumerate(balance_levels(params).values()):
+        if (L["lo"], L["gamma"], L["hi"]) != (0.0, 1.0, 1.0):
+            out[..., i] = apply_level(out[..., i], L)
+    return out
+
+
+def pre_balance(enc, params, space: RGBSpace):
+    """The image as Balance sees it: after the base stages."""
     lin = np.maximum(to_working_linear(enc, params, space), _EPS)
     log = np.log2(lin)
     slope = np.asarray(params["slope"], dtype=np.float32)

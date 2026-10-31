@@ -302,3 +302,10 @@ aside input.track-skin::-moz-range-track { background: linear-gradient(90deg, #b
 /* width control next to Smooth / Reset: a small bell and a short slider */
 .width-ctl { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .width-ctl input { width: 96px; }
+#balance-roles .bstrength { display: flex; align-items: center; gap: 8px; margin: 0 0 6px 52px; }
+#balance-roles .bstrength input { flex: 1; min-width: 0; }
+#balance-roles .bstrength .num { width: 38px; text-align: right; font-size: 12px; color: var(--muted); }
+.balance-go { margin: 6px 0 4px; }
+.balance-go #btn-balance { flex: 1; background: #0a84ff; color: #fff; }
+#btn-balance.stale::after { content: " ●"; color: #ffd60a; }
+#light-more summary { font-size: 12px; font-weight: 600; color: var(--muted); margin: 6px 0 2px; }

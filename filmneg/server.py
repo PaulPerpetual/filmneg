@@ -356,8 +356,8 @@ def make_handler(session: Session):
             kinds = [x["kind"] for x in active]
             if route == "balance":
                 used = [(c, k) for c, k in zip(colors, kinds) if k != "skin"]
-                if used:
-                    p = analysis.balance([c for c, _ in used], [k for _, k in used], p, s.scan.space)
+                # always afresh from the points there are now (none: no balance)
+                p = analysis.balance([c for c, _ in used], [k for _, k in used], p, s.scan.space)
             rep = iter(analysis.sample_report(colors, kinds, p, s.scan.space) if active else [])
             report = [next(rep) if x.get("kind") in ("neutral", "white", "black", "skin") else None for x in samples]
             return {"params": p, "report": report} if route == "balance" else {"report": report}

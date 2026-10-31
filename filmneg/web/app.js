@@ -220,7 +220,7 @@ function viewParams() {
   if (S.tool === "crop") p.crop = [0, 0, 1, 1];
   if (OFF.has("base")) Object.assign(p, SLIDER_DEFAULTS, { slope: [1, 1, 1], offset: [0, 0, 0] });
   if (OFF.has("levels")) for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 });
-  if (OFF.has("balance")) for (const c of "rgb") Object.assign(p.levels[c], { lo: 0, gamma: 1, hi: 1 });  // where Balance works
+  if (OFF.has("balance")) p.balance.strength = { black: 0, grey: 0, white: 0 };
   for (const n of OFF.has("curves") ? ["lightness", "r", "g", "b"] : []) p.curves[n] = Array(N_CTRL).fill(0);
   for (const n of OFF.has("colour") ? ["warmth", "tint"] : []) p.curves[n] = Array(N_CTRL).fill(0);
   // reviewing dust: the selected spot shows unrepaired until Return shows its repair
@@ -234,7 +234,11 @@ const REVERT = {
   levels: ["Levels", (p) => { for (const L of Object.values(p.levels)) Object.assign(L, { lo: 0, gamma: 1, hi: 1, out_lo: 0, out_hi: 1 }); }],
   curves: ["Curves", (p) => { for (const n of ["lightness", "r", "g", "b"]) p.curves[n] = Array(N_CTRL).fill(0); }],
   colour: ["Colour by tone", (p) => { for (const n of ["warmth", "tint"]) p.curves[n] = Array(N_CTRL).fill(0); }],
-  light: ["White balance", (p) => { p.light = { warmth: 0, tint: 0, shadows: [0, 0], midtones: [0, 0], highlights: [0, 0] }; }],
+  light: ["Balance", (p) => {
+    p.light = { warmth: 0, tint: 0, shadows: [0, 0], midtones: [0, 0], highlights: [0, 0] };
+    for (const c of "rgb") p.balance[c] = { lo: 0, gamma: 1, hi: 1 };
+    p.balance.strength = { black: 1, grey: 1, white: 1 }; delete p.balance.key;
+  }],
   // centres all three (a few rounds, since neighbouring wheels overlap a little)
   scope: ["Colour wheels", () => { for (let k = 0; k < 6; k++) for (const [, , tone] of WHEELS) setWheel(tone, [0, 0], clone(S.params.curves)); }],
 };
@@ -250,7 +254,7 @@ for (const [k, [name]] of Object.entries(REVERT)) {
     REVERT[k][1](S.params);
     syncControls(); render(); drawCurve(); drawLevels(); commit();
     flash("revert", `${name} reverted`);
-    if (k === "light" && balanced()) runBalance();  // greys follow the light
+
   });
 }
 $$("[data-power]").forEach((b) => b.addEventListener("click", (ev) => {
@@ -963,21 +967,19 @@ const balanced = () => S.samples.some((s) => ["neutral", "white", "black"].inclu
 function addPoint(s) {
   S.samples.push(s); S.sel = S.samples.length - 1;
   commit(); renderPoints(); drawOverlay();
-  if (["neutral", "white", "black"].includes(s.kind)) runBalance();  // a Balance point
 }
 
-// Balance: black / grey / white points set the channels' end points and grey
-// sliders in Levels (see analysis.balance). It runs whenever the points change.
+// Balance: its own per-channel black / grey / white step before Levels, worked
+// out afresh from the black / grey / white points, only when you press Balance
+// (analysis.balance). The strength sliders dial each part in, live.
+const balanceKey = () => JSON.stringify([S.samples.filter((s) => ["neutral", "white", "black"].includes(s.kind)).map(({ kind, x, y, r }) => [kind, x, y, r]),
+  S.params.targets, S.params.light]);
 const runBalance = () => guard("Balance", async () => {
   const r = await api("balance", { params: S.params, samples: S.samples });
-  S.params = r.params; S.report = r.report;
-  const most = Math.max(...["warmth", "tint"].flatMap((n) => S.params.curves[n].map(Math.abs)));
-  if (most > S.colourZoom * 0.9) {  // Colour by tone was bent: widen its view if needed
-    const opt = [...$("#colour-zoom").options].find((o) => +o.value * 0.9 >= most) || [...$("#colour-zoom").options].pop();
-    $("#colour-zoom").value = opt.value; S.colourZoom = +opt.value;
-  }
+  S.params = r.params; S.report = r.report; S.params.balance.key = balanceKey();
   syncControls(); render(); drawCurve(); drawLevels(); renderPoints(); commit();
 });
+$("#btn-balance").onclick = runBalance;
 
 for (const k of ["black", "white"]) {
   const el = $(`#target-${k}`);
@@ -985,33 +987,47 @@ for (const k of ["black", "white"]) {
     const v = clamp(Math.round(+el.value), k === "black" ? 0 : 128, k === "black" ? 127 : 255);
     if (Number.isNaN(v)) { el.value = S.params.targets[k]; return; }
     S.params.targets = { ...S.params.targets, [k]: v }; el.value = v; el.blur();
-    commit(); if (S.samples.some((s) => s.kind === k)) runBalance();
+    commit(); renderBalance();
   };
   el.onkeydown = (e) => { if (e.key === "Enter") el.onchange(); e.stopPropagation(); };
 }
 
+const STRENGTH = { black: "black", neutral: "grey", white: "white" };
 function renderBalance() {
+  if (!S.params) return;
   for (const k of ["black", "white"]) { const el = $(`#target-${k}`); if (document.activeElement !== el) el.value = (S.params.targets || { black: 10, white: 245 })[k]; }
-  const box = $("#balance-roles");
+  const box = $("#balance-roles"), st = S.params.balance.strength;
   box.innerHTML = BAL_ROLES.map(([k, label]) => {
-    const pills = S.samples.map((s, i) => (s.kind === k ? `<span class="bpill${i === selPoint() ? " sel" : ""}" data-i="${i}" title="Point ${i + 1}${S.report[i] ? ` · still ${Math.hypot(S.report[i].da, S.report[i].db).toFixed(0)} from neutral` : ""}. Click to select, × to stop using it">${i + 1}<b data-x="${i}">×</b></span>` : "")).join("");
+    const pills = S.samples.map((s, i) => (s.kind === k ? `<span class="bpill${i === selPoint() ? " sel" : ""}" data-i="${i}" title="Point ${i + 1}${S.report[i] ? ` · ${Math.hypot(S.report[i].da, S.report[i].db).toFixed(0)} from neutral now` : ""}. Click to select, × to stop using it">${i + 1}<b data-x="${i}">×</b></span>` : "")).join("");
     const free = S.samples.map((s, i) => (s.kind === "measure" ? `<option value="${i}">Point ${i + 1}</option>` : "")).join("");
+    const v = st[STRENGTH[k]];
     return `<div class="brow"><label>${label}</label><span class="bpills">${pills}</span>
-      <select data-add="${k}" title="Use a measured point as ${label.toLowerCase()}"${free ? "" : " disabled"}><option value="">+</option>${free}</select></div>`;
+      <select data-add="${k}" title="Use a measured point as ${label.toLowerCase()}"${free ? "" : " disabled"}><option value="">+</option>${free}</select></div>
+      ${pills ? `<div class="bstrength"><input data-strength="${STRENGTH[k]}" type="range" min="0" max="1" step="0.01" value="${v}"
+        title="Strength: how much of the ${label.toLowerCase()} correction to use. Double-click for 100%"><span class="num ro">${Math.round(v * 100)}%</span></div>` : ""}`;
   }).join("");
   box.querySelectorAll(".bpill").forEach((el) => (el.onclick = (e) => {
     const i = +el.dataset.i;
-    if (e.target.dataset.x != null) { S.samples[i].kind = "measure"; commit(); renderPoints(); drawOverlay(); runBalanceOrReport(); return; }
+    if (e.target.dataset.x != null) { S.samples[i].kind = "measure"; commit(); renderPoints(); drawOverlay(); refreshReport(); return; }
     S.sel = i; renderPoints(); drawCurve(); drawOverlay();
   }));
   box.querySelectorAll("[data-add]").forEach((el) => (el.onchange = () => {
     if (el.value === "") return;
     S.samples[+el.value].kind = el.dataset.add; S.sel = +el.value;
-    commit(); renderPoints(); drawOverlay(); runBalance();
+    commit(); renderPoints(); drawOverlay(); refreshReport();
   }));
+  box.querySelectorAll("[data-strength]").forEach((el) => {
+    const set = (v) => { S.params.balance.strength[el.dataset.strength] = v; el.nextElementSibling.textContent = Math.round(v * 100) + "%"; render(); drawLevels(); };
+    el.addEventListener("pointerdown", startDrag);
+    el.addEventListener("input", () => set(+el.value));
+    el.addEventListener("change", () => { endDrag(); commit(); refreshReport(); });
+    el.addEventListener("dblclick", () => { el.value = 1; set(1); commit(); refreshReport(); });
+  });
+  const stale = balanced() && S.params.balance.key !== balanceKey();
+  $("#btn-balance").classList.toggle("stale", stale);
+  $("#btn-balance").title = stale ? "The points changed since the last Balance: press to work it out again" : "Works out the balance afresh from the points above (earlier results don't carry over)";
   $("#balance-hint").hidden = balanced();
 }
-const runBalanceOrReport = () => (balanced() ? runBalance() : refreshReport());
 
 function refreshReadings() {
   clearTimeout(refreshReadings.t);
@@ -1095,7 +1111,7 @@ function showPointDetail() {
       title="Where the point is now: ${what}. Drag toward the middle to correct, double-click to make it neutral"><span data-fix-num="${n}" class="num ro">${fmt(now[n], 0)}${unit}</span></div>`; }).join("")}`;
   $("#point-role").onchange = (e) => {
     const was = s.kind; s.kind = e.target.value; commit(); renderPoints(); drawOverlay();
-    if ([was, s.kind].some((k) => ["neutral", "white", "black"].includes(k))) runBalanceOrReport(); else refreshReport();
+    refreshReport();
   };
   wireProbeFix();
 }
@@ -2296,7 +2312,7 @@ function syncLight() {
 // A changed light re-solves at once when there are samples, so you see its effect.
 function lightChanged() {
   syncLight(); commit();
-  runBalanceOrReport();
+  refreshReport(); renderBalance();
 }
 
 function lightSlider(el, get, set) {

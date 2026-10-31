@@ -55,9 +55,10 @@ def test_solver_removes_crossover():
 def test_single_sample_is_a_white_balance():
     scan = np.array([[0.6, 0.55, 0.45]], np.float32)
     p = analysis.balance(scan, ["neutral"], pipeline.default_params(), ADOBE_RGB)
-    # one grey: only the channels' grey sliders in Levels, the curves stay untouched
-    assert p["curves"]["warmth"] == pipeline.default_params()["curves"]["warmth"]
-    assert len({round(p["levels"][c]["gamma"], 3) for c in "rgb"}) == 3
+    # one grey: Balance's own grey points per channel; Levels and curves untouched
+    d = pipeline.default_params()
+    assert p["curves"] == d["curves"] and p["levels"] == d["levels"]
+    assert len({round(p["balance"][c]["gamma"], 3) for c in "rgb"}) == 3
     rep = analysis.sample_report(scan, ["neutral"], p, ADOBE_RGB)[0]
     assert np.hypot(rep["da"], rep["db"]) < 1
 
@@ -288,3 +289,17 @@ def test_light_curve_moves_brightness_only():
     a, b = pipeline.render_pixels(cols, p0, ADOBE_RGB), pipeline.render_pixels(cols, p, ADOBE_RGB)
     assert np.allclose(np.diff(a, axis=1), np.diff(b, axis=1), atol=2e-3)
     assert np.all(b.mean(axis=1) > a.mean(axis=1) + 0.01)
+
+
+def test_balance_starts_afresh_and_has_strengths():
+    # taking a white point out and balancing again is as if it had never been there
+    cols = np.array([[0.5, 0.47, 0.42], [0.9, 0.85, 0.75]], np.float32)
+    p0 = pipeline.default_params()
+    only_grey = analysis.balance(cols[:1], ["neutral"], p0, ADOBE_RGB)
+    both = analysis.balance(cols, ["neutral", "white"], p0, ADOBE_RGB)
+    again = analysis.balance(cols[:1], ["neutral"], both, ADOBE_RGB)
+    assert again["balance"] == only_grey["balance"]
+    # strength 0 for white leaves the white end where it was
+    both["balance"]["strength"]["white"] = 0.0
+    eff = pipeline.balance_levels(both)
+    assert all(abs(eff[c]["hi"] - 1) < 1e-9 for c in "rgb")

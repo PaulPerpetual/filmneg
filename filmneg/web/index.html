@@ -119,6 +119,33 @@
       <div class="slider"><label title="Blurs only the colour, not lightness or detail (like a blurred copy in Color blend mode, but it stops at edges). 0 = off, 1 = strongest (radius about 1/600 of the long side)">Colour noise</label><input id="nr" type="range" min="0" max="1" step="0.05"><input class="num" data-for="nr" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
     </div>
 
+    <div class="panel" id="light-panel">
+      <h3 title="Neutral balance from black, grey and white points, like the eyedroppers of Photoshop's Levels or DaVinci's lift / gamma / gain. Its own step, right before Levels">Balance <button class="switch" data-power="balance" role="switch" aria-checked="true" title="Turn Balance off for a moment to compare (not saved)"><i></i></button></h3>
+      <div id="balance-roles"></div>
+      <div class="muted small" id="balance-hint">Add points with Black, Grey and White in the toolbar (K, N, W), or pick measured points with +. Then press Balance.</div>
+      <div class="pop-row targets"><label title="Where black and white points land, 0–255. Not 0 and 255: a little density keeps them natural (Photoshop's usual 10 / 245)">Targets</label>
+        <span>black <input id="target-black" type="text" inputmode="numeric"> white <input id="target-white" type="text" inputmode="numeric"></span></div>
+      <div class="row balance-go"><button id="btn-balance" class="primary" title="Works out the balance afresh from the points above (earlier results don't carry over)">Balance</button></div>
+      <details id="light-more"><summary title="What neutral means for greys: pure grey, or keeping the warmth of the light the picture was taken in">Light</summary>
+      <div class="pop-row"><label>Light</label><select id="light-preset" title="The light the picture was taken in: pure grey, or greys keep its warmth (then the Colour by tone curves carry it)"></select></div>
+      <div class="slider"><label>Warmth</label><input id="light-warmth" class="track-warm" type="range" min="-0.6" max="1.6" step="0.01" title="Double-click for neutral"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <div class="slider"><label>Tint</label><input id="light-tint" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Green ← → magenta. Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <details id="light-ranges"><summary>By brightness</summary>
+        <div class="range-title">Highlights</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="highlights" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="highlights" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="range-title">Midtones</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="midtones" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="midtones" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="range-title">Shadows</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="shadows" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="shadows" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="muted small">Leans each range on top of the overall white balance, e.g. warm highlights with neutral shadows.</div>
+      </details>
+      <div class="muted small">What neutral means for Balance's greys and for the points: pure grey, or keeping the warmth of the light.</div>
+      </details>
+    </div>
+
     <div class="panel" id="levels-panel">
       <h3>Levels <button class="switch" data-power="levels" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
       <div class="level-head">
@@ -214,30 +241,6 @@
       <ul id="samples"></ul>
       <div class="muted small" id="samples-empty">Measure (P) pins a point: click, or drag over an area. Each shows what it reads and where it sits on the curves, and can be corrected right there. Points can balance the picture (see Balance).</div>
       <div class="row" id="points-actions"><button id="points-clear">Clear all</button></div>
-    </div>
-
-    <div class="panel" id="light-panel">
-      <h3 title="Neutral balance from points: black, grey and white, like the eyedroppers of a classic Levels. Everything it sets is in Levels, where you can drag it on">Balance <button class="switch" data-power="balance" role="switch" aria-checked="true" title="Turn off for a moment to compare: the R, G and B channels' Levels (where Balance works) are left out. Not saved"><i></i></button></h3>
-      <div id="balance-roles"></div>
-      <div class="muted small" id="balance-hint">Pick measured points here, or click one with the eyedroppers in Levels (K, N, W). Black and white set each channel's end points, grey each channel's grey slider, all in Levels.</div>
-      <div class="pop-row targets"><label title="Where black and white points land, 0–255. Not 0 and 255: a little density keeps them natural (Photoshop's usual 10 / 245)">Targets</label>
-        <span>black <input id="target-black" type="text" inputmode="numeric"> white <input id="target-white" type="text" inputmode="numeric"></span></div>
-      <div class="pop-row"><label>Light</label><select id="light-preset" title="The light the picture was taken in: pure grey, or greys keep its warmth (then the Colour by tone curves carry it)"></select></div>
-      <div class="slider"><label>Warmth</label><input id="light-warmth" class="track-warm" type="range" min="-0.6" max="1.6" step="0.01" title="Double-click for neutral"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-      <div class="slider"><label>Tint</label><input id="light-tint" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Green ← → magenta. Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-      <details id="light-ranges"><summary>By brightness</summary>
-        <div class="range-title">Highlights</div>
-        <div class="slider compact"><label>Warmth</label><input data-range="highlights" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-        <div class="slider compact"><label>Tint</label><input data-range="highlights" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-        <div class="range-title">Midtones</div>
-        <div class="slider compact"><label>Warmth</label><input data-range="midtones" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-        <div class="slider compact"><label>Tint</label><input data-range="midtones" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-        <div class="range-title">Shadows</div>
-        <div class="slider compact"><label>Warmth</label><input data-range="shadows" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-        <div class="slider compact"><label>Tint</label><input data-range="shadows" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
-        <div class="muted small">Leans each range on top of the overall white balance, e.g. warm highlights with neutral shadows.</div>
-      </details>
-      <div class="muted small">What neutral means for Balance and for the points: pure grey, or keeping the warmth of the light (the Colour by tone curves then carry it).</div>
     </div>
 
     <div class="panel" id="scope-panel">

@@ -4,7 +4,7 @@ from scipy.optimize import least_squares
 
 from . import curves
 from .color import SKIN_HUE, RGBSpace, luma
-from .pipeline import crop, curve_tone, pre_levels, render_pixels, to_working_linear
+from .pipeline import crop, curve_tone, pre_balance, render_pixels, to_working_linear
 
 # What "neutral" should look like under the light the picture was taken in.
 # Warmth 0 is pure grey; 1 is golden hour, a grey that stays recognisably warm.
@@ -110,73 +110,73 @@ def sample_report(colors, kinds, params, space: RGBSpace):
 
 
 def balance(colors, kinds, params, space: RGBSpace):
-    """Neutral balance from black / grey / white samples, the way the eyedroppers
-    of Photoshop's Levels or DaVinci's lift / gamma / gain work, all in Levels:
+    """Neutral balance from black / grey / white points, worked out afresh from the
+    points given (earlier results don't carry over), into Balance's own
+    per-channel black / grey / white step before Levels, like the eyedroppers of
+    Photoshop's Levels or DaVinci's lift / gamma / gain:
 
-    - black and white samples set each channel's input black / white point so the
-      sample lands neutral at the black / white target (10 and 245 by default,
-      not 0 and 255, so they keep a little density and look natural);
-    - greys set each channel's grey (gamma) slider so they come out neutral at
-      the brightness they have;
-    - only greys at several brightnesses (a cast that changes with tone, film
-      crossover) or a light that isn't neutral also move the Colour by tone
-      curves' three handles, for what Levels can't do.
+    - black and white points set each channel's black / white so they land
+      neutral at the targets (10 and 245 by default, not 0 and 255, so they keep
+      a little density and look natural);
+    - greys bring red and blue to green (green keeps the brightness, like
+      Photoshop's grey eyedropper), mostly with the gamma; several greys at
+      different brightnesses: a lift / gamma / gain fit, which also takes out
+      a cast that changes with brightness (film crossover).
+    Strengths (params["balance"]["strength"]) dial each part in afterwards.
     """
     colors = np.asarray(colors, np.float32)
     kinds = list(kinds)
-    if not len(colors):
-        return params
-    greys = [c for c, k in zip(colors, kinds) if k == "neutral"]
-    out = params
-    # the end points and the grey slider depend on each other: settle them together
-    for _ in range(6 if greys else 1):
-        out = eyedrop(colors, kinds, out, space)
-        if greys:
-            out = grey_gamma(greys, out, space)
-    lt = params["light"]
-    tinted = abs(lt["warmth"]) + abs(lt["tint"]) + sum(abs(v) for r in RANGES for v in lt[r]) > 1e-6
-    tones = luma(render_pixels(np.asarray(greys, np.float32), out, space)) if greys else []
-    if tinted or (len(tones) and np.ptp(tones) > 0.12):
-        out = _solve_curves(colors, kinds, out, space)
-    return out
-
-
-def grey_gamma(colors, params, space: RGBSpace):
-    """Each channel's grey slider in Levels so these greys come out neutral at
-    their own brightness (one grey: exactly; several: the best fit)."""
-    pre = pre_levels(np.asarray(colors, np.float32), params, space)
-    levels = {ch: dict(v) for ch, v in params["levels"].items()}
-    y = np.stack([np.clip((pre[:, i] - levels[ch]["lo"]) / max(levels[ch]["hi"] - levels[ch]["lo"], 1e-3), 1e-3, 1 - 1e-3)
-                  for i, ch in enumerate("rgb")], axis=1)
-    m = np.clip(y @ np.array([0.2126, 0.7152, 0.0722]), 1e-3, 1 - 1e-3)
-    for i, ch in enumerate("rgb"):
-        ly, lm = np.log(y[:, i]), np.log(m)
-        k = float(np.sum(ly * lm) / max(np.sum(ly * ly), 1e-9))  # y ** k = m, least squares in log
-        levels[ch]["gamma"] = float(np.clip(1.0 / max(k, 1e-3), 0.2, 5.0))
-    return {**params, "levels": levels}
-
-
-def eyedrop(colors, kinds, params, space: RGBSpace):
-    """White / black samples -> each channel's input white / black point in Levels,
-    so the sample lands neutral at the white / black target (params["targets"])."""
-    pre = pre_levels(np.asarray(colors, np.float32), params, space)
-    levels = {ch: dict(v) for ch, v in params["levels"].items()}
+    pre = pre_balance(colors, params, space) if len(colors) else np.zeros((0, 3), np.float32)
     tg = params.get("targets", {"black": 10, "white": 245})
     pick = lambda kind: np.mean([pre[i] for i, k in enumerate(kinds) if k == kind], axis=0) if kind in kinds else None
     vw, vb = pick("white"), pick("black")
-    for i, ch in enumerate("rgb"):
-        L = levels[ch]
-        g = L["gamma"]  # the target is reached after the channel's grey slider
-        tb, tw = (tg["black"] / 255) ** g, (tg["white"] / 255) ** g
-        if vw is not None and vb is not None and vw[i] - vb[i] > 0.02:
-            span = (vw[i] - vb[i]) / (tw - tb)
-            lo = vb[i] - tb * span
-            L["lo"], L["hi"] = float(lo), float(lo + span)
-        elif vw is not None:
-            L["hi"] = float(L["lo"] + max(vw[i] - L["lo"], 0.05) / tw)
-        elif vb is not None:
-            L["lo"] = float(min((vb[i] - tb * L["hi"]) / (1 - tb), L["hi"] - 0.05))
-    return {**params, "levels": levels}
+    greys = np.asarray([pre[i] for i, k in enumerate(kinds) if k == "neutral"], np.float32)
+    tb, tw = tg["black"] / 255, tg["white"] / 255
+    # green sets the brightness, like Photoshop's grey eyedropper: it only takes
+    # the black / white points (plain end points, no gamma) ...
+    gi = 1
+    lo_g, hi_g = 0.0, 1.0
+    if vw is not None and vb is not None and vw[gi] - vb[gi] > 0.02:
+        span = (vw[gi] - vb[gi]) / (tw - tb)
+        lo_g = float(vb[gi] - tb * span); hi_g = lo_g + span
+    elif vw is not None:
+        hi_g = float(max(vw[gi], 0.05) / tw)
+    elif vb is not None:
+        lo_g = float(min((vb[gi] - tb) / (1 - tb), 0.95))
+    B = {"g": {"lo": lo_g, "gamma": 1.0, "hi": hi_g}}
+    # ... and red and blue follow it: each grey should come out as bright on them
+    # as on green (or in the light's colour, if one is set), black and white at
+    # their targets; per channel a small lift / gamma / gain fit
+    grey_out = np.clip((greys[:, gi] - lo_g) / max(hi_g - lo_g, 1e-3), 1e-3, 1) if len(greys) else np.zeros(0)
+    ratio = np.ones((len(greys), 3))
+    if len(greys):
+        lab = _oklab(np.repeat(grey_out[:, None], 3, axis=1).astype(np.float32), space)
+        tab = np.array([target(params, float(L)) for L in lab[:, 0]])
+        if np.abs(tab).max() > 1e-6:  # golden hour etc.: greys stay a little warm
+            lab[:, 1:] = tab
+            rgb = space.encode(np.clip(space.oklab_to_lin(lab), 0, None))
+            ratio = rgb / np.maximum(rgb[:, [gi]], 1e-4)
+    for i, ch in ((0, "r"), (2, "b")):
+        x, y, w = greys[:, i].astype(float), grey_out * ratio[:, i], np.ones(len(greys))
+        for v, aim in ((vb, tb), (vw, tw)):
+            if v is not None:
+                x, y, w = np.append(x, v[i]), np.append(y, aim), np.append(w, 3.0)  # the end points are firm
+
+        def res(q, x=x, y=y, w=w):
+            lo, hi, lg = q
+            f = np.clip((x - lo) / max(hi - lo, 1e-3), 1e-4, None) ** np.exp(-lg)
+            # few points: change as little as possible, and prefer the gamma
+            return np.concatenate([w * (f - y), [0.05 * lo, 0.05 * (hi - 1), 0.01 * lg]])
+
+        # start from identity and from green's end points; keep the better fit
+        lo0 = 0.0 if vb is None else vb[i] - tb * ((1.0 if vw is None else vw[i]) - vb[i]) / ((1.0 if vw is None else tw) - tb)
+        hi0 = 1.0 if vw is None else lo0 + (vw[i] - lo0) / tw
+        starts = ([0.0, 1.0, 0.0], [lo_g, hi_g, 0.0], [lo0, max(hi0, lo0 + 0.05), 0.0])
+        fits = [least_squares(res, q0) for q0 in starts] if len(x) else []
+        lo, hi, lg = min(fits, key=lambda r: r.cost).x if fits else (0.0, 1.0, 0.0)
+        B[ch] = {"lo": float(lo), "gamma": float(np.clip(np.exp(lg), 0.2, 5.0)), "hi": float(hi)}
+    B = {ch: B[ch] for ch in "rgb"}
+    return {**params, "balance": {**B, "strength": dict(params["balance"]["strength"])}}
 
 
 def _grey_residuals(colors, kinds, p, params, space, reg):
@@ -254,50 +254,6 @@ ZONES = [
     "IX · white without texture, glaring snow",
     "X · paper white, specular highlights, light sources",
 ]
-
-
-HANDLES = (0.25, 0.5, 0.75)  # shadows, midtones, highlights
-
-
-def three_handles(flat_ends):
-    """The only shapes the fits may use: three soft handles at shadows, mids and
-    highlights, like a curve with three points. Each is a tent reaching to its
-    neighbours (the B-spline rounds it off). flat_ends: the outer two keep their
-    value out to black / white (colour); otherwise they fade to 0 there, so the
-    black and white ends stay put."""
-    pos = curves.ctrl_positions(curves.N_CTRL)
-    basis = np.stack([np.clip(1 - np.abs(pos - c) / 0.25, 0, 1) for c in HANDLES])
-    if flat_ends:
-        basis[0, pos <= HANDLES[0]] = 1.0
-        basis[-1, pos >= HANDLES[-1]] = 1.0
-    return basis
-
-
-def _solve_curves(colors, kinds, params, space: RGBSpace):
-    """Smallest change of the warmth and tint curves, using only their three
-    handles (shadows, mids, highlights, like a three-way colour balance), that
-    makes the samples neutral (or the light's target; skin: on the skin hue line).
-    White and black samples count as greys, so the ends stay neutral too. With so
-    few handles the curves stay simple and can't chase single samples."""
-    c0 = {n: np.asarray(params["curves"][n], float) for n in ("warmth", "tint")}
-    basis = three_handles(flat_ends=True)
-    k = len(HANDLES)
-    grey_kinds = ["neutral" if q in ("white", "black") else q for q in kinds]
-
-    def unpack(x):
-        cv = dict(params["curves"])
-        cv["warmth"] = [float(v) for v in c0["warmth"] + x[:k] @ basis]
-        cv["tint"] = [float(v) for v in c0["tint"] + x[k:] @ basis]
-        return {**params, "curves": cv}
-
-    def residuals(x):
-        # the handles prefer to move together: one sample is a plain white balance,
-        # and only samples at other brightnesses make the cast differ by tone
-        reg = np.concatenate([0.002 * x, 0.03 * np.diff(x[:k]), 0.03 * np.diff(x[k:])])
-        return _grey_residuals(colors, grey_kinds, unpack(x), params, space, reg)
-
-    res = least_squares(residuals, np.zeros(2 * k), jac=lambda x: _jac(residuals, x))
-    return unpack(res.x)
 
 
 BANDS = (("Shadows", 0.0, 0.33), ("Midtones", 0.33, 0.66), ("Highlights", 0.66, 1.01))  # encoded luma

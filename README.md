@@ -36,25 +36,27 @@ for Pixelmator.
 
 1. **Auto** sets each channel's black and white point (crop is detected on first open; Reset in crop mode re-detects it)
    from the histogram. It runs by itself the first time you open a scan.
-2. **Balance**: with **Black**, **Grey** and **White** in the toolbar (or the
-   eyedroppers in Levels, keys K, N, W) click
-   something that should be black (with detail, zone II), neutral grey and
-   white (with texture, zone VIII, never a highlight or a lamp). Each becomes a
-   point in the **Balance** panel; you can also add measured points there with
-   the + pop-ups, or remove one with its ×. Balance works like the eyedroppers
-   of Photoshop's Levels or DaVinci's lift / gamma / gain, and everything it
-   sets is in **Levels**, where you can drag it on: black and white points set
-   each channel's black / white point so they land neutral at the **targets**
-   (10 and 245, not 0 and 255, so they keep a little density and look
-   natural), greys set each channel's grey slider so they come out neutral.
-   Only greys at clearly different brightnesses (a cast that changes from
-   shadows to highlights, film crossover) also move the **Colour by tone**
-   curves' three handles. The Light curve and Base are never touched.
-3. In Balance, the **Light** menu says what neutral means: pure grey, or
+2. **Balance** (the panel right above Levels): with **Black**, **Grey** and
+   **White** in the toolbar (or the eyedroppers in Levels, keys K, N, W)
+   click something that should be black (with detail, zone II), neutral grey
+   and white (with texture, zone VIII, never a highlight or a lamp); or pick
+   measured points with the + pop-ups, and take one out with its ×. Then press
+   **Balance**. It is worked out afresh from the points there are now, so a
+   point you took out leaves nothing behind (the button shows a dot when the
+   points changed since). Balance is its own step, right before Levels, like
+   the eyedroppers of Photoshop's Levels or DaVinci's lift / gamma / gain:
+   black and white points set each channel's black / white so they land
+   neutral at the **targets** (10 and 245, not 0 and 255, so they keep a little
+   density and look natural); greys bring red and blue to green (green keeps
+   the brightness), mostly with the gamma, and greys at several brightnesses
+   also take out a cast that changes with brightness (film crossover). A
+   **strength** slider under each row dials that part in, live. Levels,
+   curves and Base stay yours.
+3. Under **Light** in Balance, the menu says what neutral means: pure grey, or
    keeping the light the picture was taken in (shade, daylight, golden hour,
    tungsten); **Warmth** sets anything in between, **Tint** leans green or
    magenta, **By brightness** leans highlights, midtones and shadows on their
-   own. With balance points placed, every change balances again at once.
+   own. Press Balance again after changing it.
 4. Set black and white points in **Levels** if the scan needs it.
 5. Fine-tune by hand with **Shift colour**, **Shift brightness** or the curves.
 
@@ -107,8 +109,7 @@ snow, …), with the numbers of the points in each zone now. Shaping the Light
 curve to put things where they belong is up to you; nothing is fitted.
 
 The switch in the title of Base, Levels, Curves, Colour by tone and Balance
-turns that panel's adjustments off for a moment, to see what it does (for
-Balance: the R, G and B channels' Levels, where it works). It isn't saved and
+turns that panel's adjustments off for a moment, to see what it does. It isn't saved and
 doesn't touch the settings. The Vectorscope's switch just hides the scope. Dust has its own *Repair here* switch.
 The arrow next to it (also on Balance, and on the Vectorscope, where it centres
 the colour wheels) **reverts** that panel to its defaults. ⌘Z brings it back.
