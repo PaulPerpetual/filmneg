@@ -42,7 +42,7 @@ def test_solver_removes_crossover():
 
     p0 = pipeline.default_params()
     before = analysis.sample_report(scan, ["neutral"] * 3, p0, ADOBE_RGB)
-    p1 = analysis.solve(scan, ["neutral"] * 3, p0, ADOBE_RGB)
+    p1 = analysis.balance(scan, ["neutral"] * 3, p0, ADOBE_RGB)
     after = analysis.sample_report(scan, ["neutral"] * 3, p1, ADOBE_RGB)
 
     worst = lambda rep: max(np.hypot(r["da"], r["db"]) for r in rep)
@@ -54,9 +54,10 @@ def test_solver_removes_crossover():
 
 def test_single_sample_is_a_white_balance():
     scan = np.array([[0.6, 0.55, 0.45]], np.float32)
-    p = analysis.solve(scan, ["neutral"], pipeline.default_params(), ADOBE_RGB)
-    w = np.array(p["curves"]["warmth"])
-    assert w.max() - w.min() < 0.5 * np.abs(w).max()  # one sample: much the same shift at every tone
+    p = analysis.balance(scan, ["neutral"], pipeline.default_params(), ADOBE_RGB)
+    # one grey: only the channels' grey sliders in Levels, the curves stay untouched
+    assert p["curves"]["warmth"] == pipeline.default_params()["curves"]["warmth"]
+    assert len({round(p["levels"][c]["gamma"], 3) for c in "rgb"}) == 3
     rep = analysis.sample_report(scan, ["neutral"], p, ADOBE_RGB)[0]
     assert np.hypot(rep["da"], rep["db"]) < 1
 
@@ -65,7 +66,7 @@ def test_lighting_keeps_warmth():
     scan = np.array([[0.6, 0.6, 0.6]], np.float32)
     p = pipeline.default_params()
     p["light"]["warmth"] = 1.0  # golden hour
-    p = analysis.solve(scan, ["neutral"], p, ADOBE_RGB)
+    p = analysis.balance(scan, ["neutral"], p, ADOBE_RGB)
     rep = analysis.sample_report(scan, ["neutral"], p | {"light": pipeline.default_params()["light"]}, ADOBE_RGB)[0]
     assert rep["db"] > 10  # the grey is left warm on purpose
 
@@ -251,10 +252,12 @@ def test_white_and_black_samples_set_channel_levels():
     scan = np.array([[0.9, 0.85, 0.75], [0.1, 0.12, 0.16], [0.5, 0.47, 0.42]], np.float32)
     kinds = ["white", "black", "neutral"]
     p0 = pipeline.default_params()
-    p = analysis.solve(scan, kinds, p0, ADOBE_RGB)
+    p = analysis.balance(scan, kinds, p0, ADOBE_RGB)
     assert p["exposure"] == p0["exposure"] and p["contrast"] == p0["contrast"]
     out = pipeline.render_pixels(scan, p, ADOBE_RGB)
-    assert np.abs(out[0] - 1).max() < 0.01 and np.abs(out[1]).max() < 0.01
+    # neutral, at the targets (245 / 10), not clipped to pure white / black
+    assert np.ptp(out[0]) < 0.012 and np.ptp(out[1]) < 0.01
+    assert abs(out[0].mean() - 245 / 255) < 0.015 and abs(out[1].mean() - 10 / 255) < 0.015
     rep = analysis.sample_report(scan, kinds, p, ADOBE_RGB)[2]
     assert np.hypot(rep["da"], rep["db"]) < 2
 

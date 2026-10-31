@@ -248,7 +248,7 @@ for (const [k, [name]] of Object.entries(REVERT)) {
     REVERT[k][1](S.params);
     syncControls(); render(); drawCurve(); drawLevels(); commit();
     flash("revert", `${name} reverted`);
-    if (k === "light" && solvable()) $("#btn-solve").onclick();  // greys follow the light
+    if (k === "light" && balanced()) runBalance();  // greys follow the light
   });
 }
 $$("[data-power]").forEach((b) => b.addEventListener("click", (ev) => {
@@ -947,21 +947,69 @@ overlay.addEventListener("dblclick", (ev) => {
 });
 
 // ---------------------------------------------------------------- points
-// One list of points on the image. Each has a role: just measured, or a Grey /
-// White / Black / Skin sample that Solve makes right. Each also shows
-// its Adams zone (a reference table is under Curves, Light).
-// Readings update after every edit.
-const ROLES = { measure: "Measure only", neutral: "Grey", white: "White", black: "Black", skin: "Skin" };
+// One list of points on the image. Each is just measured, or used: as a Black /
+// Grey / White point of the Balance panel, or as Skin (compared with typical
+// skin). Each also shows its Adams zone (a reference table is under Curves,
+// Light). Readings update after every edit.
+const ROLES = { measure: "Measure only", black: "Black point", neutral: "Grey point", white: "White point", skin: "Skin" };
+const BAL_ROLES = [["black", "Black"], ["neutral", "Grey"], ["white", "White"]];
 const ZONE_NAMES = ["0", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 let ZONES = [];
 const selPoint = () => (S.samples.length ? clamp(S.sel ?? S.samples.length - 1, 0, S.samples.length - 1) : null);
-const solvable = () => S.samples.some((s) => s.kind !== "measure");
+const balanced = () => S.samples.some((s) => ["neutral", "white", "black"].includes(s.kind));
 
 function addPoint(s) {
   S.samples.push(s); S.sel = S.samples.length - 1;
   commit(); renderPoints(); drawOverlay();
-  if (S.dropper) $("#btn-solve").onclick();
+  if (S.dropper) runBalance();
 }
+
+// Balance: black / grey / white points set the channels' end points and grey
+// sliders in Levels (see analysis.balance). It runs whenever the points change.
+const runBalance = () => guard("Balance", async () => {
+  const r = await api("balance", { params: S.params, samples: S.samples });
+  S.params = r.params; S.report = r.report;
+  const most = Math.max(...["warmth", "tint"].flatMap((n) => S.params.curves[n].map(Math.abs)));
+  if (most > S.colourZoom * 0.9) {  // Colour by tone was bent: widen its view if needed
+    const opt = [...$("#colour-zoom").options].find((o) => +o.value * 0.9 >= most) || [...$("#colour-zoom").options].pop();
+    $("#colour-zoom").value = opt.value; S.colourZoom = +opt.value;
+  }
+  syncControls(); render(); drawCurve(); drawLevels(); renderPoints(); commit();
+});
+
+for (const k of ["black", "white"]) {
+  const el = $(`#target-${k}`);
+  el.onchange = () => {
+    const v = clamp(Math.round(+el.value), k === "black" ? 0 : 128, k === "black" ? 127 : 255);
+    if (Number.isNaN(v)) { el.value = S.params.targets[k]; return; }
+    S.params.targets = { ...S.params.targets, [k]: v }; el.value = v; el.blur();
+    commit(); if (S.samples.some((s) => s.kind === k)) runBalance();
+  };
+  el.onkeydown = (e) => { if (e.key === "Enter") el.onchange(); e.stopPropagation(); };
+}
+
+function renderBalance() {
+  for (const k of ["black", "white"]) { const el = $(`#target-${k}`); if (document.activeElement !== el) el.value = (S.params.targets || { black: 10, white: 245 })[k]; }
+  const box = $("#balance-roles");
+  box.innerHTML = BAL_ROLES.map(([k, label]) => {
+    const pills = S.samples.map((s, i) => (s.kind === k ? `<span class="bpill${i === selPoint() ? " sel" : ""}" data-i="${i}" title="Point ${i + 1}${S.report[i] ? ` · still ${Math.hypot(S.report[i].da, S.report[i].db).toFixed(0)} from neutral` : ""}. Click to select, × to stop using it">${i + 1}<b data-x="${i}">×</b></span>` : "")).join("");
+    const free = S.samples.map((s, i) => (s.kind === "measure" ? `<option value="${i}">Point ${i + 1}</option>` : "")).join("");
+    return `<div class="brow"><label>${label}</label><span class="bpills">${pills}</span>
+      <select data-add="${k}" title="Use a measured point as ${label.toLowerCase()}"${free ? "" : " disabled"}><option value="">+</option>${free}</select></div>`;
+  }).join("");
+  box.querySelectorAll(".bpill").forEach((el) => (el.onclick = (e) => {
+    const i = +el.dataset.i;
+    if (e.target.dataset.x != null) { S.samples[i].kind = "measure"; commit(); renderPoints(); drawOverlay(); runBalanceOrReport(); return; }
+    S.sel = i; renderPoints(); drawCurve(); drawOverlay();
+  }));
+  box.querySelectorAll("[data-add]").forEach((el) => (el.onchange = () => {
+    if (el.value === "") return;
+    S.samples[+el.value].kind = el.dataset.add; S.sel = +el.value;
+    commit(); renderPoints(); drawOverlay(); runBalance();
+  }));
+  $("#balance-hint").hidden = balanced();
+}
+const runBalanceOrReport = () => (balanced() ? runBalance() : refreshReport());
 
 function refreshReadings() {
   clearTimeout(refreshReadings.t);
@@ -975,7 +1023,7 @@ function refreshReadings() {
 }
 
 function hint(t) { hint.last = t; $("#hint").textContent = t; }
-const fmt = (v, d = 1) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
+const fmt = (v, d = 1) => (Math.abs(v) < 0.5 * 10 ** -d ? "" : v >= 0 ? "+" : "−") + Math.abs(v).toFixed(d);
 
 function castWords(a, b) {
   const c = Math.hypot(a, b);
@@ -1001,7 +1049,7 @@ function pointStatus(s, i) {
 }
 
 function renderPoints() {
-  renderCasts();
+  renderBalance();
   const ul = $("#samples"), sel = selPoint();
   $("#samples-empty").hidden = S.samples.length > 0;
   $("#points-actions").hidden = !S.samples.length;
@@ -1018,7 +1066,6 @@ function renderPoints() {
     li.onmouseleave = () => setHighlight(null);
     li.querySelector("button").onclick = (e) => { e.stopPropagation(); deleteMark({ type: "sample", i }); };
   });
-  $("#btn-solve").disabled = !solvable();
   showPointDetail();
   renderZones();
 }
@@ -1044,7 +1091,10 @@ function showPointDetail() {
     <div class="range-title" title="The knob shows where this point is now; the middle is neutral (for skin: typical skin). Drag toward the middle to correct it. This bends the Colour by tone curves around this point's brightness only; width as for Shift colour ([ ])">Correct just here</div>
     ${fix.map(([n, label, cls, unit, what]) => { const R = fixRange(now[n]); return `<div class="slider compact"><label>${label}</label><input data-fix="${n}" class="${cls}" type="range" min="${-R}" max="${R}" step="0.5" value="${now[n].toFixed(1)}"
       title="Where the point is now: ${what}. Drag toward the middle to correct, double-click to make it neutral"><span data-fix-num="${n}" class="num ro">${fmt(now[n], 0)}${unit}</span></div>`; }).join("")}`;
-  $("#point-role").onchange = (e) => { s.kind = e.target.value; commit(); renderPoints(); drawOverlay(); };
+  $("#point-role").onchange = (e) => {
+    const was = s.kind; s.kind = e.target.value; commit(); renderPoints(); drawOverlay();
+    if ([was, s.kind].some((k) => ["neutral", "white", "black"].includes(k))) runBalanceOrReport(); else refreshReport();
+  };
   wireProbeFix();
 }
 
@@ -1132,21 +1182,11 @@ function wireProbeFix() {
   });
 }
 
-function renderCasts() {
-  const C = S.casts, box = $("#casts");
-  $("#casts-head").hidden = !C;
-  if (!C) { box.innerHTML = ""; return; }
-  // one short line per band; where the judgement comes from is in the tooltip
-  box.innerHTML = C.lines.map((l) =>
-    `<div class="cast-line${l.cast ? " has-cast" : ""}" title="${l.src || ""}"><b>${l.band}</b> ${l.text}</div>`).join("")
-    + `<div class="cast-summary muted small">${C.summary}</div>`;
-}
-
 async function refreshReport() {
   refreshReadings();
   clearTimeout(refreshReport.t);
   refreshReport.t = setTimeout(async () => {
-    try { const r = await api("report", { params: S.params, samples: S.samples }); S.report = r.report; S.casts = r.casts; renderPoints(); }
+    try { const r = await api("report", { params: S.params, samples: S.samples }); S.report = r.report; renderPoints(); }
     catch (e) { console.error(e); }
   }, 300);
 }
@@ -2179,6 +2219,7 @@ const SLIDERS = ["exposure", "contrast", "shoulder", "toe", "saturation", "nr"];
 const SLIDER_DEFAULTS = { exposure: 0, contrast: 1, shoulder: 0.5, toe: 0, saturation: 1, nr: 0 };
 
 function syncControls() {
+  renderBalance();
   for (const k of SLIDERS) {
     const el = $("#" + k); el.value = S.params[k];
     el.nextElementSibling.value = (+S.params[k]).toFixed(2);
@@ -2229,7 +2270,7 @@ function syncLight() {
 // A changed light re-solves at once when there are samples, so you see its effect.
 function lightChanged() {
   syncLight(); commit();
-  if (solvable()) $("#btn-solve").onclick(); else refreshReport();
+  runBalanceOrReport();
 }
 
 function lightSlider(el, get, set) {
@@ -2447,18 +2488,6 @@ try {
 } catch (err) { /* ignore */ }
 
 $("#btn-auto").onclick = () => guard("Auto", async () => { S.params = (await api("levels", { params: S.params })).params; syncControls(); render(); commit(); });
-$("#btn-solve").onclick = () => guard("Solve", async () => {
-  if (!solvable()) throw new Error("give a point a role first: Grey, White, Black or Skin");
-  const r = await api("solve", { params: S.params, samples: S.samples });
-  S.params = r.params; S.report = r.report; S.casts = r.casts;
-  // Solve bends the Colour by tone curves: widen that view if they no longer fit
-  const most = Math.max(...["warmth", "tint"].flatMap((n) => S.params.curves[n].map(Math.abs)));
-  if (most > S.colourZoom * 0.9) {
-    const opt = [...$("#colour-zoom").options].find((o) => +o.value * 0.9 >= most) || [...$("#colour-zoom").options].pop();
-    $("#colour-zoom").value = opt.value; S.colourZoom = +opt.value;
-  }
-  syncControls(); render(); drawCurve(); drawLevels(); renderPoints(); commit();
-});
 $("#points-clear").onclick = () => { S.samples = []; S.sel = null; S.readings = []; S.report = []; commit(); renderPoints(); drawOverlay(); drawCurve(); };
 $("#btn-undo").onclick = undo;
 $("#btn-redo").onclick = redo;
@@ -2503,8 +2532,10 @@ window.addEventListener("keydown", (ev) => {
   if (k === "[") { setWidth(S.width * 0.85); return; }
   if (k === "]") { setWidth(S.width / 0.85); return; }
   if (k === "0") { fitView(); return; }
-  const tools = { p: "probe", c: "push", l: "light", n: "neutral", w: "white", k: "black", s: "skin", r: "crop", d: "dust" };
+  const tools = { p: "probe", c: "push", l: "light", r: "crop", d: "dust" };
   if (tools[k]) setTool(tools[k]);
+  const drop = { n: "neutral", w: "white", k: "black" };  // the Levels eyedroppers
+  if (drop[k]) $(`[data-dropper="${drop[k]}"]`).click();
 });
 window.addEventListener("keyup", (ev) => {
   if (ev.key === "\\") compare(false);

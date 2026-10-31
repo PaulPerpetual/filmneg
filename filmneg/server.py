@@ -305,10 +305,6 @@ class Session:
             "to_srgb": (np.linalg.inv(color.SRGB.to_xyz) @ sp.to_xyz).tolist(),
         }
 
-    def casts(self, colors, kinds, report, params):
-        out = pipeline.render_pixels(pipeline.crop(self.source("thumb", params), params["crop"]), params, self.scan.space)
-        return analysis.cast_report(out, colors, kinds, report, params, self.scan.space)
-
     def save(self, doc):
         side = sidecar_path(self.scan.path)
         keep = {k: doc[k] for k in ("params", "samples", "versions", "history") if k in doc}
@@ -351,18 +347,20 @@ def make_handler(session: Session):
         if route == "levels":
             p["black"], p["white"] = analysis.auto_levels(pipeline.geometry(s.proxies["preview"], p["angle"], p["distortion"]), p, s.scan.space)
             return {"params": p}
-        if route in ("solve", "report"):
-            # points with a role are samples; "measure" points are only read
+        if route in ("balance", "report"):
+            # points marked Black / Grey / White balance the picture (in Levels); skin
+            # points are only compared with skin; plain points are only read
             samples = body.get("samples", [])
-            active = [x for x in samples if x.get("kind", "neutral") != "measure"]
+            active = [x for x in samples if x.get("kind") in ("neutral", "white", "black", "skin")]
             colors = s.sample_colors(active, p)
             kinds = [x["kind"] for x in active]
-            if route == "solve" and active:
-                p = analysis.solve(colors, kinds, p, s.scan.space)
+            if route == "balance":
+                used = [(c, k) for c, k in zip(colors, kinds) if k != "skin"]
+                if used:
+                    p = analysis.balance([c for c, _ in used], [k for _, k in used], p, s.scan.space)
             rep = iter(analysis.sample_report(colors, kinds, p, s.scan.space) if active else [])
-            report = [None if x.get("kind", "neutral") == "measure" else next(rep) for x in samples]
-            out = {"report": report, "casts": s.casts(colors, kinds, [r for r in report if r], p)}
-            return {"params": p, **out} if route == "solve" else out
+            report = [next(rep) if x.get("kind") in ("neutral", "white", "black", "skin") else None for x in samples]
+            return {"params": p, "report": report} if route == "balance" else {"report": report}
         if route == "probe":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)

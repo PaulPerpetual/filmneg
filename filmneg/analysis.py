@@ -109,43 +109,73 @@ def sample_report(colors, kinds, params, space: RGBSpace):
     return out
 
 
-def solve(colors, kinds, params, space: RGBSpace):
-    """Make the samples right with as small and smooth a change as possible.
+def balance(colors, kinds, params, space: RGBSpace):
+    """Neutral balance from black / grey / white samples, the way the eyedroppers
+    of Photoshop's Levels or DaVinci's lift / gamma / gain work, all in Levels:
 
-    Only Levels and the Colour by tone curves are changed, so everything Solve
-    does can be seen and readjusted by hand; the base (exposure, contrast, ...)
-    is left alone. White and black samples work like the eyedroppers of a
-    classic Levels: they set the R, G and B input white / black points so the
-    sample becomes neutral white / black. Grey and skin samples then bend the
-    warmth and tint curves at their brightness (see _solve_curves); with greys
-    at several brightnesses that removes crossover, a cast that changes with tone.
+    - black and white samples set each channel's input black / white point so the
+      sample lands neutral at the black / white target (10 and 245 by default,
+      not 0 and 255, so they keep a little density and look natural);
+    - greys set each channel's grey (gamma) slider so they come out neutral at
+      the brightness they have;
+    - only greys at several brightnesses (a cast that changes with tone, film
+      crossover) or a light that isn't neutral also move the Colour by tone
+      curves' three handles, for what Levels can't do.
     """
-    colors = np.asarray(colors, dtype=np.float32)
+    colors = np.asarray(colors, np.float32)
     kinds = list(kinds)
     if not len(colors):
         return params
-    out = eyedrop(colors, kinds, params, space)
-    if any(k not in ("white", "black") for k in kinds):
+    greys = [c for c, k in zip(colors, kinds) if k == "neutral"]
+    out = params
+    # the end points and the grey slider depend on each other: settle them together
+    for _ in range(6 if greys else 1):
+        out = eyedrop(colors, kinds, out, space)
+        if greys:
+            out = grey_gamma(greys, out, space)
+    lt = params["light"]
+    tinted = abs(lt["warmth"]) + abs(lt["tint"]) + sum(abs(v) for r in RANGES for v in lt[r]) > 1e-6
+    tones = luma(render_pixels(np.asarray(greys, np.float32), out, space)) if greys else []
+    if tinted or (len(tones) and np.ptp(tones) > 0.12):
         out = _solve_curves(colors, kinds, out, space)
     return out
 
 
-def eyedrop(colors, kinds, params, space: RGBSpace):
-    """White / black samples -> each channel's input white / black point in Levels."""
+def grey_gamma(colors, params, space: RGBSpace):
+    """Each channel's grey slider in Levels so these greys come out neutral at
+    their own brightness (one grey: exactly; several: the best fit)."""
     pre = pre_levels(np.asarray(colors, np.float32), params, space)
     levels = {ch: dict(v) for ch, v in params["levels"].items()}
-    for kind, key in (("white", "hi"), ("black", "lo")):
-        sel = [pre[i] for i, k in enumerate(kinds) if k == kind]
-        if not sel:
-            continue
-        v = np.mean(sel, axis=0)
-        for i, ch in enumerate("rgb"):
-            L = levels[ch]
-            # a white sample darker than the black point (or the reverse) can't flatten the picture
-            if key == "hi":
-                L["hi"] = float(np.clip(v[i], L["lo"] + 0.05, 1.0))
-            else:
-                L["lo"] = float(np.clip(v[i], 0.0, L["hi"] - 0.05))
+    y = np.stack([np.clip((pre[:, i] - levels[ch]["lo"]) / max(levels[ch]["hi"] - levels[ch]["lo"], 1e-3), 1e-3, 1 - 1e-3)
+                  for i, ch in enumerate("rgb")], axis=1)
+    m = np.clip(y @ np.array([0.2126, 0.7152, 0.0722]), 1e-3, 1 - 1e-3)
+    for i, ch in enumerate("rgb"):
+        ly, lm = np.log(y[:, i]), np.log(m)
+        k = float(np.sum(ly * lm) / max(np.sum(ly * ly), 1e-9))  # y ** k = m, least squares in log
+        levels[ch]["gamma"] = float(np.clip(1.0 / max(k, 1e-3), 0.2, 5.0))
+    return {**params, "levels": levels}
+
+
+def eyedrop(colors, kinds, params, space: RGBSpace):
+    """White / black samples -> each channel's input white / black point in Levels,
+    so the sample lands neutral at the white / black target (params["targets"])."""
+    pre = pre_levels(np.asarray(colors, np.float32), params, space)
+    levels = {ch: dict(v) for ch, v in params["levels"].items()}
+    tg = params.get("targets", {"black": 10, "white": 245})
+    pick = lambda kind: np.mean([pre[i] for i, k in enumerate(kinds) if k == kind], axis=0) if kind in kinds else None
+    vw, vb = pick("white"), pick("black")
+    for i, ch in enumerate("rgb"):
+        L = levels[ch]
+        g = L["gamma"]  # the target is reached after the channel's grey slider
+        tb, tw = (tg["black"] / 255) ** g, (tg["white"] / 255) ** g
+        if vw is not None and vb is not None and vw[i] - vb[i] > 0.02:
+            span = (vw[i] - vb[i]) / (tw - tb)
+            lo = vb[i] - tb * span
+            L["lo"], L["hi"] = float(lo), float(lo + span)
+        elif vw is not None:
+            L["hi"] = float(L["lo"] + max(vw[i] - L["lo"], 0.05) / tw)
+        elif vb is not None:
+            L["lo"] = float(min((vb[i] - tb * L["hi"]) / (1 - tb), L["hi"] - 0.05))
     return {**params, "levels": levels}
 
 

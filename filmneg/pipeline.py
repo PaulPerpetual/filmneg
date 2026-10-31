@@ -49,6 +49,7 @@ DEFAULTS = {
     "levels": {ch: {"lo": 0.0, "gamma": 1.0, "hi": 1.0, "out_lo": 0.0, "out_hi": 1.0}
                for ch in LEVEL_CHANNELS},  # encoded values, like Pixelmator's Levels
     "nr": 0.0,                     # chroma noise reduction strength 0..1
+    "targets": {"black": 10, "white": 245},  # where Balance puts black / white samples (0..255)
     "light": {"warmth": 0.0, "tint": 0.0,  # what greys should look like (see analysis.target)
               "shadows": [0.0, 0.0], "midtones": [0.0, 0.0], "highlights": [0.0, 0.0]},
     "curves": {name: curves.zero_curve() for name in curves.CURVE_NAMES},
@@ -69,6 +70,8 @@ def normalize(params):
             out["levels"] = _normalize_levels(v)
         elif k == "light":
             out["light"].update(v)
+        elif k == "targets":
+            out["targets"].update(v)
         elif k == "lighting":  # older sidecars: a named light
             out["light"]["warmth"] = {"overcast / shade": -0.27, "daylight": 0.27, "golden hour": 1.0,
                                       "tungsten": 1.36}.get(v, 0.0)
