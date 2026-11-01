@@ -2232,7 +2232,8 @@ function pasteSettings() {
 $("#btn-copy").onclick = copySettings;
 $("#btn-paste").onclick = pasteSettings;
 $("#btn-paste-roll").onclick = () => {
-  const others = S.doc.files.filter((f) => f !== S.doc.name);
+  const dir = (f) => f.slice(0, f.lastIndexOf("/") + 1);  // only the frames of this roll (folder)
+  const others = S.doc.files.filter((f) => f !== S.doc.name && dir(f) === dir(S.doc.name));
   if (!S.clip || !others.length) return;
   if (!confirm(`Paste the copied settings onto the other ${others.length} frame(s) in this folder?\n\nTheir crop, rotation and automatic black/white points stay as they are. Their earlier adjustments are kept as a version called “Before paste”.`)) return;
   guard("Paste to roll", async () => {

@@ -344,3 +344,12 @@ def test_export_jpeg_is_full_size_srgb(tmp_path):
     im = Image.open(a)
     assert im.size == (300, 200)
     assert "sRGB" in ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(im.info["icc_profile"])))
+
+
+def test_file_menu_lists_subfolders(tmp_path):
+    from filmneg import server
+    img = np.full((20, 30, 3), 0.5, np.float32)
+    for rel in ("a.tif", "roll 12/b.tif", "roll 12/b_filmneg.tif", ".hidden/c.tif", "roll 12/x/y/z/deep.tif"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        imageio.save_tiff16(tmp_path / rel, img, b"\\x00" * 128)
+    assert server.Session(tmp_path).files() == ["a.tif", "roll 12/b.tif"]

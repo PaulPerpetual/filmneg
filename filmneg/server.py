@@ -39,10 +39,28 @@ class Session:
         self._patches = {}  # size -> {spot id: repairs at that size}
         self.progress = None  # {"label", "frac"} while a long task runs, for the browser's pie
 
-    def files(self):
+    def files(self, depth=3, limit=3000):
+        """Scans in the folder and its subfolders (e.g. one per roll), as relative
+        paths. Hidden folders and exports (_filmneg) are left out."""
         folder = self.root if self.root.is_dir() else self.root.parent
-        return sorted(p.name for p in folder.iterdir()
-                      if p.suffix.lower() in SCAN_EXT and "_filmneg" not in p.stem)
+        out = []
+
+        def walk(d, level):
+            try:
+                entries = sorted(d.iterdir(), key=lambda p: p.name.lower())
+            except OSError:
+                return
+            for p in entries:
+                if len(out) >= limit or p.name.startswith("."):
+                    continue
+                if p.is_dir():
+                    if level < depth:
+                        walk(p, level + 1)
+                elif p.suffix.lower() in SCAN_EXT and "_filmneg" not in p.stem:
+                    out.append(p.relative_to(folder).as_posix())
+
+        walk(folder, 0)
+        return out
 
     def folder(self):
         return self.root if self.root.is_dir() else self.root.parent

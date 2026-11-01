@@ -27,6 +27,10 @@ filmneg ~/Scans/roll-12            # a folder of TIFFs
 filmneg ~/Scans/roll-12/frame03.tif
 ```
 
+The file menu lists the scans in that folder and its subfolders (three levels
+down, e.g. a folder of rolls); *Paste to roll* only touches the frames in the
+same folder as the one you have open.
+
 Your browser opens at `http://127.0.0.1:8765`. Edits are saved next to each
 scan as `frame03.tif.filmneg.json` (the scan itself is never touched). Export
 writes `frame03_filmneg.tif` (then `frame03_filmneg-2.tif`, `-3`, …: earlier exports are never overwritten), 16-bit, with the scan's colour profile, ready
