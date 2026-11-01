@@ -494,9 +494,14 @@ function shownBox() { return currentFull ? [0, 0, 1, 1] : S.params.crop; }
 const Q = () => ((S.params && S.params.quarter) || 0) % 4;
 function L(ev) {
   const b = overlay.getBoundingClientRect(), w = overlay.clientWidth, h = overlay.clientHeight;
-  const dx = ev.clientX - (b.left + b.width / 2), dy = ev.clientY - (b.top + b.height / 2), q = (Q() + 4) % 4;
-  const [x, y] = q === 1 ? [dy, -dx] : q === 2 ? [-dx, -dy] : q === 3 ? [-dy, dx] : [dx, dy];
+  const dx = ev.clientX - (b.left + b.width / 2), dy = ev.clientY - (b.top + b.height / 2);
+  const [x, y] = turnBack(dx, dy);
   return { x: x + w / 2, y: y + h / 2 };
+}
+// a screen direction (a drag, a two-finger scroll) in the unrotated frame
+function turnBack(dx, dy) {
+  const q = (Q() + 4) % 4;
+  return q === 1 ? [dy, -dx] : q === 2 ? [-dx, -dy] : q === 3 ? [-dy, dx] : [dx, dy];
 }
 let shownQuarter = 0;
 function applyQuarter() {
@@ -1008,7 +1013,8 @@ overlay.addEventListener("wheel", (ev) => {
   if (ev.ctrlKey) { zoomAt(L(ev).x, L(ev).y, Math.exp(-ev.deltaY * 0.01)); return; }
   if (S.view.scale > 1) {
     const r = fitRect();
-    S.view.cx += ev.deltaX / r.w; S.view.cy += ev.deltaY / r.h;
+    const [dx, dy] = turnBack(ev.deltaX, ev.deltaY);  // follows the fingers on a turned view
+    S.view.cx += dx / r.w; S.view.cy += dy / r.h;
     clampView(); drawImage(); scheduleDetail();
   }
 }, { passive: false });
