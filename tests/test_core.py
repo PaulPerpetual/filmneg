@@ -286,3 +286,13 @@ def test_eyedropper_drag_leaves_a_cast():
         q = analysis.levels_eyedrop(col, kind, p, ADOBE_RGB, cast=(0, 10))
         out = pipeline.render_pixels(col[None], q, ADOBE_RGB)[0] * 255
         assert out[1] < min(out[0], out[2]) - 4, (kind, out)  # magenta: less green
+
+
+def test_export_never_overwrites(tmp_path):
+    from filmneg.server import export_path
+    scan = tmp_path / "frame 03 #2.tif"
+    assert export_path(scan).name == "frame 03 #2_filmneg.tif"
+    export_path(scan).write_bytes(b"x")
+    assert export_path(scan).name == "frame 03 #2_filmneg-2.tif"
+    export_path(scan).write_bytes(b"x")
+    assert export_path(scan).name == "frame 03 #2_filmneg-3.tif"

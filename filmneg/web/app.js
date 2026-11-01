@@ -2555,7 +2555,7 @@ $("#btn-reset").onclick = () => guard("Reset", async () => {
 });
 $("#btn-export").onclick = () => guard("Export", async () => {
   const r = await api("export", { params: S.params, samples: S.samples, versions: S.versions || [], history: [] });
-  status("Exported " + r.path, 8000);
+  status("Exported " + r.path.split("/").pop() + " (earlier exports are kept)", 8000);
 });
 $("#file").onchange = (e) => load(e.target.value);
 

@@ -29,7 +29,7 @@ filmneg ~/Scans/roll-12/frame03.tif
 
 Your browser opens at `http://127.0.0.1:8765`. Edits are saved next to each
 scan as `frame03.tif.filmneg.json` (the scan itself is never touched). Export
-writes `frame03_filmneg.tif`, 16-bit, with the scan's colour profile, ready
+writes `frame03_filmneg.tif` (then `frame03_filmneg-2.tif`, `-3`, …: earlier exports are never overwritten), 16-bit, with the scan's colour profile, ready
 for Pixelmator.
 
 ### A good order of work

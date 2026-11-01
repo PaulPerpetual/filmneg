@@ -316,10 +316,19 @@ class Session:
         self.task("Exporting", 0.1)
         out = self.render(params, size="full")
         self.task("Exporting", 0.9)
-        path = self.scan.path.with_name(self.scan.path.stem + "_filmneg.tif")
+        path = export_path(self.scan.path)
         imageio.save_tiff16(path, out, self.scan.icc)
         self.task("", 1)
         return str(path)
+
+
+def export_path(scan: Path) -> Path:
+    """frame03_filmneg.tif, then frame03_filmneg-2.tif, -3, …: never overwrites an earlier export."""
+    path, n = scan.with_name(scan.stem + "_filmneg.tif"), 1
+    while path.exists():
+        n += 1
+        path = scan.with_name(f"{scan.stem}_filmneg-{n}.tif")
+    return path
 
 
 def _unrotated_box(params, shape):
