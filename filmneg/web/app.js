@@ -1554,7 +1554,7 @@ const CURVE_DIRECTIONS = {
   r: ["#ff4040", "#30e0e0"], g: ["#40e040", "#e040e0"], b: ["#4070ff", "#ffe040"],
 };
 
-function drawCurve() { CURVE_PANELS.forEach(drawCurvePanel); drawWheels(); }
+function drawCurve() { CURVE_PANELS.forEach(drawCurvePanel); drawWheels(); syncShape(); }
 
 function drawCurvePanel(P) {
   if (!S.params) return;
@@ -2451,8 +2451,44 @@ function setCurve(c) {
   $$("#curve-tabs [data-curve]").forEach((b) => b.classList.toggle("active", b.dataset.curve === c));
   drawCurve(); renderZones();
 }
+// ---- Tilt / Bend: the straight and the gently bent part of the shown colour
+// curve (a least-squares fit through its control values, in 0..255 steps).
+// They read the curve itself, so hand edits show up here and nothing is stored
+// twice; moving a slider adds or takes away only that part, the rest stays.
+const SHAPE = { tilt: CTRL_POS.map((u) => 2 * u - 1), bend: CTRL_POS.map((u) => 1 - (2 * u - 1) ** 2) };
+function shapeOf(c) {
+  const B = [CTRL_POS.map(() => 1), SHAPE.tilt, SHAPE.bend];
+  const dot = (a, b) => a.reduce((s, v, i) => s + v * b[i], 0);
+  const A = B.map((r) => B.map((q) => dot(r, q))), y = B.map((r) => dot(r, c));
+  // 3×3 normal equations, by Cramer's rule
+  const det = (M) => M[0][0] * (M[1][1] * M[2][2] - M[1][2] * M[2][1]) - M[0][1] * (M[1][0] * M[2][2] - M[1][2] * M[2][0]) + M[0][2] * (M[1][0] * M[2][1] - M[1][1] * M[2][0]);
+  const D = det(A), col = (j) => det(A.map((r, i) => r.map((v, k) => (k === j ? y[i] : v))));
+  return { tilt: col(1) / D * 255, bend: col(2) / D * 255 };
+}
+function syncShape() {
+  if (!S.params) return;
+  const sh = shapeOf(S.params.curves[S.colourCurve]);
+  for (const k of ["tilt", "bend"]) {
+    const el = $(`#shape-${k}`);
+    if (document.activeElement !== el || !S.dragging) el.value = sh[k];
+    $(`#shape-${k}-num`).textContent = fmt(sh[k], 1) || "0";
+  }
+}
+for (const k of ["tilt", "bend"]) {
+  const el = $(`#shape-${k}`);
+  const set = (v) => {
+    const n = S.colourCurve, d = (v - shapeOf(S.params.curves[n])[k]) / 255;
+    S.params.curves[n] = S.params.curves[n].map((c, i) => c + d * SHAPE[k][i]);
+    drawCurve(); render();
+  };
+  el.addEventListener("input", () => { startDrag(); set(+el.value); });
+  el.addEventListener("change", () => { endDrag(); commit(); });
+  el.addEventListener("dblclick", () => { set(0); commit(); });
+}
+
 function setColourCurve(c) {
   S.colourCurve = c;
+  for (const k of ["tilt", "bend"]) $(`#shape-${k}`).className = (c === "warmth" ? "track-warm" : "track-tint") + " mid";
   $$("#colour-tabs [data-curve]").forEach((b) => b.classList.toggle("active", b.dataset.curve === c));
   drawCurve();
 }

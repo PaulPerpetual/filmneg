@@ -93,6 +93,20 @@ While you hover or drag these sliders, the bell they act with shows on the
 Colour by tone curve. The point's details sit at the top of the Points
 panel, right under the curves.
 
+### Tilt and Bend
+
+Under the Colour by tone curve, **Tilt** and **Bend** show the straight and the
+gently bent part of the shown curve (Yellow/Blue or Magenta/Green), in 0–255
+steps. Film crossover is mostly a tilt (e.g. cool shadows, warm highlights),
+sometimes with one soft bend; a curve that waves up and down is usually
+fitted to things that aren't grey. Moving a slider adds or takes away only
+that part, so your own edits stay; double-click takes it out. They read the
+curve itself, so they always match what you see.
+
+A good order: black and white points with the Levels eyedroppers (K, W), the
+grey one (N), then Tilt / Bend for what is left, R/G/B curves rarely, the
+Light curve for contrast.
+
 ### Zones
 
 Each point shows which of Ansel Adams' zones it is in now (zone n at

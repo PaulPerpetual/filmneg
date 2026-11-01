@@ -217,6 +217,8 @@
         </select>
       </div>
       <canvas id="colour-by-tone" class="curve" width="560" height="220"></canvas>
+      <div class="slider compact"><label>Tilt</label><input id="shape-tilt" class="mid" type="range" min="-30" max="30" step="0.5" title="Shadows against highlights, in a straight line: the usual film crossover. Right: highlights move up (yellow / magenta), shadows down. Double-click to take the tilt out"><span class="num ro" id="shape-tilt-num"></span></div>
+      <div class="slider compact"><label>Bend</label><input id="shape-bend" class="mid" type="range" min="-30" max="30" step="0.5" title="The midtones against both ends, in one soft bend. Right: midtones move up (yellow / magenta). Double-click to take the bend out"><span class="num ro" id="shape-bend-num"></span></div>
       <div class="row">
         <button data-act="smooth" title="Smooth the shown curve, like Rhino's Smooth. Click again for more">Smooth</button>
         <button data-act="reset" title="Reset the shown curve">Reset</button>
