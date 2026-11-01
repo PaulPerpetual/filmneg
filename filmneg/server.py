@@ -313,25 +313,29 @@ class Session:
         side.write_text(json.dumps(keep, indent=1))
         return str(side)
 
-    def export(self, params):
+    def export(self, params, fmt="tiff"):
         self.task("Exporting", 0.1)
         out = self.render(params, size="full")
         q = int(params.get("quarter", 0)) % 4
         if q:
             out = np.ascontiguousarray(np.rot90(out, -q))  # clockwise
         self.task("Exporting", 0.9)
-        path = export_path(self.scan.path)
-        imageio.save_tiff16(path, out, self.scan.icc)
+        if fmt == "jpeg":  # for sharing and competitions: full size, sRGB, high quality
+            path = export_path(self.scan.path, ".jpg")
+            path.write_bytes(imageio.to_jpeg(out, self.scan.space, 95))
+        else:
+            path = export_path(self.scan.path)
+            imageio.save_tiff16(path, out, self.scan.icc)
         self.task("", 1)
         return str(path)
 
 
-def export_path(scan: Path) -> Path:
+def export_path(scan: Path, ext=".tif") -> Path:
     """frame03_filmneg.tif, then frame03_filmneg-2.tif, -3, …: never overwrites an earlier export."""
-    path, n = scan.with_name(scan.stem + "_filmneg.tif"), 1
+    path, n = scan.with_name(scan.stem + "_filmneg" + ext), 1
     while path.exists():
         n += 1
-        path = scan.with_name(f"{scan.stem}_filmneg-{n}.tif")
+        path = scan.with_name(f"{scan.stem}_filmneg-{n}{ext}")
     return path
 
 
@@ -461,7 +465,7 @@ def make_handler(session: Session):
             return {"path": s.save(body)}
         if route == "export":
             s.save(body)
-            return {"path": s.export(p)}
+            return {"path": s.export(p, body.get("format", "tiff"))}
         raise KeyError(route)
 
     class Handler(BaseHTTPRequestHandler):

@@ -2602,10 +2602,12 @@ $("#btn-reset").onclick = () => guard("Reset", async () => {
   const r = await api("levels", { params: { ...keep } });
   S.params = r.params; syncControls(); render(); drawCurve(); commit();
 });
-$("#btn-export").onclick = () => guard("Export", async () => {
-  const r = await api("export", { params: S.params, samples: S.samples, versions: S.versions || [], history: [] });
+const exportAs = (format) => guard("Export", async () => {
+  const r = await api("export", { params: S.params, samples: S.samples, versions: S.versions || [], history: [], format });
   status("Exported " + r.path.split("/").pop() + " (earlier exports are kept)", 8000);
 });
+$("#btn-export").onclick = () => exportAs("tiff");
+$("#btn-export-jpeg").onclick = () => exportAs("jpeg");
 $("#file").onchange = (e) => load(e.target.value);
 
 const compare = (on) => { if (S.comparing !== on) { S.comparing = on; render(); } };

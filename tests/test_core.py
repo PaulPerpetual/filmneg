@@ -328,3 +328,19 @@ def test_export_turns_by_quarters(tmp_path):
     out = tifffile.imread(s.export(p))
     assert out.shape[:2] == (300, 200)          # portrait now
     assert out[:30, -30:].mean() > out[-30:, :30].mean() + 10000  # top-left went to top-right (clockwise)
+
+
+def test_export_jpeg_is_full_size_srgb(tmp_path):
+    import io
+    from PIL import Image, ImageCms
+    from filmneg import server
+    img = np.clip(0.4 + np.random.default_rng(2).normal(0, 0.05, (200, 300, 3)), 0, 1).astype(np.float32)
+    imageio.save_tiff16(tmp_path / "x.tif", img, b"\x00" * 128)
+    s = server.Session(tmp_path)
+    s.load("x.tif")
+    p = pipeline.default_params() | {"crop": [0, 0, 1, 1]}
+    a, b = s.export(p, "jpeg"), s.export(p, "jpeg")
+    assert a.endswith("x_filmneg.jpg") and b.endswith("x_filmneg-2.jpg")
+    im = Image.open(a)
+    assert im.size == (300, 200)
+    assert "sRGB" in ImageCms.getProfileDescription(ImageCms.ImageCmsProfile(io.BytesIO(im.info["icc_profile"])))
