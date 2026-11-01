@@ -75,6 +75,17 @@ SRGB = RGBSpace(
 )
 
 
+# the screens of recent Macs: P3 primaries, D65, the sRGB tone curve
+DISPLAY_P3 = RGBSpace(
+    "Display P3",
+    np.array([
+        [0.4865709, 0.2656677, 0.1982173],
+        [0.2289746, 0.6917385, 0.0792869],
+        [0.0000000, 0.0451134, 1.0439444],
+    ]),
+    None,
+)
+
 def space_from_profile_name(name: str | None) -> RGBSpace:
     if name and "adobe" in name.lower():
         return ADOBE_RGB

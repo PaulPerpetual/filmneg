@@ -296,3 +296,21 @@ def test_export_never_overwrites(tmp_path):
     assert export_path(scan).name == "frame 03 #2_filmneg-2.tif"
     export_path(scan).write_bytes(b"x")
     assert export_path(scan).name == "frame 03 #2_filmneg-3.tif"
+
+
+def test_preview_jpeg_in_display_p3():
+    # wide-gamut preview: tagged Display P3, and lcms reads it back to the same colour
+    import io
+    from PIL import Image, ImageCms
+    from filmneg.color import DISPLAY_P3
+    adobe = np.array([[[0.3, 0.7, 0.25]]], np.float32)  # a strong green, beyond sRGB
+    im = Image.open(io.BytesIO(imageio.to_jpeg(adobe, ADOBE_RGB, display="p3")))
+    prof = ImageCms.ImageCmsProfile(io.BytesIO(im.info["icc_profile"]))
+    assert "Display P3" in ImageCms.getProfileDescription(prof)
+    want = imageio.to_display(adobe, ADOBE_RGB, DISPLAY_P3)[0, 0] * 255
+    assert np.abs(np.asarray(im)[0, 0] - want).max() < 3
+    assert imageio.to_srgb(adobe, ADOBE_RGB)[0, 0, 0] == 0  # sRGB had to clip it
+    lab = ImageCms.buildTransform(prof, ImageCms.createProfile("LAB"), "RGB", "LAB")
+    srgb_lab = ImageCms.buildTransform(ImageCms.createProfile("sRGB"), ImageCms.createProfile("LAB"), "RGB", "LAB")
+    g = Image.new("RGB", (1, 1), tuple(int(v) for v in np.round(want)))
+    assert ImageCms.applyTransform(g, lab).getpixel((0, 0)) != ImageCms.applyTransform(g, srgb_lab).getpixel((0, 0))

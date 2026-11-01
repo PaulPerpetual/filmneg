@@ -278,6 +278,15 @@ you can see it: the Levels eyedroppers and per-channel sliders for the ends
 and the middle, then *Correct just here* on grey points at other
 brightnesses, which bends the Colour by tone curves only around each point.
 
+**Colour on screen.** All the maths runs in the scan's own space (Adobe RGB)
+and the export keeps it. The preview is converted on the server to the
+screen's space and tagged: Display P3 on wide-gamut Macs (Safari and Chrome
+draw it on P3 canvases), so saturated colours look as they will in Pixelmator
+instead of being clipped to sRGB; sRGB elsewhere. The status line says which
+(`?display=srgb` or `?display=p3` in the address forces one). For reliable
+colour, turn off True Tone, Night Shift and automatic brightness, and
+calibrate the screen.
+
 **Skin.** Skin hue is quite consistent across people; lightness and chroma
 vary much more. Skin samples are therefore a hue target, not a
 colour target.

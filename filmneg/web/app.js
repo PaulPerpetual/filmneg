@@ -74,7 +74,22 @@ async function api(route, body = {}) {
   } finally { busy(-1); }
 }
 
+// Wide-gamut screens (recent Macs): the preview comes in Display P3 and is drawn on
+// P3 canvases, so saturated colours aren't clipped to sRGB (as Pixelmator shows them).
+const DISPLAY = (() => {
+  const force = new URLSearchParams(location.search).get("display");
+  if (force === "srgb" || force === "p3") return force;
+  try {
+    const c = document.createElement("canvas").getContext("2d", { colorSpace: "display-p3" });
+    const ok = c && c.getContextAttributes && c.getContextAttributes().colorSpace === "display-p3";
+    return ok && matchMedia("(color-gamut: p3)").matches ? "p3" : "srgb";
+  } catch (e) { return "srgb"; }
+})();
+const CANVAS_SPACE = DISPLAY === "p3" ? "display-p3" : "srgb";
+const ctx2d = (c) => c.getContext("2d", { colorSpace: CANVAS_SPACE });
+
 async function fetchImage(body) {
+  body = { ...body, display: DISPLAY };
   busy(1);
   try {
     const res = await fetch("/api/render", {
@@ -342,15 +357,16 @@ const SRGB_ENC = (() => {  // linear 0..1 in 65536 steps -> sRGB 8-bit
   return t;
 })();
 
-// The same steps as pipeline.render_pixels after the per-channel table, then on to sRGB.
+// The same steps as pipeline.render_pixels after the per-channel table, then on to
+// the display space (sRGB or Display P3: both use the sRGB tone curve).
 function paintLive(lut) {
   const { w, h, data } = liveSrc, n = lut.n, T = f32(lut.table), Sh = f32(lut.shifts), Li = f32(lut.light), sp = lut.space;
-  const N1 = n - 1, sat = OFF.has("base") ? 1 : S.params.saturation, toS = sp.to_srgb.flat();
+  const N1 = n - 1, sat = OFF.has("base") ? 1 : S.params.saturation, toS = (DISPLAY === "p3" ? sp.to_p3 : sp.to_srgb).flat();
   const dec = new Float32Array(n);  // encoded (scan space) -> linear
   for (let i = 0; i < n; i++) { const v = i / N1; dec[i] = sp.gamma ? v ** sp.gamma : v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }
   const A = sp.lin_to_lms.flat(), B = sp.m2.flat(), Bi = sp.m2_inv.flat(), Ai = sp.lms_to_lin.flat();
   liveCanvas.width = w; liveCanvas.height = h;
-  const ctx = liveCanvas.getContext("2d"), im = ctx.createImageData(w, h), o = im.data;
+  const ctx = ctx2d(liveCanvas), im = ctx.createImageData(w, h, { colorSpace: CANVAS_SPACE }), o = im.data;
   const q = (v) => (v <= 0 ? 0 : v >= 1 ? N1 : (v * N1 + 0.5) | 0);
   for (let p = 0, j = 0; p < data.length; p += 3, j += 4) {
     let r = T[(data[p] >> 4) * 3], g = T[(data[p + 1] >> 4) * 3 + 1], b = T[(data[p + 2] >> 4) * 3 + 2];
@@ -450,12 +466,12 @@ function sizeCanvases() {
   const dpr = window.devicePixelRatio || 1;
   for (const c of [imgCanvas, overlay]) {
     c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr;
-    c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+    (c === imgCanvas ? ctx2d(c) : c.getContext("2d")).setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 }
 
 function drawImage() {
-  const ctx = imgCanvas.getContext("2d");
+  const ctx = ctx2d(imgCanvas);
   ctx.clearRect(0, 0, imgCanvas.clientWidth, imgCanvas.clientHeight);
   if (!current) return;
   const r = fitRect();
@@ -2615,7 +2631,7 @@ async function load(name) {
   document.title = d.name + " · filmneg";
   S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; S.levelHist = null; S.levelHistKey = null;
   syncControls(); setCurve(S.curve); setColourCurve(S.colourCurve); setLevelCh(S.levelCh); renderVersions(); setTool("probe"); renderPoints(); refreshReport();
-  status(`${d.name} · ${d.width}×${d.height} · ${d.profile || "no profile, assuming sRGB"}`, 6000);
+  status(`${d.name} · ${d.width}×${d.height} · ${d.profile || "no profile, assuming sRGB"} · preview in ${DISPLAY === "p3" ? "Display P3" : "sRGB"}`, 6000);
   render();
 }
 

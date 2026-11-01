@@ -303,6 +303,7 @@ class Session:
             "lin_to_lms": lms.tolist(), "lms_to_lin": np.linalg.inv(lms).tolist(),
             "m2": color._OKLAB_M2.tolist(), "m2_inv": np.linalg.inv(color._OKLAB_M2).tolist(),
             "to_srgb": (np.linalg.inv(color.SRGB.to_xyz) @ sp.to_xyz).tolist(),
+            "to_p3": (np.linalg.inv(color.DISPLAY_P3.to_xyz) @ sp.to_xyz).tolist(),
         }
 
     def save(self, doc):
@@ -500,7 +501,7 @@ def make_handler(session: Session):
                     if route == "render":
                         rgb = session.render(body.get("params"), body.get("size", "preview"),
                                              original=bool(body.get("original")), region=body.get("region"))
-                        return self._send(200, imageio.to_jpeg(rgb, session.scan.space, 90), "image/jpeg")
+                        return self._send(200, imageio.to_jpeg(rgb, session.scan.space, 90, body.get("display", "srgb")), "image/jpeg")
                     if route == "source":
                         # the input as the browser's live preview uses it: rotated, denoised,
                         # cropped and small, 16-bit; the browser applies the edit on top
