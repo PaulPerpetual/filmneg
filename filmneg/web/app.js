@@ -754,7 +754,7 @@ overlay.addEventListener("mousedown", async (ev) => {
       S.clone.stroke = [{ sx: L(ev).x, sy: L(ev).y, x: p.x, y: p.y }]; drawOverlay(); return;
     }
     const hit = !S.dustSel && dustAt(L(ev).x, L(ev).y);
-    if (hit) { S.dustSel = hit.id; switchDust(hit); return; }
+    if (hit) { switchDust(hit); return; }  // the overview stays: a click just switches the spot (repaired / left alone)
     if (p.inside) S.dustMark = { sx: L(ev).x, sy: L(ev).y, x: p.x, y: p.y, r: 0 };
     return;
   }
