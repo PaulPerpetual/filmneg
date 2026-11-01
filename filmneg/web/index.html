@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>filmneg</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <select id="file" title="Scans in this folder"></select>
+  <div class="group">
+    <button id="btn-auto" title="Set each channel's black and white point from the histogram of the cropped picture (the crop itself stays; Reset in crop mode re-detects it)">Auto</button>
+  </div>
+  <div class="group">
+    <button id="btn-undo" class="icon" title="Undo (⌘Z)">
+      <svg viewBox="0 0 20 20" width="16" height="16"><path d="M8 4 3 9l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 9h9a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      Undo</button>
+    <button id="btn-redo" class="icon" title="Redo (⇧⌘Z or ⌘Y)">Redo
+      <svg viewBox="0 0 20 20" width="16" height="16"><path d="m12 4 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 9H8a5 5 0 0 0 0 10h2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    </button>
+    <button id="btn-compare" title="Hold to see the scan as it came from the scanner (\)">Before</button>
+    <button id="btn-reset" title="Back to the automatic starting point">Reset</button>
+  </div>
+  <div class="group">
+    <button id="btn-copy" title="Copy this frame's adjustments (⇧⌘C). Crop, rotation and the automatic per-frame black/white points are not copied">Copy settings</button>
+    <button id="btn-paste" title="Paste adjustments onto this frame (⇧⌘V)" disabled>Paste</button>
+    <button id="btn-paste-roll" title="Paste adjustments onto every other frame in this folder" disabled>Paste to roll…</button>
+  </div>
+  <button id="btn-export" class="primary" title="Write a 16-bit TIFF next to the scan">Export TIFF</button>
+  <button id="btn-export-jpeg" title="Write a full-size JPEG next to the scan: sRGB, quality 95, for sharing, the web and competitions">Export JPEG</button>
+  <span id="status"></span>
+  <div id="flash"><svg class="icon-undo" viewBox="0 0 20 20" width="22" height="22"><path d="M8 4 3 9l5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 9h9a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><svg class="icon-redo" viewBox="0 0 20 20" width="22" height="22"><path d="m12 4 5 5-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 9H8a5 5 0 0 0 0 10h2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg><span></span></div>
+  <span id="busy" class="idle" title="Whether the preview shows your latest edit"><i></i><svg class="pie" viewBox="0 0 20 20" width="13" height="13"><circle cx="10" cy="10" r="8.5" fill="none" stroke="currentColor" stroke-width="1.5" opacity=".45"/><path fill="currentColor" d=""/></svg><span>Up to date</span></span>
+</header>
+
+<main>
+  <section id="viewer-wrap">
+    <div id="tools">
+      <button data-tool="probe" class="icon" title="Measure (P): click a spot or drag an area to see its colour and brightness. Measurements stay pinned and show up on the curves">
+        <svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.2 4.3 13.6 2.9a2.1 2.1 0 0 1 3 3l-1.4 1.4" /><path d="M10.6 3.8l5.6 5.6" /><path d="M14.6 7.8 7 15.4c-.5.5-1.1.8-1.8.9L3.2 17l.6-2c.1-.7.4-1.3.9-1.8l7.6-7.6" /><path d="M5.2 12.7h5" /></svg>
+        Measure</button>
+      <span class="sep"></span>
+      <button data-tool="skin" title="Skin point (S): compared with typical skin; correct it under Points">Skin</button>
+      <span class="sep"></span>
+      <button data-tool="crop" class="icon" title="Crop and straighten (R)"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 1.5v13h13"/><path d="M1.5 5.5h13v13"/></svg>Crop</button>
+      <button data-tool="dust" class="icon" title="Dust (D): find dust and hairs, review them and repair"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 9.3 6.7 13.5 8 9.3 9.3 8 13.5 6.7 9.3 2.5 8 6.7 6.7z"/><path d="M15 11.5l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7z"/></svg>Dust</button>
+      <button class="icon" data-quarter="-1" title="Rotate 90° left (⌘[)"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M3 11V8a5 5 0 0 1 5-5h2"/><path d="m8 1 2 2-2 2"/></svg></button>
+      <button class="icon" data-quarter="1" title="Rotate 90° right (⌘])"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="10" rx="1.5"/><path d="M17 11V8a5 5 0 0 0-5-5h-2"/><path d="m12 1-2 2 2 2"/></svg></button>
+      <span class="sep"></span>
+      <button id="btn-fit" class="icon" title="Fit the whole picture in the window (0). Pinch to zoom, two-finger scroll to move around. Right-click the image for the background colour">
+        <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5"/></svg>
+        Fit</button>
+    </div>
+    <div id="viewer">
+      <div id="stage">
+      <canvas id="image"></canvas>
+      <canvas id="overlay"></canvas>
+      </div>
+      <div id="hint"></div>
+      <div id="menu" hidden>
+        <div class="menu-title">Background</div>
+        <button data-surround="#ffffff"><i style="background:#fff"></i>White (like a print)</button>
+        <button data-surround="#808080"><i style="background:#808080"></i>Mid grey (neutral)</button>
+        <button data-surround="#1a1a1a"><i style="background:#1a1a1a"></i>Dark (like a screen at night)</button>
+        <hr>
+        <button data-action="fit">Fit to window <span class="key">0</span></button>
+      </div>
+    </div>
+  </section>
+
+  <aside>
+    <div class="panel" id="crop-panel">
+      <h3>Crop &amp; straighten</h3>
+      <div class="slider"><label>Angle</label><input id="angle" type="range" min="-15" max="15" step="0.05" title="Double-click for 0"><input id="angle-num" class="num" type="text" inputmode="decimal" title="↑/↓ 0.1°, ←/→ 0.01°, or type a value and press Enter"></div>
+      <div class="row">
+        <button id="crop-level" class="icon" title="Draw a line along something that should be level or upright (a horizon, a wall edge)">
+          <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 14 18 6"/><circle cx="2.5" cy="13.8" r="1.6"/><circle cx="17.5" cy="6.2" r="1.6"/></svg>
+          Level by line</button>
+        <span class="spacer"></span>
+        <button class="icon" data-quarter="-1" title="Rotate 90° left (⌘[)"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M3 11V8a5 5 0 0 1 5-5h2"/><path d="m8 1 2 2-2 2"/></svg></button>
+        <button class="icon" data-quarter="1" title="Rotate 90° right (⌘])"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="10" rx="1.5"/><path d="M17 11V8a5 5 0 0 0-5-5h-2"/><path d="m12 1-2 2 2 2"/></svg></button>
+      </div>
+      <div class="slider"><label>Aspect</label><select id="aspect" title="Keep the crop to this shape; the drag direction decides landscape or portrait">
+        <option value="free">Free</option>
+        <option value="orig">Original</option>
+        <option value="1.1667">6 × 7 (RB67)</option>
+        <option value="1.3333">6 × 4.5 / 3 × 4</option>
+        <option value="1.25">4 × 5</option>
+        <option value="1.5">2 × 3 (35 mm)</option>
+        <option value="1">1 × 1</option>
+        <option value="1.7778">16 × 9</option>
+      </select></div>
+      <div class="slider"><label title="Straightens lines that bow: + for barrel (lines bulge outwards), − for pincushion">Distortion</label><input id="distortion" type="range" min="-5" max="5" step="0.05" title="Double-click for 0"><input id="distortion-num" class="num" type="text" inputmode="decimal" title="↑/↓ 0.1, ←/→ 0.01, or type a value"></div>
+      <div class="row"><button id="crop-reset" title="Back to the automatic crop, no rotation or distortion correction">Reset</button><button id="crop-done" class="primary" title="Done (Esc)">Done</button></div>
+      <div class="muted small">Drag the corners or edges to fine-tune, inside the crop to move it. A press outside the crop pulls the nearest edge there; ⇧-drag draws a new crop. Drag outside the picture to rotate. Changing the crop leaves exposure and colour alone. Distortion: + straightens lines that bulge outwards (barrel), − lines that bend inwards (pincushion). The grid helps judge both.</div>
+    </div>
+
+    <div class="panel" id="dust-panel">
+      <h3>Dust</h3>
+      <div class="row"><button id="dust-find" class="primary" title="Look for dust and hairs inside the crop">Find dust</button><span id="dust-count" class="muted small"></span></div>
+      <div class="slider"><label title="Spots at least this likely to be dust are repaired until you decide them yourself">Repair from</label><input id="dust-threshold" type="range" min="0.05" max="0.99" step="0.01"><span id="dust-threshold-num" class="num ro"></span></div>
+      <div class="dust-head"><label class="size" title="Only spots this size (longest side, in scan pixels) are listed and repaired">Size <input id="dust-min" type="text" inputmode="numeric"> – <input id="dust-max" type="text" inputmode="numeric"> px</label><select id="dust-sort" title="Order of the spots still to review">
+        <option value="unsure">Least sure first</option>
+        <option value="likely">Most likely first</option>
+        <option value="unlikely">Least likely first</option>
+      </select></div>
+      <div id="dust-list" tabindex="0"></div>
+      <div class="row">
+        <label class="check" title="Off: spots stay marked (for the mask) but filmneg doesn't repair them"><input id="dust-repair" type="checkbox" checked> Repair here</label>
+        <button id="dust-mask" title="Save a black and white mask of the marked spots next to the scan, lined up with the exported TIFF, e.g. for Pixelmator Pro's Repair tool">Export mask</button>
+        <button id="dust-done" class="primary" title="Done (Esc)">Done</button>
+      </div>
+      <div class="muted small">Click a spot (or ↑/↓): it shows unrepaired. <b>Return</b> shows the repair, <b>Return</b> again keeps it and moves on; <b>⌫</b> leaves it alone and moves on. Your decisions teach the scores. If a repair isn't good, ⌥-click a clean area to pick a clone source, then paint over the spot ([ ] = brush size, Esc drops the source). Click empty picture to mark a missed spot. Hold \ for the unrepaired scan.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Base <button class="switch" data-power="base" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
+      <div class="slider"><label>Exposure</label><input id="exposure" type="range" min="-2" max="2" step="0.01"><input class="num" data-for="exposure" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <div class="slider"><label>Contrast</label><input id="contrast" type="range" min="0.5" max="1.5" step="0.01"><input class="num" data-for="contrast" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <div class="slider"><label title="How early and gently the brightest parts roll off into white">Highlights</label><input id="shoulder" type="range" min="0" max="1" step="0.01"><input class="num" data-for="shoulder" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <div class="slider"><label title="How softly the darkest parts ease into black">Shadows</label><input id="toe" type="range" min="0" max="1" step="0.01"><input class="num" data-for="toe" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <div class="slider"><label>Saturation</label><input id="saturation" type="range" min="0" max="2" step="0.01"><input class="num" data-for="saturation" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <div class="slider"><label title="Blurs only the colour, not lightness or detail (like a blurred copy in Color blend mode, but it stops at edges). 0 = off, 1 = strongest (radius about 1/600 of the long side)">Colour noise</label><input id="nr" type="range" min="0" max="1" step="0.05"><input class="num" data-for="nr" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+    </div>
+
+    <div class="panel" id="light-panel">
+      <h3 title="The light the picture was taken in. It sets what neutral means: for the points (their colour and Correct just here) and for the grey eyedropper in Levels">Light</h3>
+      <div class="pop-row"><label>Light</label><select id="light-preset" title="The light the picture was taken in: pure grey, or greys keep its warmth (then the Colour by tone curves carry it)"></select></div>
+      <div class="slider"><label>Warmth</label><input id="light-warmth" class="track-warm" type="range" min="-0.6" max="1.6" step="0.01" title="Double-click for neutral"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <div class="slider"><label>Tint</label><input id="light-tint" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Green ← → magenta. Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+      <details id="light-ranges"><summary>By brightness</summary>
+        <div class="range-title">Highlights</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="highlights" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="highlights" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="range-title">Midtones</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="midtones" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="midtones" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="range-title">Shadows</div>
+        <div class="slider compact"><label>Warmth</label><input data-range="shadows" data-i="0" class="track-warm mid" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="slider compact"><label>Tint</label><input data-range="shadows" data-i="1" class="track-tint" type="range" min="-1" max="1" step="0.01" title="Double-click for 0"><input class="num" type="text" inputmode="decimal" title="Click, then ↑/↓ for steps of 0.1, ←/→ for 0.01, or type a value and press Enter"></div>
+        <div class="muted small">Leans each range on top of the overall white balance, e.g. warm highlights with neutral shadows.</div>
+      </details>
+      <div class="muted small">What neutral means for the points and the grey eyedropper: pure grey, or keeping the warmth of the light.</div>
+    </div>
+
+    <div class="panel" id="levels-panel">
+      <h3>Levels <button class="switch" data-power="levels" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
+      <div class="level-head">
+        <span class="tabs" id="level-ch" title="Which channel the triangles move">
+          <button data-ch="rgb">RGB</button><button data-ch="r">R</button><button data-ch="g">G</button><button data-ch="b">B</button>
+        </span>
+        <span class="droppers">
+          <button data-dropper="black" title="Black point (K): click something that should be black, with detail (zone II); click to make it neutral black at the Black value below; hold and drag towards a colour to leave it that colour"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.2 3.3a2 2 0 0 1 2.8 2.8l-1.6 1.6.7.7-1.2 1.2-4-4 1.2-1.2.7.7z" fill="currentColor"/><path d="M10.6 6.2 4.4 12.4 3.6 15.6l.8.8 3.2-.8 6.2-6.2" fill="#111"/></svg></button>
+          <button data-dropper="neutral" title="Grey point (N): click something that should be neutral grey; click to make it neutral (or the colour of the Light); hold and drag towards a colour to leave it that colour"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.2 3.3a2 2 0 0 1 2.8 2.8l-1.6 1.6.7.7-1.2 1.2-4-4 1.2-1.2.7.7z" fill="currentColor"/><path d="M10.6 6.2 4.4 12.4 3.6 15.6l.8.8 3.2-.8 6.2-6.2" fill="#888"/></svg></button>
+          <button data-dropper="white" title="White point (W): click something that should be white, with texture (zone VIII, not a highlight); click to make it neutral white at the White value below; hold and drag towards a colour to leave it that colour"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><path d="M13.2 3.3a2 2 0 0 1 2.8 2.8l-1.6 1.6.7.7-1.2 1.2-4-4 1.2-1.2.7.7z" fill="currentColor"/><path d="M10.6 6.2 4.4 12.4 3.6 15.6l.8.8 3.2-.8 6.2-6.2" fill="#fff"/></svg></button>
+        </span>
+      </div>
+      <div class="tabs" id="level-tabs">
+        <span class="targets" title="Where the black and white eyedroppers put black and white, 0–255. Not 0 and 255: a little density keeps them natural (Photoshop's usual 10 / 245). 0 / 255 for truly black / white">Black <input id="target-black" type="text" inputmode="numeric"> White <input id="target-white" type="text" inputmode="numeric"></span>
+        <button id="level-magnify" class="icon" title="Magnifier: click the histogram to zoom in there, ⌥-click to zoom out, double-click for the whole range. You can also pinch, and scroll sideways to move along">
+          <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="m12.7 12.7 4.8 4.8"/></svg></button>
+        <select id="level-zoom" title="Jump to a part of the histogram">
+          <option value="0,1">Whole range</option>
+          <option value="0,0.25">Shadows</option>
+          <option value="0.75,1">Highlights</option>
+          <option value="custom" hidden>Zoomed in</option>
+        </select>
+      </div>
+      <canvas id="levels" width="560" height="214"></canvas>
+      <div class="level-nums">
+        <span class="muted">Input</span>
+        <input id="lv-lo" type="number" min="0" max="254" step="1" title="Black point">
+        <input id="lv-gamma" type="number" min="0.1" max="9.99" step="0.01" title="Grey point (gamma)">
+        <input id="lv-hi" type="number" min="1" max="255" step="1" title="White point">
+        <span class="muted">Output</span>
+        <input id="lv-out-lo" type="number" min="0" max="254" step="1" title="Output black">
+        <input id="lv-out-hi" type="number" min="1" max="255" step="1" title="Output white">
+      </div>
+      <div class="muted small" id="lv-clip"></div>
+      <div class="muted small">Drag a triangle, or click where it should go. Pinch, scroll sideways or use the magnifier to look closer. While dragging black or white, red/blue on the image shows what clips (like Lightroom). Double-click a triangle to reset.</div>
+    </div>
+
+    <div class="panel">
+      <h3>Curves <button class="switch" data-power="curves" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
+      <div class="tabs" id="curve-tabs">
+        <button data-tool="light" class="icon target" title="Shift brightness on the image (L): click a spot, then drag up to brighten or down to darken tones as bright as that spot"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="1.6" fill="currentColor"/><path d="M10 1.5v3M10 15.5v3M1.5 10h3M15.5 10h3"/></svg></button>
+        <button data-curve="lightness">Light</button>
+        <button data-curve="r">R</button>
+        <button data-curve="g">G</button>
+        <button data-curve="b">B</button>
+        <select id="zoom" title="Classic: output over input, with the diagonal. ±: only the change, magnified, to see small moves">
+          <option value="classic" selected>Classic</option>
+          <option value="0.02">±5</option>
+          <option value="0.04">±10</option>
+          <option value="0.08">±20</option>
+          <option value="0.16">±40</option>
+          <option value="0.32">±80</option>
+        </select>
+      </div>
+      <canvas id="curve" class="curve" width="560" height="300"></canvas>
+      <div class="row">
+        <button data-act="smooth" title="Smooth the shown curve, like Rhino's Smooth. Click again for more">Smooth</button>
+        <button data-act="reset" title="Reset the shown curve">Reset curve</button>
+        <label class="width-ctl" title="Width: how far around a tone Shift colour, Shift brightness and Correct just here reach. Hover to see it on the curve ([ ])"><svg viewBox="0 0 20 12" width="18" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 11C5 11 6.5 1.5 10 1.5S15 11 19 11"/></svg><input data-width type="range" min="0.03" max="0.5" step="0.005"></label>
+      </div>
+      <div class="muted small">Drag up or down. Press right on the curve for a narrow change, further away from it for a broader one; the shaded bell shows what will move. The Light curve changes brightness only, never colour.</div>
+      <details id="zones-box">
+        <summary title="Ansel Adams' zone system: zone n sits at brightness n/10, as marked under the curve">Zones</summary>
+        <table id="zones-table" class="small"></table>
+      </details>
+    </div>
+
+    <div class="panel">
+      <h3>Colour by tone <button class="switch" data-power="colour" role="switch" aria-checked="true" title="Turn this panel off for a moment to compare (not saved)"><i></i></button></h3>
+      <div class="tabs" id="colour-tabs">
+        <button data-tool="push" class="icon target" title="Shift colour on the image (C): click a spot, then drag towards a colour. Only tones as bright as that spot change"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="10" r="6"/><circle cx="10" cy="10" r="1.6" fill="currentColor"/><path d="M10 1.5v3M10 15.5v3M1.5 10h3M15.5 10h3"/></svg></button>
+        <button data-curve="warmth" title="Yellow up, blue down">Yellow/Blue</button>
+        <button data-curve="tint" title="Magenta up, green down">Magenta/Green</button>
+        <select id="colour-zoom" title="How much the view is magnified">
+          <option value="0.02">±5</option>
+          <option value="0.04" selected>±10</option>
+          <option value="0.08">±20</option>
+          <option value="0.16">±40</option>
+          <option value="0.32">±80</option>
+        </select>
+      </div>
+      <canvas id="colour-by-tone" class="curve" width="560" height="220"></canvas>
+      <div class="slider compact"><label>Tilt</label><input id="shape-tilt" class="mid" type="range" min="-30" max="30" step="0.5" title="Shadows against highlights, in a straight line: the usual film crossover. Right: highlights move up (yellow / magenta), shadows down. Double-click to take the tilt out"><span class="num ro" id="shape-tilt-num"></span></div>
+      <div class="slider compact"><label>Bend</label><input id="shape-bend" class="mid" type="range" min="-30" max="30" step="0.5" title="The midtones against both ends, in one soft bend. Right: midtones move up (yellow / magenta). Double-click to take the bend out"><span class="num ro" id="shape-bend-num"></span></div>
+      <div class="row">
+        <button data-act="smooth" title="Smooth the shown curve, like Rhino's Smooth. Click again for more">Smooth</button>
+        <button data-act="reset" title="Reset the shown curve">Reset</button>
+        <label class="width-ctl" title="Width: how far around a tone Shift colour, Shift brightness and Correct just here reach. Hover to see it on the curve ([ ])"><svg viewBox="0 0 20 12" width="18" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 11C5 11 6.5 1.5 10 1.5S15 11 19 11"/></svg><input data-width type="range" min="0.03" max="0.5" step="0.005"></label>
+      </div>
+      <div class="muted small">Shifts colour at one brightness only, e.g. warmer highlights or greener shadows. Shift colour on the image edits these curves too.</div>
+    </div>
+
+    <div class="panel" id="points-panel">
+      <h3>Points <button class="eye" data-eye="samples" title="Hide samples on the image"><svg class="open" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/></svg><svg class="shut" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.6"/><path d="M3 17 17 3"/></svg></button></h3>
+      <div id="point-detail"></div>
+      <ul id="samples"></ul>
+      <div class="muted small" id="samples-empty">Measure (P) pins a point: click, or drag over an area. Each shows what it reads and where it sits on the curves, and can be corrected right there.</div>
+      <div class="row" id="points-actions"><button id="points-clear">Clear all</button></div>
+    </div>
+
+    <div class="panel" id="scope-panel">
+      <h3>Vectorscope <button class="switch" data-scope-power role="switch" aria-checked="true" title="Turn the scope off (it only shows, it doesn't change the picture)"><i></i></button></h3>
+      <div class="scope-head"><span class="tabs" id="scope-band" title="Show all pixels, or only the shadows, midtones or highlights: a cast that changes with brightness shows as the cloud moving"><button data-band="all" class="active">All</button><button data-band="0">Shadows</button><button data-band="1">Mids</button><button data-band="2">Highlights</button></span>
+        <select id="scope-zoom" title="Magnify the middle of the scope">
+          <option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option>
+        </select></div>
+      <canvas id="scope" width="440" height="440"></canvas>
+      <div class="wheels">
+        <div><canvas id="wheel-shadows" width="180" height="180" title="Colour balance of the shadows: drag the dot towards a colour (⌥ finer), double-click to centre"></canvas><label>Shadows</label><span id="wheel-shadows-num" class="num ro"></span></div>
+        <div><canvas id="wheel-midtones" width="180" height="180" title="Colour balance of the midtones: drag the dot towards a colour (⌥ finer), double-click to centre"></canvas><label>Midtones</label><span id="wheel-midtones-num" class="num ro"></span></div>
+        <div><canvas id="wheel-highlights" width="180" height="180" title="Colour balance of the highlights: drag the dot towards a colour (⌥ finer), double-click to centre"></canvas><label>Highlights</label><span id="wheel-highlights-num" class="num ro"></span></div>
+      </div>
+      <div class="muted small">The wheels are a colour balance, like DaVinci's: they bend the Colour by tone curves at that brightness (brightness itself stays).</div>
+    </div>
+
+    <div class="panel" id="versions-panel">
+      <h3>Versions</h3>
+      <ul id="versions"></ul>
+      <div class="row"><button id="btn-version" title="Keep the current adjustments as a version you can go back to">Save current as version</button></div>
+    </div>
+
+
+  </aside>
+</main>
+
+<script src="app.js"></script>
+</body>
+</html>
