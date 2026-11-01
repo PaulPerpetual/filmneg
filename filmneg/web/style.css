@@ -289,3 +289,7 @@ aside input.track-skin::-moz-range-track { background: linear-gradient(90deg, #b
 /* width control next to Smooth / Reset: a small bell and a short slider */
 .width-ctl { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
 .width-ctl input { width: 96px; }
+
+/* Levels: where the black / white eyedroppers put black and white */
+#level-tabs .targets { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; margin-right: auto; }
+#level-tabs .targets input { width: 34px; min-width: 0; background: #262626; color: #e8e8ea; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }

@@ -109,7 +109,7 @@ def sample_report(colors, kinds, params, space: RGBSpace):
     return out
 
 
-def levels_eyedrop(color, kind, params, space: RGBSpace):
+def levels_eyedrop(color, kind, params, space: RGBSpace, cast=(0.0, 0.0)):
     """The eyedroppers of a classic Levels (Photoshop's): one click sets Levels.
 
     - white / black: each channel's input white / black point so the spot lands
@@ -118,7 +118,12 @@ def levels_eyedrop(color, kind, params, space: RGBSpace):
     - grey: red's and blue's grey sliders so the spot comes out as bright on
       them as on green (green keeps the brightness), i.e. neutral, or in the
       colour of the Light if one is set.
+
+    cast (warmth, tint in 0..255 steps, + yellow / + magenta) leaves the spot that
+    much off neutral: dragging the eyedropper shifts its colour, like Shift colour.
     """
+    w, m = cast[0] / 255, cast[1] / 255
+    d = np.array([w / 2 + m / 3, -2 * m / 3, -w / 2 + m / 3])  # as in render_pixels
     v = pre_levels(np.asarray([color], np.float32), params, space)[0]
     levels = {ch: dict(L) for ch, L in params["levels"].items()}
     tg = params.get("targets", {"black": 10, "white": 245})
@@ -127,9 +132,9 @@ def levels_eyedrop(color, kind, params, space: RGBSpace):
         for i, ch in enumerate("rgb"):
             L, g = levels[ch], levels[ch]["gamma"]
             if kind == "white":  # (v - lo) / (hi - lo) = tw ** g, after the channel's grey slider
-                L["hi"] = float(np.clip(L["lo"] + (v[i] - L["lo"]) / tw ** g, L["lo"] + 0.02, 4.0))
+                L["hi"] = float(np.clip(L["lo"] + (v[i] - L["lo"]) / np.clip(tw + d[i], 0.3, 1.0) ** g, L["lo"] + 0.02, 4.0))
             else:
-                t = tb ** g
+                t = np.clip(tb + d[i], 0.0, 0.5) ** g
                 L["lo"] = float(np.clip((v[i] - t * L["hi"]) / (1 - t), -1.0, L["hi"] - 0.02))
         return {**params, "levels": levels}
     y = [float(np.clip((v[i] - levels[ch]["lo"]) / max(levels[ch]["hi"] - levels[ch]["lo"], 1e-3), 1e-3, 1 - 1e-3))
@@ -141,9 +146,10 @@ def levels_eyedrop(color, kind, params, space: RGBSpace):
     if abs(ta) + abs(tb_) > 1e-6:  # keep the light's colour
         rgb = space.encode(np.clip(space.oklab_to_lin(np.array([lab[0], ta, tb_])), 0, None))
         want = out_g * rgb / max(rgb[1], 1e-4)
+    want = want + d - d[1]  # the cast, with green keeping the brightness
     for i, ch in ((0, "r"), (2, "b")):
-        w = float(np.clip(want[i], 1e-3, 1 - 1e-3))
-        levels[ch]["gamma"] = float(np.clip(np.log(y[i]) / np.log(w), 0.2, 5.0))  # y ** (1/g) = w
+        wi = float(np.clip(want[i], 1e-3, 1 - 1e-3))
+        levels[ch]["gamma"] = float(np.clip(np.log(y[i]) / np.log(wi), 0.2, 5.0))  # y ** (1/g) = wi
     return {**params, "levels": levels}
 
 

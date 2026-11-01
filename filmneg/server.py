@@ -350,7 +350,8 @@ def make_handler(session: Session):
         if route == "eyedrop":
             # the Levels eyedroppers: one click sets Levels (black / grey / white)
             col = s.sample_colors([body["at"]], p)[0]
-            return {"params": analysis.levels_eyedrop(col, body.get("kind", "neutral"), p, s.scan.space)}
+            return {"params": analysis.levels_eyedrop(col, body.get("kind", "neutral"), p, s.scan.space,
+                                                    tuple(body.get("cast", (0, 0))))}
         if route == "probe":
             src = s.source("preview", p)
             out = pipeline.render_pixels(src, p, s.scan.space)

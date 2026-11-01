@@ -273,3 +273,16 @@ def test_points_neutral_follows_the_light():
     assert rep["db"] > 10  # warm on purpose
     rep = analysis.sample_report(col[None], ["neutral"], q, ADOBE_RGB)[0]
     assert np.hypot(rep["da"], rep["db"]) < 1  # and right on the light's colour
+
+
+def test_eyedropper_drag_leaves_a_cast():
+    # dragging the eyedropper towards yellow leaves the spot that much yellow
+    p = pipeline.default_params()
+    for kind, col in (("white", [0.9, 0.85, 0.78]), ("black", [0.12, 0.1, 0.14]), ("neutral", [0.5, 0.45, 0.38])):
+        col = np.array(col, np.float32)
+        q = analysis.levels_eyedrop(col, kind, p, ADOBE_RGB, cast=(10, 0))
+        out = pipeline.render_pixels(col[None], q, ADOBE_RGB)[0] * 255
+        assert 7 < out[0] - out[2] < 13, (kind, out)
+        q = analysis.levels_eyedrop(col, kind, p, ADOBE_RGB, cast=(0, 10))
+        out = pipeline.render_pixels(col[None], q, ADOBE_RGB)[0] * 255
+        assert out[1] < min(out[0], out[2]) - 4, (kind, out)  # magenta: less green

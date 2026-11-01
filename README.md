@@ -48,8 +48,13 @@ for Pixelmator.
    white (with texture, zone VIII, never a highlight or a lamp) sets Levels
    straight away. Black and white land neutral at 10 and 245 (not 0 and 255,
    so they keep a little density and look natural); grey brings red and blue
-   to green (green keeps the brightness), or to the Light's colour. Each
-   click is one undo step, and the sliders stay yours to readjust.
+   to green (green keeps the brightness), or to the Light's colour. **Hold
+   and drag** towards a colour (the wheel of Shift colour: up yellow, down
+   blue, right magenta, left green; ⌥ finer) to leave the spot that much off
+   neutral, e.g. a slightly warm black. **Black** and **White** next to the
+   histogram say how dark and bright they land (0 / 255 for truly black and
+   white). Each click or drag is one undo step, and the sliders stay yours to
+   readjust.
 4. Fine-tune black and white points in **Levels** if the scan needs it.
 5. Fine-tune by hand with **Shift colour**, **Shift brightness** or the curves.
 
@@ -62,7 +67,7 @@ for Pixelmator.
 | L | Shift brightness (the target button in Curves): same, but drag up to brighten or down to darken that brightness |
 | [ / ] | Narrower / wider Shift colour and Shift brightness |
 | pinch, ⌘+ / ⌘−, 0 | Zoom (zoomed-in detail is rendered from full resolution), fit. Two-finger scroll moves around |
-| K / N / W | The black / grey / white eyedroppers of Levels: click (or drag over an area) to set Levels; no point is left behind |
+| K / N / W | The black / grey / white eyedroppers of Levels: click to set Levels (neutral), hold and drag towards a colour to leave that colour; no point is left behind |
 | S | Skin point: click for one point, click and drag for an area (dust specks inside are ignored). Drag a point to move it; hover it and click to remove it (or press Delete) |
 | R | Crop & straighten: the sidebar shows angle, *Level by line* (draw along a horizon or wall edge), aspect ratio (6×7, 4×5, …), lens distortion and *Reset*. Drag the corners or edges to fine-tune, inside to move; a press outside the crop pulls the nearest edge there, ⇧-drag draws a new crop, dragging outside the picture rotates (⌥ finer). Leave with Done |
 | D | Dust: find dust and hairs, review the ranked list, repair (see below) |

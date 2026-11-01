@@ -749,6 +749,14 @@ overlay.addEventListener("mousedown", async (ev) => {
     return;
   }
 
+  if (S.dropper && ["neutral", "white", "black"].includes(tool)) {
+    // Levels eyedropper: a click makes the spot neutral (black / white at their
+    // targets); keep holding and drag towards a colour to leave it that colour
+    S.push = { kind: "drop", drop: tool, at: { x: p.x, y: p.y, r: 0.004 }, sx: ev.offsetX, sy: ev.offsetY, cx: ev.offsetX, cy: ev.offsetY,
+               tone: null, base: clone(S.params), cast: [0, 0] };
+    startDrag(); drawOverlay(); dropCast();
+    return;
+  }
   if (["neutral", "white", "black", "skin", "probe"].includes(tool)) {
     const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - ev.offsetX, toScreen(s.x, s.y).y - ev.offsetY) < Math.max(radiusPx(s.r || 0), 8));
     if (hit >= 0 && !S.dropper) { S.sel = hit; renderPoints(); S.sampleMove = { i: hit, sx: ev.clientX, sy: ev.clientY, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
@@ -844,10 +852,35 @@ window.addEventListener("mousemove", (ev) => {
     S.push.cx = ev.clientX - b.left; S.push.cy = ev.clientY - b.top;
     // the shade shows what the press reaches; it goes once you move, so the colour reads true
     if (S.mask && S.mask.kind === "push" && Math.hypot(S.push.cx - S.push.sx, S.push.cy - S.push.sy) > 4) S.mask = null;
-    applyPush(ev.altKey);
+    if (S.push.kind === "drop") dropCast(ev.altKey); else applyPush(ev.altKey);
     drawOverlay();
   }
 });
+
+for (const k of ["black", "white"]) $(`#target-${k}`).addEventListener("change", (ev) => {
+  const v = Math.round(clamp(+ev.target.value, k === "black" ? 0 : 128, k === "black" ? 127 : 255));
+  S.params.targets = { ...(S.params.targets || { black: 10, white: 245 }), [k]: Number.isFinite(v) ? v : (k === "black" ? 10 : 245) };
+  ev.target.value = S.params.targets[k]; commit();
+});
+
+// the eyedropper drag: one request at a time, the latest position wins
+function dropCast(fine, P = S.push) {
+  if (!P || P.kind !== "drop") return;
+  const dx = P.cx - P.sx, dy = P.cy - P.sy, d = Math.hypot(dx, dy), a = pushStrength(d, fine) * 255;
+  P.cast = [d ? a * -dy / d : 0, d ? a * dx / d : 0];  // up = yellow, right = magenta, as Shift colour
+  const name = { black: "black point", white: "white point", neutral: "grey point" }[P.drop];
+  if (!P.done) hint(`${name}: ${d < 2 ? "neutral" : `yellow ${fmt(P.cast[0], 0) || 0}, magenta ${fmt(P.cast[1], 0) || 0}`} · drag towards a colour to leave it that colour · ⌥ finer`);
+  if (P.busy) { P.again = true; return; }
+  P.busy = true;
+  api("eyedrop", { params: P.base, at: P.at, kind: P.drop, cast: P.cast }).then((r) => {
+    if (S.push !== P && !P.done) return;
+    S.params = r.params; syncControls(); render(); drawLevels();
+  }).catch((e) => status(e.message)).finally(() => {
+    P.busy = false;
+    if (P.again) { P.again = false; dropCast(fine, P); }
+    else if (P.done) { commit(); }
+  });
+}
 
 function applyPush(fine) {
   const P = S.push;
@@ -886,8 +919,7 @@ window.addEventListener("mouseup", () => {
   if (S.brush) {
     const { kind, x, y, r } = S.brush;
     S.brush = null; hint("");
-    if (S.dropper) eyedrop(kind, { x, y, r });  // Levels eyedropper: sets Levels, leaves no point
-    else addPoint({ kind, x, y, r });
+    addPoint({ kind, x, y, r });
   }
   if (S.sampleMove) {
     const M = S.sampleMove;
@@ -911,6 +943,11 @@ window.addEventListener("mouseup", () => {
     S.cropStart = null; S.cropDrag = null;
     if (c && c[2] - c[0] > 0.03 && c[3] - c[1] > 0.03 && JSON.stringify(c) !== JSON.stringify(S.params.crop)) { S.params.crop = c; commit(); }
     drawOverlay();
+  }
+  if (S.push && S.push.kind === "drop") {  // the last request commits when it lands
+    const P = S.push;
+    P.done = true; S.push = null; hint(""); drawOverlay(); endDrag();
+    if (!P.busy) commit();
   }
   if (S.push) {
     const changed = S.push.cx !== S.push.sx || S.push.cy !== S.push.sy;
@@ -964,11 +1001,6 @@ function addPoint(s) {
   commit(); renderPoints(); drawOverlay();
 }
 
-// Levels eyedroppers (K / N / W): one click sets Levels, like Photoshop's
-const eyedrop = (kind, at) => guard("Eyedropper", async () => {
-  S.params = (await api("eyedrop", { params: S.params, at, kind })).params;
-  syncControls(); render(); drawCurve(); drawLevels(); commit();
-});
 
 function refreshReadings() {
   clearTimeout(refreshReadings.t);
@@ -2193,6 +2225,8 @@ const SLIDERS = ["exposure", "contrast", "shoulder", "toe", "saturation", "nr"];
 const SLIDER_DEFAULTS = { exposure: 0, contrast: 1, shoulder: 0.5, toe: 0, saturation: 1, nr: 0 };
 
 function syncControls() {
+  const tg = S.params.targets || { black: 10, white: 245 };
+  $("#target-black").value = tg.black; $("#target-white").value = tg.white;
   for (const k of SLIDERS) {
     const el = $("#" + k); el.value = S.params[k];
     el.nextElementSibling.value = (+S.params[k]).toFixed(2);
