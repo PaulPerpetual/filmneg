@@ -316,6 +316,9 @@ class Session:
     def export(self, params):
         self.task("Exporting", 0.1)
         out = self.render(params, size="full")
+        q = int(params.get("quarter", 0)) % 4
+        if q:
+            out = np.ascontiguousarray(np.rot90(out, -q))  # clockwise
         self.task("Exporting", 0.9)
         path = export_path(self.scan.path)
         imageio.save_tiff16(path, out, self.scan.icc)

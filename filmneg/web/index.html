@@ -44,14 +44,18 @@
       <span class="sep"></span>
       <button data-tool="crop" class="icon" title="Crop and straighten (R)"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 1.5v13h13"/><path d="M1.5 5.5h13v13"/></svg>Crop</button>
       <button data-tool="dust" class="icon" title="Dust (D): find dust and hairs, review them and repair"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5 9.3 6.7 13.5 8 9.3 9.3 8 13.5 6.7 9.3 2.5 8 6.7 6.7z"/><path d="M15 11.5l.7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7z"/></svg>Dust</button>
+      <button class="icon" data-quarter="-1" title="Rotate 90° left (⌘[)"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M3 11V8a5 5 0 0 1 5-5h2"/><path d="m8 1 2 2-2 2"/></svg></button>
+      <button class="icon" data-quarter="1" title="Rotate 90° right (⌘])"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="10" rx="1.5"/><path d="M17 11V8a5 5 0 0 0-5-5h-2"/><path d="m12 1-2 2 2 2"/></svg></button>
       <span class="sep"></span>
       <button id="btn-fit" class="icon" title="Fit the whole picture in the window (0). Pinch to zoom, two-finger scroll to move around. Right-click the image for the background colour">
         <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5"/></svg>
         Fit</button>
     </div>
     <div id="viewer">
+      <div id="stage">
       <canvas id="image"></canvas>
       <canvas id="overlay"></canvas>
+      </div>
       <div id="hint"></div>
       <div id="menu" hidden>
         <div class="menu-title">Background</div>
@@ -72,6 +76,9 @@
         <button id="crop-level" class="icon" title="Draw a line along something that should be level or upright (a horizon, a wall edge)">
           <svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M2 14 18 6"/><circle cx="2.5" cy="13.8" r="1.6"/><circle cx="17.5" cy="6.2" r="1.6"/></svg>
           Level by line</button>
+        <span class="spacer"></span>
+        <button class="icon" data-quarter="-1" title="Rotate 90° left (⌘[)"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="1.5"/><path d="M3 11V8a5 5 0 0 1 5-5h2"/><path d="m8 1 2 2-2 2"/></svg></button>
+        <button class="icon" data-quarter="1" title="Rotate 90° right (⌘])"><svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="10" rx="1.5"/><path d="M17 11V8a5 5 0 0 0-5-5h-2"/><path d="m12 1-2 2 2 2"/></svg></button>
       </div>
       <div class="slider"><label>Aspect</label><select id="aspect" title="Keep the crop to this shape; the drag direction decides landscape or portrait">
         <option value="free">Free</option>

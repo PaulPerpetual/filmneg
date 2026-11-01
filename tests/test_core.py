@@ -314,3 +314,17 @@ def test_preview_jpeg_in_display_p3():
     srgb_lab = ImageCms.buildTransform(ImageCms.createProfile("sRGB"), ImageCms.createProfile("LAB"), "RGB", "LAB")
     g = Image.new("RGB", (1, 1), tuple(int(v) for v in np.round(want)))
     assert ImageCms.applyTransform(g, lab).getpixel((0, 0)) != ImageCms.applyTransform(g, srgb_lab).getpixel((0, 0))
+
+
+def test_export_turns_by_quarters(tmp_path):
+    from filmneg import server
+    img = np.clip(0.4 + np.random.default_rng(1).normal(0, 0.05, (200, 300, 3)), 0, 1).astype(np.float32)
+    img[:40, :40] = 0.95  # a bright top-left corner
+    imageio.save_tiff16(tmp_path / "x.tif", img, b"\x00" * 128)
+    s = server.Session(tmp_path)
+    s.load("x.tif")
+    p = pipeline.default_params() | {"crop": [0, 0, 1, 1], "quarter": 1}
+    import tifffile
+    out = tifffile.imread(s.export(p))
+    assert out.shape[:2] == (300, 200)          # portrait now
+    assert out[:30, -30:].mean() > out[-30:, :30].mean() + 10000  # top-left went to top-right (clockwise)

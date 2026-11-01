@@ -70,6 +70,7 @@ for Pixelmator.
 | K / N / W | The black / grey / white eyedroppers of Levels: click to set Levels (neutral), hold and drag towards a colour to leave that colour; no point is left behind |
 | S | Skin point: click for one point, click and drag for an area (dust specks inside are ignored). Drag a point to move it; hover it and click to remove it (or press Delete) |
 | R | Crop & straighten: the sidebar shows angle, *Level by line* (draw along a horizon or wall edge), aspect ratio (6×7, 4×5, …), lens distortion and *Reset*. Drag the corners or edges to fine-tune, inside to move; a press outside the crop pulls the nearest edge there, ⇧-drag draws a new crop, dragging outside the picture rotates (⌥ finer). Leave with Done |
+| ⌘[ / ⌘] | Rotate 90° left / right (also the two rotate buttons in the toolbar and in Crop). The view turns; crop, points and dust stay where they are, and the export comes out turned. Not copied by Copy settings |
 | D | Dust: find dust and hairs, review the ranked list, repair (see below) |
 | right-click | Background colour around the picture (white, mid grey, dark), fit |
 | \\ (hold) | Before: the scan as the scanner delivered it |

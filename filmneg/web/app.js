@@ -176,7 +176,7 @@ function restore(snap) {
 // What changed between two snapshots, in words, for the undo/redo flash.
 const PARAM_NAMES = {
   exposure: "Exposure", contrast: "Contrast", angle: "Rotation", distortion: "Lens distortion", shoulder: "Highlight roll-off", toe: "Shadow roll-off", saturation: "Saturation", nr: "Colour noise", light: "Light",
-  crop: "Crop", levels: "Levels", black: "Auto levels", white: "Auto levels", slope: "Colour balance", offset: "Colour balance", mode: "Mode",
+  crop: "Crop", quarter: "Rotation 90°", levels: "Levels", black: "Auto levels", white: "Auto levels", slope: "Colour balance", offset: "Colour balance", mode: "Mode",
 };
 const CURVE_LABELS = { warmth: "Yellow/blue curve", tint: "Magenta/green curve", lightness: "Light curve", r: "Red curve", g: "Green curve", b: "Blue curve" };
 function describeChange(a, b) {
@@ -464,6 +464,8 @@ function fitView() { S.view = { scale: 1, cx: 0.5, cy: 0.5 }; detail = null; dra
 
 function sizeCanvases() {
   const dpr = window.devicePixelRatio || 1;
+  if (S.params) { const q = (Q() + 4) % 4, v = $("#viewer"), st = $("#stage"), odd = q % 2;
+    st.style.width = (odd ? v.clientHeight : v.clientWidth) + "px"; st.style.height = (odd ? v.clientWidth : v.clientHeight) + "px"; }
   for (const c of [imgCanvas, overlay]) {
     c.width = c.clientWidth * dpr; c.height = c.clientHeight * dpr;
     (c === imgCanvas ? ctx2d(c) : c.getContext("2d")).setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -487,9 +489,32 @@ function drawImage() {
 // Shown box (in full-scan fractions) and conversions to/from screen points.
 function shownBox() { return currentFull ? [0, 0, 1, 1] : S.params.crop; }
 
+// The view turns for 90° rotations (#stage is rotated with CSS); everything
+// inside works in the unrotated frame. L(ev): the pointer in that frame.
+const Q = () => ((S.params && S.params.quarter) || 0) % 4;
+function L(ev) {
+  const b = overlay.getBoundingClientRect(), w = overlay.clientWidth, h = overlay.clientHeight;
+  const dx = ev.clientX - (b.left + b.width / 2), dy = ev.clientY - (b.top + b.height / 2), q = (Q() + 4) % 4;
+  const [x, y] = q === 1 ? [dy, -dx] : q === 2 ? [-dx, -dy] : q === 3 ? [-dy, dx] : [dx, dy];
+  return { x: x + w / 2, y: y + h / 2 };
+}
+let shownQuarter = 0;
+function applyQuarter() {
+  const q = (Q() + 4) % 4, v = $("#viewer"), st = $("#stage");
+  const W = v.clientWidth, H = v.clientHeight, odd = q % 2;
+  st.style.width = (odd ? H : W) + "px"; st.style.height = (odd ? W : H) + "px";
+  st.style.transform = `translate(-50%, -50%) rotate(${q * 90}deg)`;
+  if (q !== shownQuarter) { shownQuarter = q; sizeCanvases(); clampView(); drawImage(); }
+}
+function turn(d) {
+  S.params.quarter = (((S.params.quarter || 0) + d) % 4 + 4) % 4;
+  applyQuarter(); commit();
+}
+$$("[data-quarter]").forEach((b) => (b.onclick = () => turn(+b.dataset.quarter)));
+
 function toScan(ev) {
   const b = overlay.getBoundingClientRect(), r = fitRect(), c = shownBox();
-  const u = (ev.clientX - b.left - r.x) / r.w, v = (ev.clientY - b.top - r.y) / r.h;
+  const u = (L(ev).x - r.x) / r.w, v = (L(ev).y - r.y) / r.h;
   return { x: c[0] + u * (c[2] - c[0]), y: c[1] + v * (c[3] - c[1]), u, v, inside: u >= 0 && u <= 1 && v >= 0 && v <= 1 };
 }
 
@@ -651,6 +676,7 @@ function drawPoint(ctx, s, color, label, i) {
   ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.stroke();
   if (rad < 4) { ctx.beginPath(); ctx.arc(p.x, p.y, 0.9, 0, 7); ctx.fillStyle = "#fff"; ctx.fill(); }
   if (label) {
+    if (Q()) { ctx.translate(p.x, p.y); ctx.rotate(-Q() * Math.PI / 2); ctx.translate(-p.x, -p.y); }  // upright on a turned view
     ctx.font = SYS_FONT;
     const tw = ctx.measureText(label).width, dot = measure ? 0 : 9, h = 15, w = tw + 10 + dot;
     const d = r * 0.71, bx = p.x + d + 3, by = p.y - d - 3 - h;
@@ -720,32 +746,32 @@ overlay.addEventListener("mousedown", async (ev) => {
     if (ev.altKey && p.inside) { S.clone = { src: { x: p.x, y: p.y }, off: null, cursor: p }; hint("clone source set: paint over the spot. Esc drops it"); drawOverlay(); return; }
     if (S.clone && p.inside) {
       if (!S.clone.off) S.clone.off = { x: S.clone.src.x - p.x, y: S.clone.src.y - p.y };  // aligned from now on
-      S.clone.stroke = [{ sx: ev.offsetX, sy: ev.offsetY, x: p.x, y: p.y }]; drawOverlay(); return;
+      S.clone.stroke = [{ sx: L(ev).x, sy: L(ev).y, x: p.x, y: p.y }]; drawOverlay(); return;
     }
-    const hit = !S.dustSel && dustAt(ev.offsetX, ev.offsetY);
+    const hit = !S.dustSel && dustAt(L(ev).x, L(ev).y);
     if (hit) { S.dustSel = hit.id; switchDust(hit); return; }
-    if (p.inside) S.dustMark = { sx: ev.offsetX, sy: ev.offsetY, x: p.x, y: p.y, r: 0 };
+    if (p.inside) S.dustMark = { sx: L(ev).x, sy: L(ev).y, x: p.x, y: p.y, r: 0 };
     return;
   }
   if (S.hl && !S.dropper) {  // the × next to a highlighted mark
     const m = markOf(S.hl);
-    if (m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10) { deleteMark(S.hl); return; }
+    if (m && Math.hypot(m.del.x - L(ev).x, m.del.y - L(ev).y) < 10) { deleteMark(S.hl); return; }
     if (tool !== "crop" && S.hl) {  // a click removes the mark, a drag moves it, whatever the tool
       const t = S.samples[S.hl.i];
       S.sel = S.hl.i; renderPoints(); drawCurve();
-      S.sampleMove = { i: S.hl.i, sx: ev.clientX, sy: ev.clientY, x: t.x, y: t.y, moved: false, hovered: true };
+      S.sampleMove = { i: S.hl.i, sx: L(ev).x, sy: L(ev).y, x: t.x, y: t.y, moved: false, hovered: true };
       return;
     }
   }
 
   if (tool === "crop") {
-    if (S.leveling) { S.levelLine = { x0: ev.offsetX, y0: ev.offsetY, x1: ev.offsetX, y1: ev.offsetY }; return; }
+    if (S.leveling) { S.levelLine = { x0: L(ev).x, y0: L(ev).y, x1: L(ev).x, y1: L(ev).y }; return; }
     if (!p.inside) {  // outside the picture: drag around it to rotate
       const r = fitRect(), cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-      S.rotDrag = { cx, cy, a0: Math.atan2(ev.offsetY - cy, ev.offsetX - cx), angle0: S.params.angle };
+      S.rotDrag = { cx, cy, a0: Math.atan2(L(ev).y - cy, L(ev).x - cx), angle0: S.params.angle };
       S.rotating = true; startDrag(); return;
     }
-    const hit = cropHit(ev.offsetX, ev.offsetY), c = S.params.crop;
+    const hit = cropHit(L(ev).x, L(ev).y), c = S.params.crop;
     if (hit && hit.corner) S.cropStart = { mode: "corner", ax: hit.ax, ay: hit.ay };
     else if (hit && hit.edge) S.cropStart = { mode: "edge", edge: hit.edge, c0: [...c] };
     else if (hit && hit.inside) S.cropStart = ev.shiftKey ? { mode: "corner", ax: p.x, ay: p.y } : { mode: "move", x: p.x, y: p.y, c0: [...c] };
@@ -761,23 +787,23 @@ overlay.addEventListener("mousedown", async (ev) => {
     return;
   }
   if (!p.inside) {
-    if (S.view.scale > 1) S.pan = { x: ev.clientX, y: ev.clientY, cx: S.view.cx, cy: S.view.cy };
+    if (S.view.scale > 1) S.pan = { x: L(ev).x, y: L(ev).y, cx: S.view.cx, cy: S.view.cy };
     return;
   }
 
   if (S.dropper && ["neutral", "white", "black"].includes(tool)) {
     // Levels eyedropper: a click makes the spot neutral (black / white at their
     // targets); keep holding and drag towards a colour to leave it that colour
-    S.push = { kind: "drop", drop: tool, at: { x: p.x, y: p.y, r: 0.004 }, sx: ev.offsetX, sy: ev.offsetY, cx: ev.offsetX, cy: ev.offsetY,
+    S.push = { kind: "drop", drop: tool, at: { x: p.x, y: p.y, r: 0.004 }, sx: L(ev).x, sy: L(ev).y, cx: L(ev).x, cy: L(ev).y,
                tone: null, base: clone(S.params), cast: [0, 0] };
     startDrag(); drawOverlay(); dropCast();
     return;
   }
   if (["neutral", "white", "black", "skin", "probe"].includes(tool)) {
-    const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - ev.offsetX, toScreen(s.x, s.y).y - ev.offsetY) < Math.max(radiusPx(s.r || 0), 8));
-    if (hit >= 0 && !S.dropper) { S.sel = hit; renderPoints(); S.sampleMove = { i: hit, sx: ev.clientX, sy: ev.clientY, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
+    const hit = S.samples.findIndex((s) => Math.hypot(toScreen(s.x, s.y).x - L(ev).x, toScreen(s.x, s.y).y - L(ev).y) < Math.max(radiusPx(s.r || 0), 8));
+    if (hit >= 0 && !S.dropper) { S.sel = hit; renderPoints(); S.sampleMove = { i: hit, sx: L(ev).x, sy: L(ev).y, x: S.samples[hit].x, y: S.samples[hit].y, moved: false }; return; }
     // a click takes one point; dragging grows a circle from the click
-    S.brush = { kind: tool === "probe" ? "measure" : tool, x: p.x, y: p.y, r: 0, sx: ev.clientX, sy: ev.clientY,
+    S.brush = { kind: tool === "probe" ? "measure" : tool, x: p.x, y: p.y, r: 0, sx: L(ev).x, sy: L(ev).y,
                 label: String(S.samples.length + 1) };
     drawOverlay();
     return;
@@ -785,7 +811,7 @@ overlay.addEventListener("mousedown", async (ev) => {
 
   if (tool === "push" || tool === "light") {
     const at = { x: p.x, y: p.y, r: 0.006 };
-    S.push = { kind: tool === "light" ? "light" : "colour", sx: ev.offsetX, sy: ev.offsetY, cx: ev.offsetX, cy: ev.offsetY,
+    S.push = { kind: tool === "light" ? "light" : "colour", sx: L(ev).x, sy: L(ev).y, cx: L(ev).x, cy: L(ev).y,
                tone: null, base: clone(S.params.curves) };
     const bt = previewTone(p.u, p.v);
     if (bt != null) S.mask = { kind: "push", tone: bt, width: S.width };
@@ -797,26 +823,26 @@ overlay.addEventListener("mousedown", async (ev) => {
 });
 
 overlay.addEventListener("mousemove", (ev) => {
-  if (S.dustMark) { S.dustMark.r = Math.hypot(ev.offsetX - S.dustMark.sx, ev.offsetY - S.dustMark.sy); drawOverlay(); return; }
+  if (S.dustMark) { S.dustMark.r = Math.hypot(L(ev).x - S.dustMark.sx, L(ev).y - S.dustMark.sy); drawOverlay(); return; }
   if (S.tool === "dust" && S.clone) {
     const p = toScan(ev), C = S.clone;
     C.cursor = p; overlay.style.cursor = "crosshair";
     const last = C.stroke && C.stroke[C.stroke.length - 1];
-    if (last && Math.hypot(ev.offsetX - last.sx, ev.offsetY - last.sy) > S.cloneR / 3) C.stroke.push({ sx: ev.offsetX, sy: ev.offsetY, x: p.x, y: p.y });
+    if (last && Math.hypot(L(ev).x - last.sx, L(ev).y - last.sy) > S.cloneR / 3) C.stroke.push({ sx: L(ev).x, sy: L(ev).y, x: p.x, y: p.y });
     drawOverlay(); return;
   }
   if (S.brush || S.sampleMove || S.push || S.cropStart || S.pan || S.rotDrag || ev.buttons) return;
-  if (S.tool === "dust") { overlay.style.cursor = dustAt(ev.offsetX, ev.offsetY) ? "pointer" : "crosshair"; return; }
+  if (S.tool === "dust") { overlay.style.cursor = dustAt(L(ev).x, L(ev).y) ? "pointer" : "crosshair"; return; }
   if (S.tool === "crop") {
-    const hit = !S.leveling && cropHit(ev.offsetX, ev.offsetY);
+    const hit = !S.leveling && cropHit(L(ev).x, L(ev).y);
     const p = toScan(ev), c = S.params.crop;
     const ex = p.x < c[0] || p.x > c[2], ey = p.y < c[1] || p.y > c[3];
     const outside = ex && ey ? ((p.x < c[0]) === (p.y < c[1]) ? "nwse-resize" : "nesw-resize") : ex ? "ew-resize" : "ns-resize";
     overlay.style.cursor = S.leveling ? "crosshair" : hit ? hit.cursor : p.inside ? outside : ROTATE_CURSOR;
     return;
   }
-  const m = S.hl && markOf(S.hl), onDel = m && Math.hypot(m.del.x - ev.offsetX, m.del.y - ev.offsetY) < 10;
-  if (!onDel) setHighlight(S.dropper ? null : markAt(ev.offsetX, ev.offsetY));  // an eyedropper samples through points
+  const m = S.hl && markOf(S.hl), onDel = m && Math.hypot(m.del.x - L(ev).x, m.del.y - L(ev).y) < 10;
+  if (!onDel) setHighlight(S.dropper ? null : markAt(L(ev).x, L(ev).y));  // an eyedropper samples through points
   if (S.hl) hint("click to remove · drag to move");
   else if (hint.last === "click to remove · drag to move") hint("");
   overlay.style.cursor = onDel || S.hl ? "pointer" : S.tool === "push" ? "move" : S.tool === "light" ? "ns-resize" : "crosshair";
@@ -826,7 +852,7 @@ overlay.addEventListener("mouseleave", () => { if (!S.sampleMove) setHighlight(n
 window.addEventListener("mousemove", (ev) => {
   if (S.rotDrag) {
     const b = overlay.getBoundingClientRect(), R = S.rotDrag;
-    const a = Math.atan2(ev.clientY - b.top - R.cy, ev.clientX - b.left - R.cx);
+    const a = Math.atan2(L(ev).y - R.cy, L(ev).x - R.cx);
     let d = (a - R.a0) * 180 / Math.PI;
     d = ((d + 540) % 360) - 180;
     setGeom("angle", R.angle0 - d * (ev.altKey ? 0.2 : 1));
@@ -834,7 +860,7 @@ window.addEventListener("mousemove", (ev) => {
   }
   if (S.levelLine) {
     const b = overlay.getBoundingClientRect();
-    S.levelLine.x1 = ev.clientX - b.left; S.levelLine.y1 = ev.clientY - b.top;
+    S.levelLine.x1 = L(ev).x; S.levelLine.y1 = L(ev).y;
     const L = S.levelLine, th = Math.atan2(-(L.y1 - L.y0), L.x1 - L.x0) * 180 / Math.PI;
     hint(`rotate by ${fmt(-(th - Math.round(th / 90) * 90), 2)}° to make this line ${Math.abs(Math.round(th / 90)) % 2 ? "upright" : "level"}`);
     drawOverlay(); return;
@@ -843,29 +869,29 @@ window.addEventListener("mousemove", (ev) => {
     mousemoveCrop(toScan(ev)); drawOverlay(); return;
   }
   if (S.brush) {
-    const d = Math.hypot(ev.clientX - S.brush.sx, ev.clientY - S.brush.sy);
+    const d = Math.hypot(L(ev).x - S.brush.sx, L(ev).y - S.brush.sy);
     S.brush.r = d < 4 ? 0 : d / radiusPx(1);
     hint(S.brush.r ? `area ${Math.round(d)} px` : "");
     drawOverlay(); return;
   }
   if (S.sampleMove) {
     const M = S.sampleMove, r = fitRect(), c = shownBox();
-    if (!M.moved && Math.hypot(ev.clientX - M.sx, ev.clientY - M.sy) < 3) return;  // still a click (removes it)
+    if (!M.moved && Math.hypot(L(ev).x - M.sx, L(ev).y - M.sy) < 3) return;  // still a click (removes it)
     M.moved = true;
     const target = S.samples[M.i];
-    target.x = M.x + (ev.clientX - M.sx) / r.w * (c[2] - c[0]);
-    target.y = M.y + (ev.clientY - M.sy) / r.h * (c[3] - c[1]);
+    target.x = M.x + (L(ev).x - M.sx) / r.w * (c[2] - c[0]);
+    target.y = M.y + (L(ev).y - M.sy) / r.h * (c[3] - c[1]);
     drawOverlay(); return;
   }
   if (S.pan) {
     const r = fitRect();
-    S.view.cx = S.pan.cx - (ev.clientX - S.pan.x) / r.w;
-    S.view.cy = S.pan.cy - (ev.clientY - S.pan.y) / r.h;
+    S.view.cx = S.pan.cx - (L(ev).x - S.pan.x) / r.w;
+    S.view.cy = S.pan.cy - (L(ev).y - S.pan.y) / r.h;
     clampView(); drawImage(); return;
   }
   if (S.push) {
     const b = overlay.getBoundingClientRect();
-    S.push.cx = ev.clientX - b.left; S.push.cy = ev.clientY - b.top;
+    S.push.cx = L(ev).x; S.push.cy = L(ev).y;
     // the shade shows what the press reaches; it goes once you move, so the colour reads true
     if (S.mask && S.mask.kind === "push" && Math.hypot(S.push.cx - S.push.sx, S.push.cy - S.push.sy) > 4) S.mask = null;
     if (S.push.kind === "drop") dropCast(ev.altKey); else applyPush(ev.altKey);
@@ -979,7 +1005,7 @@ overlay.addEventListener("wheel", (ev) => {
   ev.preventDefault();
   const b = overlay.getBoundingClientRect();
   if (S.push) return;
-  if (ev.ctrlKey) { zoomAt(ev.clientX - b.left, ev.clientY - b.top, Math.exp(-ev.deltaY * 0.01)); return; }
+  if (ev.ctrlKey) { zoomAt(L(ev).x, L(ev).y, Math.exp(-ev.deltaY * 0.01)); return; }
   if (S.view.scale > 1) {
     const r = fitRect();
     S.view.cx += ev.deltaX / r.w; S.view.cy += ev.deltaY / r.h;
@@ -993,13 +1019,13 @@ overlay.addEventListener("gesturestart", (ev) => { ev.preventDefault(); gestureB
 overlay.addEventListener("gesturechange", (ev) => {
   ev.preventDefault();
   const b = overlay.getBoundingClientRect();
-  zoomAt(ev.clientX - b.left, ev.clientY - b.top, (gestureBase * ev.scale) / S.view.scale);
+  zoomAt(L(ev).x, L(ev).y, (gestureBase * ev.scale) / S.view.scale);
 });
 overlay.addEventListener("gestureend", (ev) => ev.preventDefault());
 overlay.addEventListener("dblclick", (ev) => {
   if (S.tool !== "probe") return;
   const b = overlay.getBoundingClientRect();
-  if (S.view.scale > 1) fitView(); else zoomAt(ev.clientX - b.left, ev.clientY - b.top, 3);
+  if (S.view.scale > 1) fitView(); else zoomAt(L(ev).x, L(ev).y, 3);
 });
 
 // ---------------------------------------------------------------- points
@@ -2181,7 +2207,7 @@ $$("aside .panel").forEach((panel, i) => {
 
 // ---------------------------------------------------------------- copy / paste settings (roll workflow)
 // Crop, rotation and the per-frame automatic black/white points stay with each frame.
-const FRAME_ONLY = ["crop", "angle", "black", "white", "base", "mode"];
+const FRAME_ONLY = ["crop", "angle", "quarter", "black", "white", "base", "mode"];
 const settingsOf = (p) => { const c = clone(p); for (const k of FRAME_ONLY) delete c[k]; return c; };
 
 function setClip(c) {
@@ -2241,6 +2267,7 @@ const SLIDERS = ["exposure", "contrast", "shoulder", "toe", "saturation", "nr"];
 const SLIDER_DEFAULTS = { exposure: 0, contrast: 1, shoulder: 0.5, toe: 0, saturation: 1, nr: 0 };
 
 function syncControls() {
+  applyQuarter();
   const tg = S.params.targets || { black: 10, white: 245 };
   $("#target-black").value = tg.black; $("#target-white").value = tg.white;
   for (const k of SLIDERS) {
@@ -2591,6 +2618,7 @@ window.addEventListener("keydown", (ev) => {
     if (k === "0") fitView(); else zoomAt(imgCanvas.clientWidth / 2, imgCanvas.clientHeight / 2, k === "-" ? 1 / 1.5 : 1.5);
     return;
   }
+  if ((ev.metaKey || ev.ctrlKey) && (k === "[" || k === "]")) { ev.preventDefault(); turn(k === "]" ? 1 : -1); return; }
   if (ev.metaKey || ev.ctrlKey) return;
   if ((k === "backspace" || k === "delete") && S.hl) { ev.preventDefault(); deleteMark(S.hl); return; }
   if (k === "escape") {

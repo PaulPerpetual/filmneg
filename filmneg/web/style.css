@@ -293,3 +293,7 @@ aside input.track-skin::-moz-range-track { background: linear-gradient(90deg, #b
 /* Levels: where the black / white eyedroppers put black and white */
 #level-tabs .targets { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; margin-right: auto; }
 #level-tabs .targets input { width: 34px; min-width: 0; background: #262626; color: #e8e8ea; border: 1px solid var(--line); border-radius: 4px; padding: 2px 4px; font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* the view turns for 90° rotations; the canvases inside keep the unrotated frame */
+#stage { position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; transform: translate(-50%, -50%); }
+.row .spacer { flex: 1; }
